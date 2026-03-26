@@ -1,0 +1,1419 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Alliance News - Premium Pharmaceutical Intelligence</title>
+    <!-- Use Google Fonts for modern typography -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"
+        rel="stylesheet">
+    <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
+    <style>
+        :root {
+            --bg-color: #08080A;
+            --surface-color: rgba(20, 20, 24, 0.45);
+            --surface-border: rgba(255, 255, 255, 0.08);
+            --surface-border-subtle: rgba(255, 255, 255, 0.04);
+            --text-main: #FFFFFF;
+            --text-muted: #8A8A93;
+            --red-primary: #c62828;
+            --red-dark: #8e1d1d;
+            --red-glow: rgba(198, 40, 40, 0.25);
+            --pill-bg: rgba(255, 255, 255, 0.04);
+            --pill-hover: rgba(255, 255, 255, 0.08);
+            --terminal-bg: #121216;
+        }
+
+        .tg-float-btn {
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            width: 60px;
+            height: 60px;
+            background: rgba(41, 169, 234, 0.2);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(41, 169, 234, 0.4);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #29A9EA;
+            z-index: 999;
+            cursor: pointer;
+            box-shadow: 0 8px 32px rgba(41, 169, 234, 0.2);
+            transition: all 0.3s ease;
+            animation: tg-pulse 3s infinite;
+        }
+
+        .tg-float-btn:hover {
+            transform: translateY(-4px) scale(1.05);
+            background: rgba(41, 169, 234, 0.8);
+            box-shadow: 0 12px 40px rgba(41, 169, 234, 0.6);
+            color: #fff;
+        }
+
+        @keyframes tg-pulse {
+            0% {
+                box-shadow: 0 0 0 0 rgba(41, 169, 234, 0.4);
+            }
+
+            70% {
+                box-shadow: 0 0 0 15px rgba(41, 169, 234, 0);
+            }
+
+            100% {
+                box-shadow: 0 0 0 0 rgba(41, 169, 234, 0);
+            }
+        }
+
+        body.light-mode {
+            --bg-color: #f5f7fa;
+            --surface-color: #ffffff;
+            --surface-border: #e1e8ed;
+            --surface-border-subtle: #edf2f7;
+            --text-main: #1a1a2e;
+            --text-muted: #4a5568;
+            --red-primary: #c62828;
+            --red-dark: #8e1d1d;
+            --red-glow: rgba(198, 40, 40, 0.15);
+            --pill-bg: #ffffff;
+            --pill-hover: rgba(198, 40, 40, 0.05);
+            --terminal-bg: #FFFFFF;
+        }
+
+        body,
+        header,
+        .widget,
+        .news-card,
+        .featured-story,
+        .category-pill,
+        .market-ticker,
+        .theme-btn,
+        .lang-switch,
+        .tv-modal-content,
+        .card-excerpt,
+        h2,
+        h3,
+        p {
+            transition: background-color 0.4s ease, color 0.4s ease, border-color 0.4s ease, box-shadow 0.4s ease;
+        }
+
+        .theme-btn {
+            background: transparent;
+            border: 1px solid var(--surface-border);
+            color: var(--text-main);
+            cursor: pointer;
+            width: 38px;
+            height: 38px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.2rem;
+            backdrop-filter: blur(12px);
+        }
+
+        .theme-btn:hover {
+            background: var(--pill-hover);
+        }
+
+        body.light-mode .featured-story,
+        body.light-mode .news-card,
+        body.light-mode .widget {
+            background: #ffffff;
+            border: 1px solid var(--surface-border);
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.03);
+        }
+
+        body.light-mode .category-pill {
+            background: #ffffff;
+            border: 1px solid var(--surface-border);
+            color: var(--text-main);
+        }
+
+        body.light-mode .category-pill:hover {
+            background: rgba(198, 40, 40, 0.08);
+            color: var(--red-primary);
+            border-color: rgba(198, 40, 40, 0.2);
+        }
+
+        body.light-mode .category-pill.active {
+            background: rgba(198, 40, 40, 0.12);
+            color: var(--red-primary);
+            border-color: var(--red-primary);
+            box-shadow: none;
+        }
+
+        body.light-mode .market-ticker,
+        body.light-mode .ticker-item {
+            color: #4a5568;
+        }
+
+        body.light-mode .widget-title {
+            color: var(--red-primary) !important;
+            border-bottom: 1px solid var(--surface-border) !important;
+        }
+
+        body.light-mode .list-title {
+            color: #1a1a2e !important;
+        }
+
+        body.light-mode .list-time {
+            color: #4a5568 !important;
+        }
+
+        body.light-mode .news-card:hover h3,
+        body.light-mode .list-item:hover .list-title,
+        body.light-mode .card-meta-bottom .read-more {
+            color: var(--red-primary) !important;
+        }
+
+        body.light-mode .news-card:hover {
+            background: #f8fafc;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            min-height: 100vh;
+            overflow-x: hidden;
+            position: relative;
+        }
+
+        /* Abstract Floating Background Elements */
+        .ambient-glow {
+            position: fixed;
+            border-radius: 50%;
+            filter: blur(140px);
+            z-index: -1;
+            opacity: 0.5;
+            animation: pulse-glow 15s infinite alternate ease-in-out;
+            pointer-events: none;
+        }
+
+        .glow-1 {
+            width: 450px;
+            height: 450px;
+            background: rgba(220, 38, 38, 0.15);
+            top: -150px;
+            left: -100px;
+        }
+
+        .glow-2 {
+            width: 600px;
+            height: 600px;
+            background: rgba(255, 255, 255, 0.04);
+            bottom: -200px;
+            right: -150px;
+            animation-delay: -5s;
+        }
+
+        .glow-3 {
+            width: 350px;
+            height: 350px;
+            background: rgba(220, 38, 38, 0.08);
+            top: 40%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            animation-delay: -10s;
+        }
+
+        @keyframes pulse-glow {
+            0% {
+                transform: scale(1) translate(0, 0);
+                opacity: 0.4;
+            }
+
+            50% {
+                transform: scale(1.1) translate(30px, -20px);
+                opacity: 0.6;
+            }
+
+            100% {
+                transform: scale(0.95) translate(-20px, 40px);
+                opacity: 0.5;
+            }
+        }
+
+        /* Container Outline */
+        .container {
+            max-width: 1500px;
+            margin: 0 auto;
+            padding: 0 4%;
+        }
+
+        /* Header layout */
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 2rem 0 1.5rem;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+            position: relative;
+            z-index: 10;
+        }
+
+        .logo {
+            font-size: 1.4rem;
+            font-weight: 800;
+            letter-spacing: 0.5px;
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            cursor: pointer;
+            text-transform: uppercase;
+        }
+
+        .logo-icon {
+            width: 32px;
+            height: 32px;
+            background: linear-gradient(135deg, var(--red-primary) 0%, var(--red-dark) 100%);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 0 20px var(--red-glow);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .logo-icon::after {
+            content: '';
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            right: -50%;
+            bottom: -50%;
+            background: linear-gradient(135deg, transparent 40%, rgba(255, 255, 255, 0.4) 50%, transparent 60%);
+            background-size: 200% 200%;
+            animation: shine 4s infinite;
+        }
+
+        @keyframes shine {
+            0% {
+                background-position: 200% 200%;
+            }
+
+            100% {
+                background-position: -200% -200%;
+            }
+        }
+
+        /* Language Switcher */
+        .lang-switch {
+            display: flex;
+            gap: 16px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: var(--text-muted);
+            background: rgba(255, 255, 255, 0.02);
+            padding: 10px 20px;
+            border-radius: 100px;
+            border: 1px solid var(--surface-border);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+        }
+
+        .lang-switch span {
+            cursor: pointer;
+            transition: color 0.3s;
+            position: relative;
+        }
+
+        .lang-switch span.active,
+        .lang-switch span:hover {
+            color: var(--text-main);
+        }
+
+        .lang-switch span.active::after {
+            content: '';
+            position: absolute;
+            bottom: -4px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 4px;
+            height: 4px;
+            border-radius: 50%;
+            background: var(--red-primary);
+        }
+
+        /* Market Ticker */
+        .market-ticker {
+            display: flex;
+            align-items: center;
+            overflow: hidden;
+            white-space: nowrap;
+            position: relative;
+            padding: 12px 0;
+            border-bottom: 1px solid var(--surface-border-subtle);
+            cursor: pointer;
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: var(--text-muted);
+        }
+
+        .market-ticker::-webkit-scrollbar {
+            display: none;
+        }
+
+        .live-badge-wrapper {
+            position: relative;
+            z-index: 10;
+            background: linear-gradient(90deg, var(--bg-color) 80%, transparent);
+            padding-right: 20px;
+            display: flex;
+            align-items: center;
+        }
+
+        .live-badge {
+            background: rgba(220, 38, 38, 0.15);
+            color: var(--red-primary);
+            padding: 4px 8px;
+            border-radius: 4px;
+            border: 1px solid rgba(220, 38, 38, 0.3);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            text-transform: uppercase;
+        }
+
+        .live-badge::before {
+            content: '';
+            width: 6px;
+            height: 6px;
+            background: var(--red-primary);
+            border-radius: 50%;
+            box-shadow: 0 0 6px var(--red-primary);
+        }
+
+        @keyframes marquee {
+            0% {
+                transform: translateX(0);
+            }
+
+            100% {
+                transform: translateX(-50%);
+            }
+        }
+
+        .ticker-wrapper {
+            display: inline-flex;
+            width: max-content;
+            gap: 24px;
+            padding-left: 20px;
+            animation: marquee 40s linear infinite;
+        }
+
+        .market-ticker:hover .ticker-wrapper {
+            animation-play-state: paused;
+        }
+
+        .ticker-item {
+            display: flex;
+            gap: 8px;
+            cursor: pointer;
+        }
+
+        .ticker-item .val {
+            color: #fff;
+            font-family: monospace;
+        }
+
+        .ticker-item .up {
+            color: #10B981;
+        }
+
+        .ticker-item .down {
+            color: var(--red-primary);
+        }
+
+        /* Pill Navigation */
+        .categories-section {
+            padding: 2rem 0;
+            position: sticky;
+            top: 0;
+            background: transparent !important;
+            box-shadow: none !important;
+            border: none !important;
+            z-index: 20;
+            transition: all 0.3s ease;
+        }
+
+        .categories-scroll {
+            display: flex;
+            justify-content: space-between;
+            gap: 10px;
+            width: 100%;
+            overflow-x: hidden;
+            padding-bottom: 15px;
+        }
+
+        .categories-scroll::-webkit-scrollbar {
+            display: none;
+        }
+
+        .category-pill {
+            flex: 1;
+            /* Make all pills stretch equally */
+            text-align: center;
+            padding: 10px 0;
+            border-radius: 999px;
+            background: var(--pill-bg);
+            border: 1px solid var(--surface-border);
+            color: var(--text-muted);
+            font-size: 0.85rem;
+            font-weight: 600;
+            white-space: nowrap;
+            cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+            position: relative;
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        }
+
+        .category-pill:hover {
+            background: var(--pill-hover);
+            color: var(--text-main);
+            border-color: rgba(255, 255, 255, 0.15);
+        }
+
+        .category-pill.active {
+            background: linear-gradient(135deg, var(--red-primary) 0%, var(--red-dark) 100%);
+            color: #ffffff;
+            border-color: transparent;
+            box-shadow: 0 6px 16px var(--red-glow), inset 0 2px 5px rgba(255, 255, 255, 0.2);
+        }
+
+        /* Layout Grid */
+        .content-wrapper {
+            display: grid;
+            grid-template-columns: 1fr 340px;
+            gap: 40px;
+            padding: 1rem 0 6rem;
+            align-items: start;
+        }
+
+        @media (max-width: 1024px) {
+            .content-wrapper {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        /* Featured Story */
+        .featured-story {
+            background-color: var(--surface-color);
+            border: 1px solid var(--surface-border);
+            border-radius: 16px;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-end;
+            min-height: 480px;
+            margin-bottom: 32px;
+            transition: all 0.4s ease;
+            position: relative;
+            text-decoration: none;
+            color: inherit;
+        }
+
+        .featured-story:hover {
+            border-color: rgba(198, 40, 40, 0.3);
+            box-shadow: 0 16px 40px rgba(0, 0, 0, 0.2), 0 0 20px rgba(198, 40, 40, 0.05);
+            transform: translateY(-2px);
+        }
+
+        .image-badge {
+            background: var(--red-primary);
+            color: #fff;
+            padding: 6px 12px;
+            font-size: 0.7rem;
+            font-weight: 700;
+            letter-spacing: 1px;
+            border-radius: 4px;
+            z-index: 10;
+            text-transform: uppercase;
+        }
+
+        .featured-content {
+            padding: 32px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            position: relative;
+            z-index: 5;
+        }
+
+        .featured-story h2,
+        .featured-content p.card-excerpt,
+        body.light-mode .featured-story h2,
+        body.light-mode .featured-story p.card-excerpt {
+            color: #ffffff !important;
+        }
+
+        .news-meta {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            flex-wrap: wrap;
+            font-family: 'Inter', monospace;
+        }
+
+        .meta-tag {
+            color: var(--red-primary);
+            background: rgba(198, 40, 40, 0.1);
+            padding: 4px 8px;
+            border-radius: 4px;
+            border: 1px solid rgba(198, 40, 40, 0.15);
+        }
+
+        .meta-time {
+            color: #E2E8F0;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .meta-time::before {
+            content: '';
+            width: 4px;
+            height: 4px;
+            background: var(--text-muted);
+            border-radius: 50%;
+        }
+
+        .featured-content h2 {
+            font-size: 2.4rem;
+            font-weight: 800;
+            line-height: 1.15;
+            letter-spacing: -0.02em;
+            transition: color 0.2s;
+        }
+
+        .featured-story:hover h2 {
+            color: #ffffff;
+        }
+
+        .featured-content p.card-excerpt {
+            font-size: 1.1rem;
+            line-height: 1.6;
+            margin-bottom: 0px;
+        }
+
+        /* Dense Grid */
+        .dense-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 24px;
+        }
+
+        .news-card {
+            padding: 24px;
+            border-radius: 12px;
+            background: rgba(20, 20, 24, 0.4);
+            border: 1px solid var(--surface-border);
+            transition: all 0.3s ease;
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+            text-decoration: none;
+            color: inherit;
+            position: relative;
+        }
+
+        .news-card::before {
+            content: '';
+            position: absolute;
+            left: -1px;
+            top: 10%;
+            bottom: 10%;
+            width: 2px;
+            background: var(--red-primary);
+            opacity: 0;
+            transition: opacity 0.3s;
+            border-radius: 4px;
+        }
+
+        .news-card:hover {
+            background: rgba(30, 30, 36, 0.7);
+            border-color: rgba(220, 38, 38, 0.3);
+            transform: translateY(-2px);
+            box-shadow: 0 12px 24px rgba(0, 0, 0, 0.3);
+        }
+
+        .news-card:hover::before {
+            opacity: 1;
+        }
+
+        .news-card h3 {
+            font-size: 1.15rem;
+            font-weight: 700;
+            line-height: 1.4;
+            letter-spacing: -0.01em;
+            transition: color 0.2s;
+        }
+
+        .news-card:hover h3 {
+            color: #fff;
+        }
+
+        .news-card p.card-excerpt {
+            font-size: 0.9rem;
+            color: #8A8A93;
+            line-height: 1.5;
+            flex-grow: 1;
+        }
+
+        .card-meta-bottom {
+            margin-top: auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-top: 1px solid var(--surface-border-subtle);
+            padding-top: 12px;
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            font-weight: 600;
+        }
+
+        .card-meta-bottom .read-more {
+            color: #fff;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            transition: color 0.2s;
+        }
+
+        .news-card:hover .read-more {
+            color: var(--red-primary);
+        }
+
+        /* Sidebar Widgets */
+        .sidebar {
+            display: flex;
+            flex-direction: column;
+            gap: 32px;
+            position: sticky;
+            top: 120px;
+        }
+
+        .widget {
+            background: rgba(15, 15, 19, 0.6);
+            border: 1px solid var(--surface-border);
+            border-radius: 12px;
+            padding: 24px;
+            backdrop-filter: blur(10px);
+        }
+
+        .widget-title {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            color: #fff;
+            font-weight: 700;
+            margin-bottom: 20px;
+            padding-bottom: 12px;
+            border-bottom: 1px solid var(--surface-border-subtle);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .widget-title .live-dot {
+            width: 8px;
+            height: 8px;
+            background: var(--red-primary);
+            border-radius: 50%;
+            box-shadow: 0 0 10px var(--red-primary);
+            animation: blink 2s infinite;
+        }
+
+        @keyframes blink {
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.4;
+            }
+        }
+
+        .latest-list {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .list-item {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            padding-bottom: 16px;
+            border-bottom: 1px solid var(--surface-border-subtle);
+            cursor: pointer;
+            text-decoration: none;
+            color: inherit;
+        }
+
+        .list-item:last-child {
+            border-bottom: none;
+            padding-bottom: 0;
+        }
+
+        .list-time {
+            font-size: 0.7rem;
+            color: var(--red-primary);
+            font-weight: 700;
+            font-family: monospace;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .list-title {
+            font-size: 0.95rem;
+            font-weight: 500;
+            line-height: 1.4;
+            color: #e2e8f0;
+            transition: color 0.2s;
+        }
+
+        .list-item:hover .list-title {
+            color: var(--text-main);
+        }
+
+        /* Modal for TradingView */
+        .tv-modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.85);
+            backdrop-filter: blur(8px);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .tv-modal.active {
+            display: flex;
+        }
+
+        .tv-modal-content {
+            width: 90%;
+            height: 80%;
+            background: #121216;
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            position: relative;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .tv-modal-close {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            color: #fff;
+            cursor: pointer;
+            z-index: 1100;
+            font-size: 24px;
+            background: rgba(0, 0, 0, 0.5);
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .tv-widget-container {
+            flex: 1;
+            width: 100%;
+        }
+
+        .no-news {
+            grid-column: 1 / -1;
+            text-align: center;
+            padding: 5rem 2rem;
+            color: var(--text-muted);
+            font-size: 1.1rem;
+            background: var(--surface-color);
+            border-radius: 12px;
+            border: 1px dashed var(--surface-border);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 20px;
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- Ambient Floating Backgrounds -->
+    <div class="ambient-glow glow-1"></div>
+    <div class="ambient-glow glow-2"></div>
+    <div class="ambient-glow glow-3"></div>
+
+    <div class="container">
+        <!-- Main Header -->
+        <header>
+            <div class="logo">
+                <div class="logo-icon">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5"
+                        stroke-linecap="round" stroke-linejoin="round">
+                        <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
+                        <polyline points="2 17 12 22 22 17"></polyline>
+                        <polyline points="2 12 12 17 22 12"></polyline>
+                    </svg>
+                </div>
+                <span id="uiLogoText">Alliance News</span>
+            </div>
+
+            <div style="display: flex; gap: 16px; align-items: center;">
+                <button id="themeToggle" class="theme-btn" aria-label="Toggle Theme">☀️</button>
+                <div class="lang-switch">
+                    <span data-lang="ru">RU</span>
+                    <span class="separator" style="color:var(--surface-border); pointer-events:none;">/</span>
+                    <span data-lang="ua">UA</span>
+                    <span class="separator" style="color:var(--surface-border); pointer-events:none;">/</span>
+                    <span data-lang="en" class="active">EN</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- Market Ticker -->
+        <div class="market-ticker" id="marketTicker">
+            <!-- Populated via JS -->
+        </div>
+
+        <!-- Dynamic Filter Categories (Tablets/Pills) -->
+        <div class="categories-section">
+            <div class="categories-scroll" id="categoriesContainer">
+                <!-- Javascript will populate these buttons -->
+            </div>
+        </div>
+
+        <!-- Professional Layout Wrapper -->
+        <div class="content-wrapper">
+            <!-- Main News Area -->
+            <main id="mainNewsArea">
+                <!-- Top Story & Grid will be injected here -->
+            </main>
+
+            <!-- Sidebar Widgets -->
+            <aside class="sidebar">
+                <div class="widget">
+                    <div class="widget-title">
+                        <span id="uiAlertsText">Terminal Alerts</span>
+                        <div class="live-dot"></div>
+                    </div>
+                    <div class="latest-list" id="alertsList">
+                        <!-- Populated via JS -->
+                    </div>
+                </div>
+            </aside>
+        </div>
+    </div>
+
+    <!-- TradingView Modal -->
+    <div class="tv-modal" id="tvModal">
+        <div class="tv-modal-content">
+            <div class="tv-modal-close" onclick="closeTradingView()">&times;</div>
+            <div class="tv-widget-container" id="tvWidgetContainer"></div>
+        </div>
+    </div>
+
+    <!-- Telegram Floating Button -->
+    <a href="https://t.me/MacroHarvey_bot" target="_blank" class="tg-float-btn" aria-label="Open Telegram Bot">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round">
+            <line x1="22" y1="2" x2="11" y2="13"></line>
+            <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+        </svg>
+    </a>
+
+    <script>
+        // Theme Toggle Logic
+        const themeBtn = document.getElementById('themeToggle');
+
+        function applyTheme(isLight) {
+            if (isLight) {
+                document.body.classList.add('light-mode');
+                themeBtn.textContent = '🌙';
+                localStorage.setItem('theme', 'light');
+            } else {
+                document.body.classList.remove('light-mode');
+                themeBtn.textContent = '☀️';
+                localStorage.setItem('theme', 'dark');
+            }
+        }
+
+        const savedTheme = localStorage.getItem('theme');
+        applyTheme(savedTheme === 'light');
+
+        themeBtn.addEventListener('click', () => {
+            const isLightCurrently = document.body.classList.contains('light-mode');
+            applyTheme(!isLightCurrently);
+        });
+
+        // State
+        let currentLang = 'en';
+        let activeCategoryKey = 'cat_all';
+        let fetchedNews = [];
+
+        // Maps UI Category key to FastAPI Backend route
+        const apiCategoryMap = {
+            'cat_all': '',
+            'cat_api': 'api',
+            'cat_cosmetics': 'cosmetic',
+            'cat_herbal': 'herbal',
+            'cat_vet': 'veterinary',
+            'cat_food': 'food',
+            'cat_amino': 'feed',
+            'cat_caps': 'capsules',
+            'cat_pvc': 'pvc',
+            'cat_log': 'logistics'
+        };
+
+        const categoryKeys = Object.keys(apiCategoryMap);
+
+        // Translation Dictionary for UI & Static elements
+        const i18n = {
+            en: {
+                logo: "Alliance News",
+                liveMarkets: "Live Markets",
+                alertsText: "Terminal Alerts",
+                trendingText: "Trending Sectors",
+                leadStory: "Lead Story",
+                readMore: "Read",
+                noNews: "No intelligence reports available for this sector yet.",
+
+                // Categories
+                cat_all: { full: "All", short: "All" },
+                cat_api: { full: "API", short: "API" },
+                cat_cosmetics: { full: "Cosmetic", short: "Cosmetic" },
+                cat_herbal: { full: "Herbal", short: "Herbal" },
+                cat_vet: { full: "Veterinary", short: "Veterinary" },
+                cat_food: { full: "Food", short: "Food" },
+                cat_amino: { full: "Amino", short: "Amino" },
+                cat_caps: { full: "Capsules", short: "Capsules" },
+                cat_pvc: { full: "PVC", short: "PVC" },
+                cat_log: { full: "Logistics", short: "Logistics" },
+
+                // Market Ticker
+                ticker: [
+                    { name: "Global API Index", val: "14,230.40", up: true },
+                    { name: "Logistics Capacity ETF", val: "8,450.12", up: false },
+                    { name: "Bio-Excipients Demand", val: "3,120.80", up: true },
+                    { name: "Raw Botanical Yields", val: "1,104.55", up: true },
+                    { name: "Synthetic Polymers", val: "9,870.20", up: false }
+                ],
+
+                // Sidebar Alerts
+                alerts: [
+                    { time: "14:02 UTC", text: "EU Regulators draft new guidelines for bio-storage compliance." },
+                    { time: "13:45 UTC", text: "Port congestion in Shanghai easing, bulk API shipments resume." },
+                    { time: "11:30 UTC", text: "Major merger announced between top tier PVC film manufacturers." },
+                    { time: "09:15 UTC", text: "Spot prices for isolated soy proteins rise by 4%." }
+                ],
+
+                // Trending
+                trending: [
+                    { name: "Cold Chain", val: "+4%", up: true },
+                    { name: "Peptides", val: "+2.1%", up: true },
+                    { name: "HPMC Caps", val: "-1.5%", up: false },
+                    { name: "Ginseng Extract", val: "+8%", up: true },
+                    { name: "Amino Acids", val: "+0.5%", up: true }
+                ]
+            },
+            ru: {
+                logo: "Новости Альянса",
+                liveMarkets: "СВОДКА РЫНКОВ",
+                alertsText: "Терминальные Оповещения",
+                trendingText: "Популярные Сектора",
+                leadStory: "Главная Статья",
+                readMore: "Читать",
+                noNews: "Отчеты по этому сектору пока недоступны.",
+
+                cat_all: { full: "Все", short: "Все" },
+                cat_api: { full: "API", short: "API" },
+                cat_cosmetics: { full: "Косметика", short: "Косметика" },
+                cat_herbal: { full: "Травы", short: "Травы" },
+                cat_vet: { full: "Ветеринария", short: "Ветеринария" },
+                cat_food: { full: "Еда", short: "Еда" },
+                cat_amino: { full: "Амино", short: "Амино" },
+                cat_caps: { full: "Капсулы", short: "Капсулы" },
+                cat_pvc: { full: "ПВХ", short: "ПВХ" },
+                cat_log: { full: "Логистика", short: "Логистика" },
+
+                ticker: [
+                    { name: "Глобальный Индекс АФИ", val: "14,230.40", up: true },
+                    { name: "ETF Логистики", val: "8,450.12", up: false },
+                    { name: "Спрос на Био-компоненты", val: "3,120.80", up: true },
+                    { name: "Урожайность Раст. Сырья", val: "1,104.55", up: true },
+                    { name: "Синтетические Полимеры", val: "9,870.20", up: false }
+                ],
+
+                alerts: [
+                    { time: "14:02 UTC", text: "Регуляторы ЕС готовят новые правила хранения биоматериалов." },
+                    { time: "13:45 UTC", text: "Пробки в Шанхае уменьшаются, отгрузки АФИ возобновлены." },
+                    { time: "11:30 UTC", text: "Объявлено о слиянии крупнейших производителей ПВХ." },
+                    { time: "09:15 UTC", text: "Спотовые цены на изолят соевого белка выросли на 4%." }
+                ],
+
+                trending: [
+                    { name: "Холодовая Цепь", val: "+4%", up: true },
+                    { name: "Пептиды", val: "+2.1%", up: true },
+                    { name: "ГПМЦ Капсулы", val: "-1.5%", up: false },
+                    { name: "Экстракт Женьшеня", val: "+8%", up: true },
+                    { name: "Аминокислоты", val: "+0.5%", up: true }
+                ]
+            },
+            ua: {
+                logo: "Новини Альянсу",
+                liveMarkets: "ЖИВІ РИНКИ",
+                alertsText: "Термінальні Сповіщення",
+                trendingText: "Популярні Сектори",
+                leadStory: "Головна Стаття",
+                readMore: "Читати",
+                noNews: "Звіти для цього сектору наразі недоступні.",
+
+                cat_all: { full: "Всі", short: "Всі" },
+                cat_api: { full: "API", short: "API" },
+                cat_cosmetics: { full: "Косметика", short: "Косметика" },
+                cat_herbal: { full: "Трави", short: "Трави" },
+                cat_vet: { full: "Ветеринарія", short: "Ветеринарія" },
+                cat_food: { full: "Їжа", short: "Їжа" },
+                cat_amino: { full: "Аміно", short: "Аміно" },
+                cat_caps: { full: "Капсули", short: "Капсули" },
+                cat_pvc: { full: "ПВХ", short: "ПВХ" },
+                cat_log: { full: "Логістика", short: "Логістика" },
+
+                ticker: [
+                    { name: "Глобальний Індекс АФІ", val: "14,230.40", up: true },
+                    { name: "ETF Логістики", val: "8,450.12", up: false },
+                    { name: "Попит на Біо-компоненти", val: "3,120.80", up: true },
+                    { name: "Врожайність Росл. Сировини", val: "1,104.55", up: true },
+                    { name: "Синтетичні Полімери", val: "9,870.20", up: false }
+                ],
+
+                alerts: [
+                    { time: "14:02 UTC", text: "Регулятори ЄС готують нові правила зберігання біоматеріалів." },
+                    { time: "13:45 UTC", text: "Затори в Шанхаї зменшуються, відвантаження АФІ відновлено." },
+                    { time: "11:30 UTC", text: "Оголошено про злиття найбільших виробників ПВХ плівки." },
+                    { time: "09:15 UTC", text: "Спотові ціни на ізолят соєвого білка зросли на 4%." }
+                ],
+
+                trending: [
+                    { name: "Холодовий Ланцюг", val: "+4%", up: true },
+                    { name: "Пептиди", val: "+2.1%", up: true },
+                    { name: "ГПМЦ Капсули", val: "-1.5%", up: false },
+                    { name: "Екстракт Женьшеню", val: "+8%", up: true },
+                    { name: "Амінокислоти", val: "+0.5%", up: true }
+                ]
+            }
+        };
+
+        const reverseCategoryMap = Object.entries(apiCategoryMap).reduce((acc, [k, v]) => {
+            if (v) acc[v] = k;
+            return acc;
+        }, {});
+
+        // Network Request to FastAPI App
+        async function fetchCategoryNews(categoryKey) {
+            const mainNewsArea = document.getElementById('mainNewsArea');
+            mainNewsArea.innerHTML = `
+                <div class="no-news">
+                    <p>Loading intelligence data from backend...</p>
+                </div>
+            `;
+
+            try {
+                const apiRoute = apiCategoryMap[categoryKey];
+                const url = apiRoute ? `/news/${apiRoute}` : `/news`;
+
+                const response = await fetch(url);
+                if (!response.ok) throw new Error("Failed to fetch news");
+
+                let data = await response.json();
+
+                if (categoryKey === 'cat_all') {
+                    fetchedNews = [];
+                    for (const cat in data) {
+                        fetchedNews = fetchedNews.concat(data[cat]);
+                    }
+                } else {
+                    fetchedNews = data;
+                }
+
+                renderNews();
+            } catch (error) {
+                console.error("API Fetch Error:", error);
+                mainNewsArea.innerHTML = `
+                    <div class="no-news">
+                        <p>Failed to connect to API. Please ensure the FastAPI backend is running.</p>
+                        <p style="font-size:0.85rem; margin-top:10px; color:var(--red-primary);">Note: Ensure CORSMiddleware is active in main.py if you load this via file:// protocol.</p>
+                    </div>
+                `;
+            }
+        }
+
+        // Main Rendering Functions
+        function renderAll() {
+            renderHeader();
+            renderTicker();
+            renderSidebar();
+            renderCategories();
+        }
+
+        function renderHeader() {
+            document.getElementById('uiLogoText').textContent = i18n[currentLang].logo;
+            document.getElementById('uiAlertsText').textContent = i18n[currentLang].alertsText;
+        }
+
+        const macroTicker = [
+            { name: "Brent Oil", symbol: "TVC:UKOIL" },
+            { name: "WTI Crude", symbol: "TVC:USOIL" },
+            { name: "Natural Gas", symbol: "OANDA:NATGASUSD" },
+            { name: "US Dollar Index", symbol: "TVC:DXY" },
+            { name: "EUR/USD", symbol: "FX:EURUSD" },
+            { name: "USD/CNY", symbol: "FX_IDC:USDCNY" },
+            { name: "Gold", symbol: "TVC:GOLD" },
+            { name: "Silver", symbol: "TVC:SILVER" },
+            { name: "Copper", symbol: "OANDA:XCUUSD" },
+            { name: "Corn", symbol: "OANDA:CORNUSD" },
+            { name: "Wheat", symbol: "OANDA:WHEATUSD" },
+            { name: "Soybeans", symbol: "OANDA:SOYBNUSD" },
+            { name: "Sugar", symbol: "OANDA:SUGARUSD" },
+            { name: "US 10-Year Yield", symbol: "TVC:US10Y" },
+            { name: "VIX Volatility", symbol: "TVC:VIX" }
+        ];
+
+        function renderTicker() {
+            let html = '';
+            macroTicker.forEach((item) => {
+                html += `<div class="ticker-item" data-symbol="${item.symbol}" onclick="openTradingView('${item.symbol}')"><span>${item.name}</span> <span style="color: var(--surface-border); margin-left: 8px;">•</span></div>`;
+            });
+            const badgeHtml = `<div class="live-badge-wrapper"><div class="live-badge">${i18n[currentLang].liveMarkets}</div></div>`;
+            const marqueeHtml = `<div class="ticker-wrapper">${html}${html}</div>`;
+            document.getElementById('marketTicker').innerHTML = badgeHtml + marqueeHtml;
+        }
+
+        async function fetchAlerts() {
+            try {
+                const response = await fetch('/alerts');
+                if (!response.ok) throw new Error("Failed");
+                const defaultAlerts = await response.json();
+
+                const alertsHtml = defaultAlerts.map(a => {
+                    let time = "LATEST";
+                    if (a.published) {
+                        try {
+                            const d = new Date(a.published + " UTC");
+                            time = String(d.getHours()).padStart(2, '0') + ":" + String(d.getMinutes()).padStart(2, '0') + " UTC";
+                        } catch (e) { }
+                    }
+                    return `
+                    <a href="${a.link || '#'}" target="_blank" class="list-item">
+                        <span class="list-time">${time}</span>
+                        <span class="list-title">${a.title}</span>
+                    </a>
+                `}).join('');
+                document.getElementById('alertsList').innerHTML = alertsHtml;
+            } catch (err) {
+                const alertsHtml = i18n[currentLang].alerts.map(a => `
+                    <a href="#" class="list-item">
+                        <span class="list-time">${a.time}</span>
+                        <span class="list-title">${a.text}</span>
+                    </a>
+                `).join('');
+                document.getElementById('alertsList').innerHTML = alertsHtml;
+            }
+        }
+
+        function renderSidebar() {
+            fetchAlerts();
+        }
+
+        function renderCategories() {
+            const catContainer = document.getElementById('categoriesContainer');
+            catContainer.innerHTML = '';
+
+            categoryKeys.forEach(key => {
+                const pill = document.createElement('div');
+                pill.className = `category-pill ${key === activeCategoryKey ? 'active' : ''}`;
+                pill.innerHTML = `<span>${i18n[currentLang][key].short}</span>`;
+
+                pill.onclick = () => {
+                    activeCategoryKey = key;
+                    renderCategories(); // Redraw UI tabs
+                    fetchCategoryNews(key); // Request backend
+                    pill.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+                };
+                catContainer.appendChild(pill);
+            });
+        }
+
+        function renderNews() {
+            const mainNewsArea = document.getElementById('mainNewsArea');
+            mainNewsArea.innerHTML = '';
+
+            if (!fetchedNews || fetchedNews.length === 0) {
+                mainNewsArea.innerHTML = `
+                    <div class="no-news">
+                        <p>${i18n[currentLang].noNews}</p>
+                    </div>
+                `;
+                return;
+            }
+
+            const topStoryRaw = fetchedNews[0];
+            const realCatKeyTop = reverseCategoryMap[topStoryRaw.category] || activeCategoryKey;
+            const tsCatLoc = i18n[currentLang][realCatKeyTop].short;
+            const topDisplaySummary = topStoryRaw['summary_' + currentLang] || '';
+            const topImage = topStoryRaw.image_url || '';
+
+            const topCard = document.createElement('a');
+            topCard.href = topStoryRaw.link || "#";
+            topCard.target = "_blank";
+            topCard.className = 'featured-story';
+
+            let bgStyle = topImage ? `background-image: linear-gradient(to top, rgba(14, 14, 20, 0.98) 0%, rgba(14, 14, 20, 0.75) 50%, rgba(14, 14, 20, 0.1) 100%), url('${topImage}'); background-size: cover; background-position: center; background-repeat: no-repeat;` : '';
+
+            topCard.style.cssText = bgStyle;
+            topCard.innerHTML = `
+                <div class="image-badge" style="position:absolute; top:32px; left:32px;">${i18n[currentLang].leadStory}</div>
+                <div class="featured-content">
+                    <div class="news-meta">
+                        <span class="meta-tag">${tsCatLoc}</span>
+                        <span class="meta-time">${topStoryRaw.published || ''}</span>
+                    </div>
+                    <h2>${topStoryRaw.title}</h2>
+                    <p class="card-excerpt">${topDisplaySummary}</p>
+                </div>
+            `;
+            mainNewsArea.appendChild(topCard);
+
+            // Remaining grid
+            if (fetchedNews.length > 1) {
+                const denseGrid = document.createElement('div');
+                denseGrid.className = 'dense-grid';
+
+                fetchedNews.slice(1).forEach((itemRaw) => {
+                    const card = document.createElement('a');
+                    card.href = itemRaw.link || "#";
+                    card.target = "_blank";
+                    card.className = 'news-card';
+                    const realCatKeyItem = reverseCategoryMap[itemRaw.category] || activeCategoryKey;
+                    const itemCatLoc = i18n[currentLang][realCatKeyItem].short;
+
+                    card.innerHTML = `
+                        <div class="news-meta">
+                            <span class="meta-tag">${itemCatLoc}</span>
+                        </div>
+                        <h3>${itemRaw.title}</h3>
+                        <p class="card-excerpt">${itemRaw['summary_' + currentLang] || ''}</p>
+                        <div class="card-meta-bottom">
+                            <span>${itemRaw.published || ''}</span>
+                            <div class="read-more">
+                                ${i18n[currentLang].readMore}
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <line x1="5" y1="12" x2="19" y2="12"></line>
+                                    <polyline points="12 5 19 12 12 19"></polyline>
+                                </svg>
+                            </div>
+                        </div>
+                    `;
+                    denseGrid.appendChild(card);
+                });
+                mainNewsArea.appendChild(denseGrid);
+            }
+        }
+
+        // Language Switcher Events
+        const langSpans = document.querySelectorAll('.lang-switch span[data-lang]');
+        langSpans.forEach(span => {
+            span.addEventListener('click', (e) => {
+                langSpans.forEach(s => s.classList.remove('active'));
+                e.target.classList.add('active');
+                currentLang = e.target.getAttribute('data-lang');
+
+                // Immediately update standard UI
+                renderAll();
+
+                // If there's already items loaded, just reconstruct cards via renderNews() to update button text/tags
+                if (fetchedNews.length > 0) {
+                    renderNews();
+                }
+            });
+        });
+
+        // Initial Boot
+        renderAll();
+
+        // Load API category by default on startup
+        fetchCategoryNews(activeCategoryKey);
+
+        // TradingView Setup
+        function openTradingView(symbol = "NASDAQ:AAPL") {
+            document.getElementById('tvModal').classList.add('active');
+            document.getElementById('tvWidgetContainer').innerHTML = '';
+
+            const isLight = document.body.classList.contains('light-mode');
+            const tvTheme = isLight ? "light" : "dark";
+            const tvBgColor = isLight ? "#F8FAFC" : "#121216";
+            const gridColor = isLight ? "rgba(0, 0, 0, 0.06)" : "rgba(255, 255, 255, 0.06)";
+
+            new TradingView.widget({
+                "autosize": true,
+                "symbol": symbol,
+                "interval": "D",
+                "timezone": "Etc/UTC",
+                "theme": tvTheme,
+                "style": "1",
+                "locale": "en",
+                "enable_publishing": false,
+                "backgroundColor": tvBgColor,
+                "gridColor": gridColor,
+                "hide_top_toolbar": false,
+                "hide_legend": false,
+                "save_image": false,
+                "container_id": "tvWidgetContainer"
+            });
+        }
+
+        function closeTradingView() {
+            document.getElementById('tvModal').classList.remove('active');
+        }
+
+    </script>
+</body>
+
+</html>
