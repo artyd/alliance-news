@@ -3,6 +3,7 @@ import os
 import json
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 import feedparser
 from database import init_db, get_db_connection
@@ -217,9 +218,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-@app.get("/")
-def read_root():
-    return {"message": "Alliance News API is running"}
+@app.get("/", response_class=FileResponse)
+async def read_index():
+    return FileResponse("index.html")
 
 @app.get("/news")
 def get_all_news():
