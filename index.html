@@ -1038,10 +1038,10 @@
 
                 // Sidebar Alerts
                 alerts: [
-                    { time: "14:02 UTC", text: "EU Regulators draft new guidelines for bio-storage compliance." },
-                    { time: "13:45 UTC", text: "Port congestion in Shanghai easing, bulk API shipments resume." },
-                    { time: "11:30 UTC", text: "Major merger announced between top tier PVC film manufacturers." },
-                    { time: "09:15 UTC", text: "Spot prices for isolated soy proteins rise by 4%." }
+                    { time: "14:02", text: "EU Regulators draft new guidelines for bio-storage compliance." },
+                    { time: "13:45", text: "Port congestion in Shanghai easing, bulk API shipments resume." },
+                    { time: "11:30", text: "Major merger announced between top tier PVC film manufacturers." },
+                    { time: "09:15", text: "Spot prices for isolated soy proteins rise by 4%." }
                 ],
 
                 // Trending
@@ -1082,10 +1082,10 @@
                 ],
 
                 alerts: [
-                    { time: "14:02 UTC", text: "Регуляторы ЕС готовят новые правила хранения биоматериалов." },
-                    { time: "13:45 UTC", text: "Пробки в Шанхае уменьшаются, отгрузки АФИ возобновлены." },
-                    { time: "11:30 UTC", text: "Объявлено о слиянии крупнейших производителей ПВХ." },
-                    { time: "09:15 UTC", text: "Спотовые цены на изолят соевого белка выросли на 4%." }
+                    { time: "14:02", text: "Регуляторы ЕС готовят новые правила хранения биоматериалов." },
+                    { time: "13:45", text: "Пробки в Шанхае уменьшаются, отгрузки АФИ возобновлены." },
+                    { time: "11:30", text: "Объявлено о слиянии крупнейших производителей ПВХ." },
+                    { time: "09:15", text: "Спотовые цены на изолят соевого белка выросли на 4%." }
                 ],
 
                 trending: [
@@ -1125,10 +1125,10 @@
                 ],
 
                 alerts: [
-                    { time: "14:02 UTC", text: "Регулятори ЄС готують нові правила зберігання біоматеріалів." },
-                    { time: "13:45 UTC", text: "Затори в Шанхаї зменшуються, відвантаження АФІ відновлено." },
-                    { time: "11:30 UTC", text: "Оголошено про злиття найбільших виробників ПВХ плівки." },
-                    { time: "09:15 UTC", text: "Спотові ціни на ізолят соєвого білка зросли на 4%." }
+                    { time: "14:02", text: "Регулятори ЄС готують нові правила зберігання біоматеріалів." },
+                    { time: "13:45", text: "Затори в Шанхаї зменшуються, відвантаження АФІ відновлено." },
+                    { time: "11:30", text: "Оголошено про злиття найбільших виробників ПВХ плівки." },
+                    { time: "09:15", text: "Спотові ціни на ізолят соєвого білка зросли на 4%." }
                 ],
 
                 trending: [
@@ -1226,11 +1226,11 @@
                 const defaultAlerts = await response.json();
 
                 const alertsHtml = defaultAlerts.map(a => {
-                    let time = "LATEST";
-                    if (a.published) {
+                    let time = a.display_time || "LATEST";
+                    if (!a.display_time && a.published) {
                         try {
-                            const d = new Date(a.published + " UTC");
-                            time = String(d.getHours()).padStart(2, '0') + ":" + String(d.getMinutes()).padStart(2, '0') + " UTC";
+                            const parts = a.published.split(' ')[1];
+                            if (parts) time = parts.substring(0, 5);
                         } catch (e) { }
                     }
                     return `

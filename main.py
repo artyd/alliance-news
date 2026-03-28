@@ -320,14 +320,34 @@ async def fetch_and_store_news():
         
         await asyncio.sleep(900)
 
+async def cleanup_old_news():
+    from datetime import datetime, timedelta
+    while True:
+        try:
+            print("Running cleanup_old_news: Deleting articles older than 30 days...")
+            cutoff_date = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d %H:%M:%S")
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM articles WHERE published != '' AND published < %s", (cutoff_date,))
+            deleted_count = cursor.rowcount
+            conn.commit()
+            conn.close()
+            print(f"Cleanup finished. Deleted {deleted_count} old articles.")
+        except Exception as e:
+            print(f"Error during cleanup_old_news: {e}")
+        
+        await asyncio.sleep(86400)
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
     task_news = asyncio.create_task(fetch_and_store_news())
     task_tg = asyncio.create_task(poll_telegram_updates())
+    task_cleanup = asyncio.create_task(cleanup_old_news())
     yield
     task_news.cancel()
     task_tg.cancel()
+    task_cleanup.cancel()
 
 app = FastAPI(title="Alliance News API", lifespan=lifespan)
 
@@ -349,7 +369,7 @@ def get_all_news():
     cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     
     cursor.execute(
-        "SELECT title, link, published, category, summary_en, summary_ua, summary_ru, image_url FROM articles ORDER BY published DESC LIMIT 50"
+        "SELECT title, link, published, category, summary_en, summary_ua, summary_ru, image_url FROM articles ORDER BY published DESC LIMIT 1000"
     )
     rows = cursor.fetchall()
         
@@ -365,7 +385,52 @@ def get_latest_alerts():
     )
     rows = cursor.fetchall()
     conn.close()
-    return [dict(row) for row in rows]
+    
+    from datetime import datetime
+    try:
+        from zoneinfo import ZoneInfo
+        tz = ZoneInfo("Europe/Kyiv")
+    except ImportError:
+        from datetime import timezone, timedelta
+        tz = timezone(timedelta(hours=2))
+        
+    now = datetime.now(tz)
+    
+    results = []
+    for row in rows:
+        r = dict(row)
+        pub_str = r.get("published")
+        dt_obj = None
+        if pub_str:
+            try:
+                dt_obj = datetime.strptime(pub_str, "%Y-%m-%d %H:%M:%S")
+                dt_obj = dt_obj.replace(tzinfo=tz)
+            except ValueError:
+                import email.utils
+                try:
+                    dt_email = email.utils.parsedate_to_datetime(pub_str)
+                    dt_obj = dt_email.astimezone(tz)
+                except Exception:
+                    pass
+                    
+        if not dt_obj:
+            dt_obj = now
+            
+        diff = (now - dt_obj).total_seconds()
+        if 0 <= diff < 3600:
+            mins = int(diff / 60)
+            if mins <= 1:
+                display_time = "Just now"
+            else:
+                display_time = f"{mins} mins ago"
+        else:
+            display_time = dt_obj.strftime("%H:%M")
+            
+        r["display_time"] = display_time
+        r["published"] = dt_obj.strftime("%Y-%m-%d %H:%M:%S")
+        results.append(r)
+        
+    return results
 
 @app.get("/news/{category}")
 def get_category_news(category: str):
