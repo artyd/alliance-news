@@ -1287,65 +1287,89 @@
                 return;
             }
 
-            const topStoryRaw = fetchedNews[0];
-            const realCatKeyTop = reverseCategoryMap[topStoryRaw.category] || activeCategoryKey;
-            const tsCatLoc = i18n[currentLang][realCatKeyTop].short;
-            const topDisplaySummary = topStoryRaw['summary_' + currentLang] || '';
-            const topImage = topStoryRaw.image_url || '';
+            let hasRenderedTop = false;
+            let denseGrid = null;
 
-            const topCard = document.createElement('a');
-            topCard.href = topStoryRaw.link || "#";
-            topCard.target = "_blank";
-            topCard.className = 'featured-story';
+            fetchedNews.forEach((itemRaw) => {
+                try {
+                    const rawCat = itemRaw.category || 'unknown';
+                    const realCatKeyItem = reverseCategoryMap[rawCat] || activeCategoryKey || 'cat_all';
+                    
+                    let itemCatLoc = "All";
+                    if (i18n[currentLang] && i18n[currentLang][realCatKeyItem]) {
+                        itemCatLoc = i18n[currentLang][realCatKeyItem].short || "All";
+                    }
 
-            let bgStyle = topImage ? `background-image: linear-gradient(to top, rgba(14, 14, 20, 0.98) 0%, rgba(14, 14, 20, 0.75) 50%, rgba(14, 14, 20, 0.1) 100%), url('${topImage}'); background-size: cover; background-position: center; background-repeat: no-repeat;` : '';
+                    const displaySummary = itemRaw['summary_' + currentLang] 
+                                        || itemRaw['summary_en'] 
+                                        || itemRaw.summary_ru
+                                        || itemRaw.summary_ua
+                                        || itemRaw.title 
+                                        || '';
+                                        
+                    const title = itemRaw.title || "No Title";
+                    const published = itemRaw.published || "";
+                    const link = itemRaw.link || "#";
 
-            topCard.style.cssText = bgStyle;
-            topCard.innerHTML = `
-                <div class="image-badge" style="position:absolute; top:32px; left:32px;">${i18n[currentLang].leadStory}</div>
-                <div class="featured-content">
-                    <div class="news-meta">
-                        <span class="meta-tag">${tsCatLoc}</span>
-                        <span class="meta-time">${topStoryRaw.published || ''}</span>
-                    </div>
-                    <h2>${topStoryRaw.title}</h2>
-                    <p class="card-excerpt">${topDisplaySummary}</p>
-                </div>
-            `;
-            mainNewsArea.appendChild(topCard);
+                    if (!hasRenderedTop) {
+                        const topImage = itemRaw.image_url || '';
+                        const topCard = document.createElement('a');
+                        topCard.href = link;
+                        topCard.target = "_blank";
+                        topCard.className = 'featured-story';
 
-            // Remaining grid
-            if (fetchedNews.length > 1) {
-                const denseGrid = document.createElement('div');
-                denseGrid.className = 'dense-grid';
+                        let bgStyle = topImage ? `background-image: linear-gradient(to top, rgba(14, 14, 20, 0.98) 0%, rgba(14, 14, 20, 0.75) 50%, rgba(14, 14, 20, 0.1) 100%), url('${topImage}'); background-size: cover; background-position: center; background-repeat: no-repeat;` : 'background: var(--surface); border-bottom: 2px solid var(--accent);';
 
-                fetchedNews.slice(1).forEach((itemRaw) => {
-                    const card = document.createElement('a');
-                    card.href = itemRaw.link || "#";
-                    card.target = "_blank";
-                    card.className = 'news-card';
-                    const realCatKeyItem = reverseCategoryMap[itemRaw.category] || activeCategoryKey;
-                    const itemCatLoc = i18n[currentLang][realCatKeyItem].short;
-
-                    card.innerHTML = `
-                        <div class="news-meta">
-                            <span class="meta-tag">${itemCatLoc}</span>
-                        </div>
-                        <h3>${itemRaw.title}</h3>
-                        <p class="card-excerpt">${itemRaw['summary_' + currentLang] || ''}</p>
-                        <div class="card-meta-bottom">
-                            <span>${itemRaw.published || ''}</span>
-                            <div class="read-more">
-                                ${i18n[currentLang].readMore}
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                    <line x1="5" y1="12" x2="19" y2="12"></line>
-                                    <polyline points="12 5 19 12 12 19"></polyline>
-                                </svg>
+                        topCard.style.cssText = bgStyle;
+                        topCard.innerHTML = `
+                            <div class="image-badge" style="position:absolute; top:32px; left:32px;">${i18n[currentLang].leadStory || 'Lead Story'}</div>
+                            <div class="featured-content">
+                                <div class="news-meta">
+                                    <span class="meta-tag">${itemCatLoc}</span>
+                                    <span class="meta-time">${published}</span>
+                                </div>
+                                <h2>${title}</h2>
+                                <p class="card-excerpt">${displaySummary}</p>
                             </div>
-                        </div>
-                    `;
-                    denseGrid.appendChild(card);
-                });
+                        `;
+                        mainNewsArea.appendChild(topCard);
+                        hasRenderedTop = true;
+                    } else {
+                        if (!denseGrid) {
+                            denseGrid = document.createElement('div');
+                            denseGrid.className = 'dense-grid';
+                        }
+
+                        const card = document.createElement('a');
+                        card.href = link;
+                        card.target = "_blank";
+                        card.className = 'news-card';
+
+                        card.innerHTML = `
+                            <div class="news-meta">
+                                <span class="meta-tag">${itemCatLoc}</span>
+                            </div>
+                            <h3>${title}</h3>
+                            <p class="card-excerpt">${displaySummary}</p>
+                            <div class="card-meta-bottom">
+                                <span>${published}</span>
+                                <div class="read-more">
+                                    ${i18n[currentLang].readMore || 'Read More'}
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <line x1="5" y1="12" x2="19" y2="12"></line>
+                                        <polyline points="12 5 19 12 12 19"></polyline>
+                                    </svg>
+                                </div>
+                            </div>
+                        `;
+                        denseGrid.appendChild(card);
+                    }
+                } catch(e) {
+                    console.error("Error rendering article card:", e, itemRaw);
+                }
+            });
+
+            if (denseGrid) {
                 mainNewsArea.appendChild(denseGrid);
             }
         }
