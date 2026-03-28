@@ -361,7 +361,10 @@ app.add_middleware(
 
 @app.get("/", response_class=FileResponse)
 async def read_index():
-    return FileResponse("index.html")
+    import os
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    index_path = os.path.join(base_dir, "index.html")
+    return FileResponse(index_path)
 
 @app.get("/news")
 def get_all_news():
