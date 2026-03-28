@@ -35,6 +35,26 @@ RSS_FEEDS = {
     "logistics": "https://news.google.com/rss/search?q=global+logistics+shipping+when:7d&hl=en-US&gl=US&ceid=US:en"
 }
 
+def get_topics_keyboard(current_subs_str):
+    subs = current_subs_str.split(',') if current_subs_str != 'all' else []
+    keyboard = []
+    
+    all_text = "✅ All Topics" if current_subs_str == 'all' else "🔘 All Topics"
+    keyboard.append([{"text": all_text, "callback_data": "topic_all"}])
+    
+    row = []
+    for cat in RSS_FEEDS.keys():
+        is_subbed = current_subs_str == 'all' or cat in subs
+        text = f"✅ {cat.upper()}" if is_subbed else f"❌ {cat.upper()}"
+        row.append({"text": text, "callback_data": f"topic_{cat}"})
+        if len(row) == 2:
+            keyboard.append(row)
+            row = []
+    if row:
+        keyboard.append(row)
+        
+    return {"inline_keyboard": keyboard}
+
 async def poll_telegram_updates():
     offset = 0
     async with httpx.AsyncClient() as client:
@@ -59,14 +79,90 @@ async def poll_telegram_updates():
                                     cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
                                     cursor.execute("INSERT INTO telegram_users (chat_id, language) VALUES (%s, %s) ON CONFLICT(chat_id) DO UPDATE SET language=%s", (chat_id, lang, lang))
                                     conn.commit()
+                                    cursor.execute("SELECT subscriptions FROM telegram_users WHERE chat_id = %s", (chat_id,))
+                                    user_row = cursor.fetchone()
                                     conn.close()
                                     
+                                    current_subs = user_row["subscriptions"] if user_row and user_row.get("subscriptions") else "all"
+                                    
                                     msg_map = {
-                                        "ru": "Язык установлен на Русский! Вы будете получать новости MacroHarvey.",
-                                        "ua": "Мову встановлено на Українську! Ви отримуватимете новини MacroHarvey.",
-                                        "en": "Language set to English! You will receive MacroHarvey news."
+                                        "ru": "Язык установлен на Русский!\\nПожалуйста, выберите интересующие вас темы:",
+                                        "ua": "Мову встановлено на Українську!\\nБудь ласка, оберіть цікаві для вас теми:",
+                                        "en": "Language set to English!\\nPlease select your preferred news topics:"
                                     }
-                                    await client.post(f"{TELEGRAM_API_URL}/sendMessage", json={"chat_id": chat_id, "text": msg_map[lang]})
+                                    
+                                    await client.post(f"{TELEGRAM_API_URL}/sendMessage", json={
+                                        "chat_id": chat_id,
+                                        "text": msg_map[lang],
+                                        "reply_markup": get_topics_keyboard(current_subs)
+                                    })
+                                    await client.post(f"{TELEGRAM_API_URL}/answerCallbackQuery", json={"callback_query_id": cb["id"]})
+                                    
+                                elif data_cb == "menu_lang":
+                                    keyboard = {
+                                        "inline_keyboard": [
+                                            [
+                                                {"text": "🇷🇺 RU", "callback_data": "lang_ru"},
+                                                {"text": "🇺🇦 UA", "callback_data": "lang_ua"},
+                                                {"text": "🇬🇧 EN", "callback_data": "lang_en"}
+                                            ]
+                                        ]
+                                    }
+                                    await client.post(f"{TELEGRAM_API_URL}/sendMessage", json={
+                                        "chat_id": chat_id,
+                                        "text": "Please select your language:",
+                                        "reply_markup": keyboard
+                                    })
+                                    await client.post(f"{TELEGRAM_API_URL}/answerCallbackQuery", json={"callback_query_id": cb["id"]})
+                                    
+                                elif data_cb == "menu_topics":
+                                    conn = get_db_connection()
+                                    cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+                                    cursor.execute("SELECT subscriptions FROM telegram_users WHERE chat_id = %s", (chat_id,))
+                                    user_row = cursor.fetchone()
+                                    conn.close()
+                                    
+                                    current_subs = user_row["subscriptions"] if user_row and user_row.get("subscriptions") else "all"
+                                    await client.post(f"{TELEGRAM_API_URL}/sendMessage", json={
+                                        "chat_id": chat_id,
+                                        "text": "Please select your preferred topics:",
+                                        "reply_markup": get_topics_keyboard(current_subs)
+                                    })
+                                    await client.post(f"{TELEGRAM_API_URL}/answerCallbackQuery", json={"callback_query_id": cb["id"]})
+                                    
+                                elif data_cb.startswith("topic_"):
+                                    conn = get_db_connection()
+                                    cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+                                    cursor.execute("SELECT subscriptions FROM telegram_users WHERE chat_id = %s", (chat_id,))
+                                    user_row = cursor.fetchone()
+                                    
+                                    if user_row:
+                                        current_subs = user_row.get("subscriptions") or "all"
+                                        topic = data_cb.replace("topic_", "")
+                                        
+                                        if topic == "all":
+                                            new_subs = "all"
+                                        else:
+                                            if current_subs == "all":
+                                                new_subs = topic
+                                            else:
+                                                subs = set(current_subs.split(',')) if current_subs else set()
+                                                if topic in subs:
+                                                    subs.remove(topic)
+                                                else:
+                                                    subs.add(topic)
+                                                new_subs = ",".join(subs) if subs else "all"
+                                                
+                                        cursor.execute("UPDATE telegram_users SET subscriptions = %s WHERE chat_id = %s", (new_subs, chat_id))
+                                        conn.commit()
+                                        
+                                        await client.post(f"{TELEGRAM_API_URL}/editMessageReplyMarkup", json={
+                                            "chat_id": chat_id,
+                                            "message_id": cb["message"]["message_id"],
+                                            "reply_markup": get_topics_keyboard(new_subs)
+                                        })
+                                    conn.close()
+                                    await client.post(f"{TELEGRAM_API_URL}/answerCallbackQuery", json={"callback_query_id": cb["id"]})
                                     
                             elif "message" in update and "text" in update["message"]:
                                 msg = update["message"]
@@ -86,6 +182,18 @@ async def poll_telegram_updates():
                                     await client.post(f"{TELEGRAM_API_URL}/sendMessage", json={
                                         "chat_id": chat_id,
                                         "text": "Welcome to MacroHarvey! / Ласкаво просимо! / Добро пожаловать!\\nPlease select your language:",
+                                        "reply_markup": keyboard
+                                    })
+                                elif text.startswith("/settings") or text.startswith("/menu"):
+                                    keyboard = {
+                                        "inline_keyboard": [
+                                            [{"text": "🌐 Change Language", "callback_data": "menu_lang"}],
+                                            [{"text": "📋 Change Topics", "callback_data": "menu_topics"}]
+                                        ]
+                                    }
+                                    await client.post(f"{TELEGRAM_API_URL}/sendMessage", json={
+                                        "chat_id": chat_id,
+                                        "text": "Settings Menu / Меню Настроек / Меню Налаштувань:",
                                         "reply_markup": keyboard
                                     })
             except Exception as e:
@@ -133,6 +241,12 @@ async def fetch_and_store_news():
                     try:
                         if published:
                             dt = email.utils.parsedate_to_datetime(published)
+                            try:
+                                from zoneinfo import ZoneInfo
+                                dt = dt.astimezone(ZoneInfo("Europe/Kyiv"))
+                            except ImportError:
+                                from datetime import timezone, timedelta
+                                dt = dt.astimezone(timezone(timedelta(hours=2)))
                             published = dt.strftime("%Y-%m-%d %H:%M:%S")
                     except Exception:
                         pass
@@ -174,13 +288,20 @@ async def fetch_and_store_news():
                     conn.commit()
                     
                     try:
-                        cursor.execute("SELECT chat_id, language FROM telegram_users")
+                        cursor.execute("SELECT chat_id, language, subscriptions FROM telegram_users")
                         users = cursor.fetchall()
                         if users:
                             async with httpx.AsyncClient() as client:
                                 for user in users:
                                     chat_id = user["chat_id"]
                                     lang = user["language"]
+                                    subs = user.get("subscriptions") or "all"
+                                    
+                                    if subs != "all":
+                                        sub_list = subs.split(",")
+                                        if category not in sub_list:
+                                            continue
+                                            
                                     summary_text = summaries.get(lang, sum_en)
                                     msg = f"📰 <b>{title}</b>\n\n📝 <i>{summary_text}</i>\n\n🏷 Category: #{category}\n🔗 <a href='{link}'>Read full article</a>"
                                     
@@ -227,16 +348,13 @@ def get_all_news():
     conn = get_db_connection()
     cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     
-    grouped_news = {}
-    for category in RSS_FEEDS.keys():
-        cursor.execute(
-            "SELECT title, link, published, category, summary_en, summary_ua, summary_ru, image_url FROM articles WHERE category = %s ORDER BY published DESC LIMIT 15", 
-            (category,)
-        )
-        grouped_news[category] = [dict(row) for row in cursor.fetchall()]
+    cursor.execute(
+        "SELECT title, link, published, category, summary_en, summary_ua, summary_ru, image_url FROM articles ORDER BY published DESC LIMIT 50"
+    )
+    rows = cursor.fetchall()
         
     conn.close()
-    return grouped_news
+    return [dict(row) for row in rows]
 
 @app.get("/alerts")
 def get_latest_alerts():

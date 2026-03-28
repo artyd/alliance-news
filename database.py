@@ -31,6 +31,7 @@ def init_db():
             language TEXT DEFAULT 'en'
         )
     ''')
+    cursor.execute("ALTER TABLE telegram_users ADD COLUMN IF NOT EXISTS subscriptions TEXT DEFAULT 'all'")
     
     conn.close()
 

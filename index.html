@@ -1164,14 +1164,7 @@
 
                 let data = await response.json();
 
-                if (categoryKey === 'cat_all') {
-                    fetchedNews = [];
-                    for (const cat in data) {
-                        fetchedNews = fetchedNews.concat(data[cat]);
-                    }
-                } else {
-                    fetchedNews = data;
-                }
+                fetchedNews = data;
 
                 renderNews();
             } catch (error) {
