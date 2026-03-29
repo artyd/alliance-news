@@ -225,7 +225,6 @@ async def generate_summary(text: str):
             if raw_text.startswith("```"):
                 raw_text = raw_text.replace("```json", "").replace("```", "").strip()
             
-            import json
             parsed = json.loads(raw_text)
             
             return {
