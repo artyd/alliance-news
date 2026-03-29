@@ -6,13 +6,45 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 import feedparser
-from database import init_db, get_db_connection
 import google.generativeai as genai
 from dotenv import load_dotenv
 import email.utils
 import re
 import httpx
-import psycopg2.extras
+import sqlite3
+
+DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'articles.db')
+
+def get_db_connection():
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+def init_db():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS articles (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL,
+            link TEXT UNIQUE NOT NULL,
+            published TEXT,
+            category TEXT NOT NULL,
+            image_url TEXT,
+            summary_en TEXT,
+            summary_ua TEXT,
+            summary_ru TEXT
+        )
+    ''')
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS telegram_users (
+            chat_id INTEGER PRIMARY KEY,
+            language TEXT DEFAULT 'en',
+            subscriptions TEXT DEFAULT 'all'
+        )
+    ''')
+    conn.commit()
+    conn.close()
 
 load_dotenv()
 
@@ -76,10 +108,10 @@ async def poll_telegram_updates():
                                 if data_cb in lang_map:
                                     lang = lang_map[data_cb]
                                     conn = get_db_connection()
-                                    cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-                                    cursor.execute("INSERT INTO telegram_users (chat_id, language) VALUES (%s, %s) ON CONFLICT(chat_id) DO UPDATE SET language=%s", (chat_id, lang, lang))
+                                    cursor = conn.cursor()
+                                    cursor.execute("INSERT INTO telegram_users (chat_id, language) VALUES (?, ?) ON CONFLICT(chat_id) DO UPDATE SET language=excluded.language", (chat_id, lang))
                                     conn.commit()
-                                    cursor.execute("SELECT subscriptions FROM telegram_users WHERE chat_id = %s", (chat_id,))
+                                    cursor.execute("SELECT subscriptions FROM telegram_users WHERE chat_id = ?", (chat_id,))
                                     user_row = cursor.fetchone()
                                     conn.close()
                                     
@@ -117,8 +149,8 @@ async def poll_telegram_updates():
                                     
                                 elif data_cb == "menu_topics":
                                     conn = get_db_connection()
-                                    cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-                                    cursor.execute("SELECT subscriptions FROM telegram_users WHERE chat_id = %s", (chat_id,))
+                                    cursor = conn.cursor()
+                                    cursor.execute("SELECT subscriptions FROM telegram_users WHERE chat_id = ?", (chat_id,))
                                     user_row = cursor.fetchone()
                                     conn.close()
                                     
@@ -132,8 +164,8 @@ async def poll_telegram_updates():
                                     
                                 elif data_cb.startswith("topic_"):
                                     conn = get_db_connection()
-                                    cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-                                    cursor.execute("SELECT subscriptions FROM telegram_users WHERE chat_id = %s", (chat_id,))
+                                    cursor = conn.cursor()
+                                    cursor.execute("SELECT subscriptions FROM telegram_users WHERE chat_id = ?", (chat_id,))
                                     user_row = cursor.fetchone()
                                     
                                     if user_row:
@@ -153,7 +185,7 @@ async def poll_telegram_updates():
                                                     subs.add(topic)
                                                 new_subs = ",".join(subs) if subs else "all"
                                                 
-                                        cursor.execute("UPDATE telegram_users SET subscriptions = %s WHERE chat_id = %s", (new_subs, chat_id))
+                                        cursor.execute("UPDATE telegram_users SET subscriptions = ? WHERE chat_id = ?", (new_subs, chat_id))
                                         conn.commit()
                                         
                                         await client.post(f"{TELEGRAM_API_URL}/editMessageReplyMarkup", json={
@@ -253,7 +285,7 @@ async def fetch_and_store_news():
         try:
             print("Running background task: Fetching latest news and summarizing...")
             conn = get_db_connection()
-            cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            cursor = conn.cursor()
             for category, url in RSS_FEEDS.items():
                 feed = await asyncio.to_thread(feedparser.parse, url)
                 
@@ -262,7 +294,7 @@ async def fetch_and_store_news():
                     raw_link = getattr(entry, "link", "")
                     link = raw_link.split('?')[0] if raw_link else ""
                     
-                    cursor.execute("SELECT 1 FROM articles WHERE link = %s", (link,))
+                    cursor.execute("SELECT 1 FROM articles WHERE link = ?", (link,))
                     if cursor.fetchone():
                         continue
 
@@ -316,7 +348,7 @@ async def fetch_and_store_news():
                     
                     cursor.execute('''
                         INSERT INTO articles (title, link, published, category, summary_en, summary_ua, summary_ru, image_url)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                         ON CONFLICT(link) DO NOTHING
                     ''', (title, link, published, category, sum_en, sum_ua, sum_ru, image_url))
                     conn.commit()
@@ -362,7 +394,7 @@ async def cleanup_old_news():
             cutoff_date = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d %H:%M:%S")
             conn = get_db_connection()
             cursor = conn.cursor()
-            cursor.execute("DELETE FROM articles WHERE published != '' AND published < %s", (cutoff_date,))
+            cursor.execute("DELETE FROM articles WHERE published != '' AND published < ?", (cutoff_date,))
             deleted_count = cursor.rowcount
             conn.commit()
             conn.close()
@@ -403,7 +435,7 @@ async def read_index():
 @app.get("/news")
 def get_all_news():
     conn = get_db_connection()
-    cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cursor = conn.cursor()
     
     cursor.execute(
         "SELECT title, link, published, category, summary_en, summary_ua, summary_ru, image_url FROM articles ORDER BY published DESC LIMIT 1000"
@@ -416,7 +448,7 @@ def get_all_news():
 @app.get("/alerts")
 def get_latest_alerts():
     conn = get_db_connection()
-    cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cursor = conn.cursor()
     cursor.execute(
         "SELECT title, link, published FROM articles ORDER BY published DESC LIMIT 5"
     )
@@ -475,9 +507,9 @@ def get_category_news(category: str):
         raise HTTPException(status_code=404, detail="Category not found")
         
     conn = get_db_connection()
-    cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cursor = conn.cursor()
     cursor.execute(
-        "SELECT title, link, published, category, summary_en, summary_ua, summary_ru, image_url FROM articles WHERE category = %s ORDER BY published DESC LIMIT 15",
+        "SELECT title, link, published, category, summary_en, summary_ua, summary_ru, image_url FROM articles WHERE category = ? ORDER BY published DESC LIMIT 15",
         (category,)
     )
     rows = cursor.fetchall()
