@@ -222,8 +222,13 @@ async def generate_summary(text: str):
                 f"{SYSTEM_PROMPT}\n\nArticle Content:\n{text}"
             )
             raw_text = response.text.strip()
+            if raw_text.startswith("```json"):
+                raw_text = raw_text[7:]
             if raw_text.startswith("```"):
-                raw_text = raw_text.replace("```json", "").replace("```", "").strip()
+                raw_text = raw_text[3:]
+            if raw_text.endswith("```"):
+                raw_text = raw_text[:-3]
+            raw_text = raw_text.strip()
             
             parsed = json.loads(raw_text)
             
