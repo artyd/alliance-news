@@ -1294,19 +1294,19 @@
                 try {
                     const rawCat = itemRaw.category || 'unknown';
                     const realCatKeyItem = reverseCategoryMap[rawCat] || activeCategoryKey || 'cat_all';
-                    
+
                     let itemCatLoc = "All";
                     if (i18n[currentLang] && i18n[currentLang][realCatKeyItem]) {
                         itemCatLoc = i18n[currentLang][realCatKeyItem].short || "All";
                     }
 
-                    const displaySummary = itemRaw['summary_' + currentLang] 
-                                        || itemRaw['summary_en'] 
-                                        || itemRaw.summary_ru
-                                        || itemRaw.summary_ua
-                                        || itemRaw.title 
-                                        || '';
-                                        
+                    const displaySummary = itemRaw['summary_' + currentLang]
+                        || itemRaw['summary_en']
+                        || itemRaw.summary_ru
+                        || itemRaw.summary_ua
+                        || itemRaw.title
+                        || '';
+
                     const title = itemRaw.title || "No Title";
                     const published = itemRaw.published || "";
                     const link = itemRaw.link || "#";
@@ -1364,7 +1364,7 @@
                         `;
                         denseGrid.appendChild(card);
                     }
-                } catch(e) {
+                } catch (e) {
                     console.error("Error rendering article card:", e, itemRaw);
                 }
             });

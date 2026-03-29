@@ -207,7 +207,7 @@ async def generate_summary(text: str):
     if not text or not gemini_api_key:
         return {"en": text, "ua": text, "ru": text}
     
-    model = genai.GenerativeModel("gemini-3.1-pro-preview")
+    model = genai.GenerativeModel("gemini-3.1-flash")
     for attempt in range(3):
         try:
             response = await model.generate_content_async(
