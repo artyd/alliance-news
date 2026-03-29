@@ -236,11 +236,17 @@ async def fetch_and_store_news():
                 
                 for entry in feed.entries[:15]:
                     title = getattr(entry, "title", "")
-                    link = getattr(entry, "link", "")
-                    published = getattr(entry, "published", "")
+                    raw_link = getattr(entry, "link", "")
+                    link = raw_link.split('?')[0] if raw_link else ""
+                    
+                    cursor.execute("SELECT 1 FROM articles WHERE link = %s", (link,))
+                    if cursor.fetchone():
+                        continue
+
+                    raw_published = getattr(entry, "published", "")
                     try:
-                        if published:
-                            dt = email.utils.parsedate_to_datetime(published)
+                        if raw_published:
+                            dt = email.utils.parsedate_to_datetime(raw_published)
                             try:
                                 from zoneinfo import ZoneInfo
                                 dt = dt.astimezone(ZoneInfo("Europe/Kyiv"))
@@ -248,8 +254,17 @@ async def fetch_and_store_news():
                                 from datetime import timezone, timedelta
                                 dt = dt.astimezone(timezone(timedelta(hours=2)))
                             published = dt.strftime("%Y-%m-%d %H:%M:%S")
+                        else:
+                            raise ValueError("Missing published date")
                     except Exception:
-                        pass
+                        from datetime import datetime
+                        try:
+                            from zoneinfo import ZoneInfo
+                            tz = ZoneInfo("Europe/Kyiv")
+                        except ImportError:
+                            from datetime import timezone, timedelta
+                            tz = timezone(timedelta(hours=2))
+                        published = datetime.now(tz).strftime("%Y-%m-%d %H:%M:%S")
                     description = getattr(entry, "summary", "") or getattr(entry, "description", "") or title
                     
                     image_url = None
@@ -270,10 +285,6 @@ async def fetch_and_store_news():
                     
                     if not image_url:
                         image_url = "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?q=80&w=1200&auto=format&fit=crop"
-                    
-                    cursor.execute("SELECT id FROM articles WHERE link = %s", (link,))
-                    if cursor.fetchone():
-                        continue
                     
                     summaries = await generate_summary(description)
                     sum_en = summaries.get("en", description)
