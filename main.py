@@ -115,7 +115,7 @@ async def poll_telegram_updates():
                                     user_row = cursor.fetchone()
                                     conn.close()
                                     
-                                    current_subs = user_row["subscriptions"] if user_row and user_row.get("subscriptions") else "all"
+                                    current_subs = user_row["subscriptions"] if user_row and user_row["subscriptions"] else "all"
                                     
                                     msg_map = {
                                         "ru": "Язык установлен на Русский!\\nПожалуйста, выберите интересующие вас темы:",
@@ -154,7 +154,7 @@ async def poll_telegram_updates():
                                     user_row = cursor.fetchone()
                                     conn.close()
                                     
-                                    current_subs = user_row["subscriptions"] if user_row and user_row.get("subscriptions") else "all"
+                                    current_subs = user_row["subscriptions"] if user_row and user_row["subscriptions"] else "all"
                                     await client.post(f"{TELEGRAM_API_URL}/sendMessage", json={
                                         "chat_id": chat_id,
                                         "text": "Please select your preferred topics:",
@@ -169,7 +169,7 @@ async def poll_telegram_updates():
                                     user_row = cursor.fetchone()
                                     
                                     if user_row:
-                                        current_subs = user_row.get("subscriptions") or "all"
+                                        current_subs = user_row["subscriptions"] if user_row["subscriptions"] else "all"
                                         topic = data_cb.replace("topic_", "")
                                         
                                         if topic == "all":
@@ -251,7 +251,8 @@ async def generate_summary(text: str):
     for attempt in range(3):
         try:
             response = await model.generate_content_async(
-                f"{SYSTEM_PROMPT}\n\nArticle Content:\n{text}"
+                f"{SYSTEM_PROMPT}\n\nArticle Content:\n{text}",
+                request_options={"timeout": 120}
             )
             raw_text = response.text.strip()
             if raw_text.startswith("```json"):
@@ -354,28 +355,46 @@ async def fetch_and_store_news():
                     conn.commit()
                     
                     try:
-                        cursor.execute("SELECT chat_id, language, subscriptions FROM telegram_users")
-                        users = cursor.fetchall()
-                        if users:
-                            async with httpx.AsyncClient() as client:
+                        async with httpx.AsyncClient() as client:
+                            # 1. Broadcast to database users
+                            cursor.execute("SELECT chat_id, language, subscriptions FROM telegram_users")
+                            users = cursor.fetchall()
+                            if users:
                                 for user in users:
-                                    chat_id = user["chat_id"]
-                                    lang = user["language"]
-                                    subs = user.get("subscriptions") or "all"
-                                    
-                                    if subs != "all":
-                                        sub_list = subs.split(",")
-                                        if category not in sub_list:
-                                            continue
-                                            
-                                    summary_text = summaries.get(f"summary_{lang}", sum_en)
-                                    msg = f"📰 <b>{title}</b>\n\n📝 <i>{summary_text}</i>\n\n🏷 Category: #{category}\n🔗 <a href='{link}'>Read full article</a>"
-                                    
+                                    try:
+                                        chat_id = user["chat_id"]
+                                        lang = user["language"]
+                                        subs = user["subscriptions"] if user["subscriptions"] else "all"
+                                        
+                                        if subs != "all":
+                                            sub_list = subs.split(",")
+                                            if category not in sub_list:
+                                                continue
+                                                
+                                        summary_text = summaries.get(f"summary_{lang}", sum_en)
+                                        msg = f"📰 <b>{title}</b>\n\n📝 <i>{summary_text}</i>\n\n🏷 Category: #{category}\n🔗 <a href='{link}'>Read full article</a>"
+                                        
+                                        await client.post(f"{TELEGRAM_API_URL}/sendMessage", json={
+                                            "chat_id": chat_id,
+                                            "text": msg,
+                                            "parse_mode": "HTML"
+                                        })
+                                    except Exception as e:
+                                        print(f"Error sending to DB user {user['chat_id']}: {e}")
+
+                            # 2. Broadcast to specific chat IDs from environment variable
+                            chat_ids = [id.strip() for id in os.getenv("TELEGRAM_CHAT_ID", "").split(",") if id.strip()]
+                            for admin_chat_id in chat_ids:
+                                try:
+                                    msg = f"📰 <b>{title}</b>\n\n📝 <i>{sum_en}</i>\n\n🏷 Category: #{category}\n🔗 <a href='{link}'>Read full article</a>"
                                     await client.post(f"{TELEGRAM_API_URL}/sendMessage", json={
-                                        "chat_id": chat_id,
+                                        "chat_id": admin_chat_id,
                                         "text": msg,
                                         "parse_mode": "HTML"
                                     })
+                                except Exception as e:
+                                    print(f"Error sending to static chat_id {admin_chat_id}: {e}")
+
                     except Exception as e:
                         print(f"Error broadcasting to Telegram: {e}")
             
@@ -468,7 +487,7 @@ def get_latest_alerts():
     results = []
     for row in rows:
         r = dict(row)
-        pub_str = r.get("published")
+        pub_str = r["published"]
         dt_obj = None
         if pub_str:
             try:
