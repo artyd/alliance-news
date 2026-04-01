@@ -12,6 +12,11 @@ import email.utils
 import re
 import httpx
 import sqlite3
+import urllib.parse
+import datetime
+from fpdf import FPDF
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from openai import AsyncOpenAI
 
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'articles.db')
 
@@ -40,9 +45,14 @@ def init_db():
         CREATE TABLE IF NOT EXISTS telegram_users (
             chat_id INTEGER PRIMARY KEY,
             language TEXT DEFAULT 'en',
-            subscriptions TEXT DEFAULT 'all'
+            subscriptions TEXT DEFAULT 'all',
+            only_daily_mode BOOLEAN DEFAULT 0
         )
     ''')
+    try:
+        cursor.execute("ALTER TABLE telegram_users ADD COLUMN only_daily_mode BOOLEAN DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
     conn.commit()
     conn.close()
 
@@ -55,19 +65,25 @@ if gemini_api_key:
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_API_URL = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
 
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+aclient = AsyncOpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
+
+GLOBAL_SOURCES_RAW = "(site:reuters.com OR site:bloomberg.com OR site:ft.com OR site:wto.org OR site:bbc.com OR site:imf.org OR site:worldbank.org OR site:iccwbo.org OR site:theloadstar.com OR site:joc.com)"
+GLOBAL_SOURCES = urllib.parse.quote_plus(GLOBAL_SOURCES_RAW)
+
 RSS_FEEDS = {
-    "api": "https://news.google.com/rss/search?q=pharmaceutical+API+when:7d&hl=en-US&gl=US&ceid=US:en",
-    "cosmetic": "https://news.google.com/rss/search?q=cosmetic+ingredients+industry+when:7d&hl=en-US&gl=US&ceid=US:en",
-    "herbal": "https://news.google.com/rss/search?q=herbal+extracts+pharma+when:7d&hl=en-US&gl=US&ceid=US:en",
-    "veterinary": "https://news.google.com/rss/search?q=veterinary+medicine+production+when:7d&hl=en-US&gl=US&ceid=US:en",
-    "food": "https://news.google.com/rss/search?q=food+ingredients+supply+when:7d&hl=en-US&gl=US&ceid=US:en",
-    "feed": "https://news.google.com/rss/search?q=amino+acids+feed+industry+when:7d&hl=en-US&gl=US&ceid=US:en",
-    "capsules": "https://news.google.com/rss/search?q=capsule+manufacturing+pharma+when:7d&hl=en-US&gl=US&ceid=US:en",
-    "pvc": "https://news.google.com/rss/search?q=pvc+film+packaging+when:7d&hl=en-US&gl=US&ceid=US:en",
-    "logistics": "https://news.google.com/rss/search?q=global+logistics+shipping+when:7d&hl=en-US&gl=US&ceid=US:en"
+    "api": f"https://news.google.com/rss/search?q=pharmaceutical+API+{GLOBAL_SOURCES}+when:7d&hl=en-US&gl=US&ceid=US:en",
+    "cosmetic": f"https://news.google.com/rss/search?q=cosmetic+ingredients+industry+{GLOBAL_SOURCES}+when:7d&hl=en-US&gl=US&ceid=US:en",
+    "herbal": f"https://news.google.com/rss/search?q=herbal+extracts+pharma+{GLOBAL_SOURCES}+when:7d&hl=en-US&gl=US&ceid=US:en",
+    "veterinary": f"https://news.google.com/rss/search?q=veterinary+medicine+production+{GLOBAL_SOURCES}+when:7d&hl=en-US&gl=US&ceid=US:en",
+    "food": f"https://news.google.com/rss/search?q=food+ingredients+supply+{GLOBAL_SOURCES}+when:7d&hl=en-US&gl=US&ceid=US:en",
+    "feed": f"https://news.google.com/rss/search?q=amino+acids+feed+industry+{GLOBAL_SOURCES}+when:7d&hl=en-US&gl=US&ceid=US:en",
+    "capsules": f"https://news.google.com/rss/search?q=capsule+manufacturing+pharma+{GLOBAL_SOURCES}+when:7d&hl=en-US&gl=US&ceid=US:en",
+    "pvc": f"https://news.google.com/rss/search?q=pvc+film+packaging+{GLOBAL_SOURCES}+when:7d&hl=en-US&gl=US&ceid=US:en",
+    "logistics": f"https://news.google.com/rss/search?q=global+logistics+shipping+{GLOBAL_SOURCES}+when:7d&hl=en-US&gl=US&ceid=US:en"
 }
 
-def get_topics_keyboard(current_subs_str):
+def get_topics_keyboard(current_subs_str, only_daily_mode=0):
     subs = current_subs_str.split(',') if current_subs_str != 'all' else []
     keyboard = []
     
@@ -84,6 +100,9 @@ def get_topics_keyboard(current_subs_str):
             row = []
     if row:
         keyboard.append(row)
+        
+    daily_text = "✅ 📊 Only Daily PDF Report" if only_daily_mode else "🔘 📊 Only Daily PDF Report"
+    keyboard.append([{"text": daily_text, "callback_data": "toggle_daily_mode"}])
         
     return {"inline_keyboard": keyboard}
 
@@ -111,11 +130,12 @@ async def poll_telegram_updates():
                                     cursor = conn.cursor()
                                     cursor.execute("INSERT INTO telegram_users (chat_id, language) VALUES (?, ?) ON CONFLICT(chat_id) DO UPDATE SET language=excluded.language", (chat_id, lang))
                                     conn.commit()
-                                    cursor.execute("SELECT subscriptions FROM telegram_users WHERE chat_id = ?", (chat_id,))
+                                    cursor.execute("SELECT subscriptions, only_daily_mode FROM telegram_users WHERE chat_id = ?", (chat_id,))
                                     user_row = cursor.fetchone()
                                     conn.close()
                                     
                                     current_subs = user_row["subscriptions"] if user_row and user_row["subscriptions"] else "all"
+                                    only_daily_mode = user_row["only_daily_mode"] if user_row else 0
                                     
                                     msg_map = {
                                         "ru": "Язык установлен на Русский!\\nПожалуйста, выберите интересующие вас темы:",
@@ -126,7 +146,7 @@ async def poll_telegram_updates():
                                     await client.post(f"{TELEGRAM_API_URL}/sendMessage", json={
                                         "chat_id": chat_id,
                                         "text": msg_map[lang],
-                                        "reply_markup": get_topics_keyboard(current_subs)
+                                        "reply_markup": get_topics_keyboard(current_subs, only_daily_mode)
                                     })
                                     await client.post(f"{TELEGRAM_API_URL}/answerCallbackQuery", json={"callback_query_id": cb["id"]})
                                     
@@ -150,26 +170,48 @@ async def poll_telegram_updates():
                                 elif data_cb == "menu_topics":
                                     conn = get_db_connection()
                                     cursor = conn.cursor()
-                                    cursor.execute("SELECT subscriptions FROM telegram_users WHERE chat_id = ?", (chat_id,))
+                                    cursor.execute("SELECT subscriptions, only_daily_mode FROM telegram_users WHERE chat_id = ?", (chat_id,))
                                     user_row = cursor.fetchone()
                                     conn.close()
                                     
                                     current_subs = user_row["subscriptions"] if user_row and user_row["subscriptions"] else "all"
+                                    only_daily_mode = user_row["only_daily_mode"] if user_row else 0
                                     await client.post(f"{TELEGRAM_API_URL}/sendMessage", json={
                                         "chat_id": chat_id,
                                         "text": "Please select your preferred topics:",
-                                        "reply_markup": get_topics_keyboard(current_subs)
+                                        "reply_markup": get_topics_keyboard(current_subs, only_daily_mode)
                                     })
+                                    await client.post(f"{TELEGRAM_API_URL}/answerCallbackQuery", json={"callback_query_id": cb["id"]})
+                                    
+                                elif data_cb == "toggle_daily_mode":
+                                    conn = get_db_connection()
+                                    cursor = conn.cursor()
+                                    cursor.execute("SELECT subscriptions, only_daily_mode FROM telegram_users WHERE chat_id = ?", (chat_id,))
+                                    user_row = cursor.fetchone()
+                                    
+                                    if user_row:
+                                        current_subs = user_row["subscriptions"] if user_row["subscriptions"] else "all"
+                                        new_mode = 0 if user_row["only_daily_mode"] else 1
+                                        cursor.execute("UPDATE telegram_users SET only_daily_mode = ? WHERE chat_id = ?", (new_mode, chat_id))
+                                        conn.commit()
+                                        
+                                        await client.post(f"{TELEGRAM_API_URL}/editMessageReplyMarkup", json={
+                                            "chat_id": chat_id,
+                                            "message_id": cb["message"]["message_id"],
+                                            "reply_markup": get_topics_keyboard(current_subs, new_mode)
+                                        })
+                                    conn.close()
                                     await client.post(f"{TELEGRAM_API_URL}/answerCallbackQuery", json={"callback_query_id": cb["id"]})
                                     
                                 elif data_cb.startswith("topic_"):
                                     conn = get_db_connection()
                                     cursor = conn.cursor()
-                                    cursor.execute("SELECT subscriptions FROM telegram_users WHERE chat_id = ?", (chat_id,))
+                                    cursor.execute("SELECT subscriptions, only_daily_mode FROM telegram_users WHERE chat_id = ?", (chat_id,))
                                     user_row = cursor.fetchone()
                                     
                                     if user_row:
                                         current_subs = user_row["subscriptions"] if user_row["subscriptions"] else "all"
+                                        only_daily_mode = user_row["only_daily_mode"]
                                         topic = data_cb.replace("topic_", "")
                                         
                                         if topic == "all":
@@ -191,7 +233,7 @@ async def poll_telegram_updates():
                                         await client.post(f"{TELEGRAM_API_URL}/editMessageReplyMarkup", json={
                                             "chat_id": chat_id,
                                             "message_id": cb["message"]["message_id"],
-                                            "reply_markup": get_topics_keyboard(new_subs)
+                                            "reply_markup": get_topics_keyboard(new_subs, only_daily_mode)
                                         })
                                     conn.close()
                                     await client.post(f"{TELEGRAM_API_URL}/answerCallbackQuery", json={"callback_query_id": cb["id"]})
@@ -216,6 +258,36 @@ async def poll_telegram_updates():
                                         "text": "Welcome to MacroHarvey! / Ласкаво просимо! / Добро пожаловать!\\nPlease select your language:",
                                         "reply_markup": keyboard
                                     })
+                                elif text.startswith("/generate_report"):
+                                    await client.post(f"{TELEGRAM_API_URL}/sendMessage", json={
+                                        "chat_id": chat_id,
+                                        "text": "Generating report, please wait..."
+                                    })
+                                    pdf_path = await generate_daily_pdf_report()
+                                    if pdf_path and os.path.exists(pdf_path):
+                                        with open(pdf_path, 'rb') as f:
+                                            r = await client.post(
+                                                f"{TELEGRAM_API_URL}/sendDocument",
+                                                data={"chat_id": chat_id},
+                                                files={"document": ("Daily_Report.pdf", f)}
+                                            )
+                                            if r.status_code == 200:
+                                                msg_data = r.json()
+                                                msg_id = msg_data.get("result", {}).get("message_id")
+                                                if msg_id:
+                                                    await client.post(
+                                                        f"{TELEGRAM_API_URL}/pinChatMessage",
+                                                        json={
+                                                            "chat_id": chat_id,
+                                                            "message_id": msg_id,
+                                                            "disable_notification": True
+                                                        }
+                                                    )
+                                    else:
+                                        await client.post(f"{TELEGRAM_API_URL}/sendMessage", json={
+                                            "chat_id": chat_id,
+                                            "text": "Failed to generate report. Check logs."
+                                        })
                                 elif text.startswith("/settings") or text.startswith("/menu"):
                                     keyboard = {
                                         "inline_keyboard": [
@@ -237,10 +309,11 @@ SYSTEM_PROMPT = """You are a senior B2B market analyst focusing on Ukraine.
 Analyze the following article. Provide the output strictly as a raw JSON object with these exact keys: 'summary_en', 'summary_ua', 'summary_ru'.
 Do not include any other text, markdown formatting, or ```json blocks.
 
-Each key must contain a concise 2-3 sentence summary:
-1. Briefly state the core event.
-2. Explain how this impacts Ukrainian B2B traders or supply chains.
-3. Give an actionable recommendation.
+NEW CONSTRAINTS: The summary must be STRICTLY under 45 words per language.
+NEW STRUCTURE: The summary must contain exactly two parts:
+1. The Core Event: What happened globally.
+2. Strategic B2B Impact: How a Ukrainian company in this sector should react or what they should prepare for.
+
 Translate the exact same summary into English, Ukrainian, and Russian respectively for the keys."""
 
 async def generate_summary(text: str):
@@ -280,6 +353,109 @@ async def generate_summary(text: str):
                 await asyncio.sleep(2)
             else:
                 return {"summary_en": text, "summary_ua": text, "summary_ru": text}
+
+async def generate_daily_pdf_report():
+    if not aclient:
+        print("OpenAI API key missing")
+        return None
+        
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    today = datetime.datetime.now()
+    yesterday = today - datetime.timedelta(days=1)
+    date_str = yesterday.strftime("%Y-%m-%d")
+    
+    cursor.execute("SELECT title, link, category, summary_en FROM articles WHERE published >= ? AND published < ?", 
+                   (date_str + " 00:00:00", today.strftime("%Y-%m-%d 00:00:00")))
+    rows = cursor.fetchall()
+    conn.close()
+    
+    if not rows:
+        print("No articles from yesterday")
+        return None
+        
+    content = ""
+    for r in rows:
+        content += f"- {r['title']} ({r['category']}): {r['summary_en']}\n"
+        
+    prompt = "You are a Chief Strategy Officer. Write a ONE-PAGE B2B executive summary of yesterday's news. Group into 3 global trends. For each, add 'Action for Ukrainian Business'. Max 400 words. Language: Russian/Ukrainian."
+    
+    try:
+        response = await aclient.chat.completions.create(
+            model="o1-mini",
+            messages=[
+                {"role": "user", "content": f"{prompt}\n\nNews Data:\n{content}"}
+            ]
+        )
+        report_text = response.choices[0].message.content
+    except Exception as e:
+        print(f"OpenAI error: {e}")
+        return None
+    
+    pdf = FPDF()
+    pdf.add_page()
+    
+    font_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'DejaVuSans.ttf')
+    if os.path.exists(font_path):
+        pdf.add_font("DejaVu", "", font_path, uni=True)
+        pdf.set_font("DejaVu", size=11)
+    else:
+        pdf.set_font("Arial", size=11)
+        
+    logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'logo.png')
+    if os.path.exists(logo_path):
+        pdf.image(logo_path, x=10, y=8, w=30)
+        pdf.ln(20)
+        
+    pdf.set_font("DejaVu" if os.path.exists(font_path) else "Arial", style="B", size=16)
+    pdf.cell(200, 10, txt=f"Daily B2B Report - {date_str}", ln=True, align='C')
+    pdf.ln(10)
+    
+    pdf.set_font("DejaVu" if os.path.exists(font_path) else "Arial", size=11)
+    pdf.multi_cell(0, 8, txt=report_text)
+    
+    pdf_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'daily_report.pdf')
+    pdf.output(pdf_path)
+    return pdf_path
+
+async def send_daily_report_to_users():
+    pdf_path = await generate_daily_pdf_report()
+    if not pdf_path or not os.path.exists(pdf_path):
+        print("Daily report generation skipped or failed.")
+        return
+        
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT chat_id FROM telegram_users")
+    users = cursor.fetchall()
+    conn.close()
+    
+    async with httpx.AsyncClient() as client:
+        for user in users:
+            try:
+                chat_id = user["chat_id"]
+                with open(pdf_path, 'rb') as f:
+                    r = await client.post(
+                        f"{TELEGRAM_API_URL}/sendDocument",
+                        data={"chat_id": chat_id},
+                        files={"document": ("Daily_Report.pdf", f)}
+                    )
+                    
+                    if r.status_code == 200:
+                        msg_data = r.json()
+                        msg_id = msg_data.get("result", {}).get("message_id")
+                        if msg_id:
+                            await client.post(
+                                f"{TELEGRAM_API_URL}/pinChatMessage",
+                                json={
+                                    "chat_id": chat_id,
+                                    "message_id": msg_id,
+                                    "disable_notification": True
+                                }
+                            )
+            except Exception as e:
+                print(f"Error sending PDF to {chat_id}: {e}")
 
 async def fetch_and_store_news():
     while True:
@@ -357,11 +533,14 @@ async def fetch_and_store_news():
                     try:
                         async with httpx.AsyncClient() as client:
                             # 1. Broadcast to database users
-                            cursor.execute("SELECT chat_id, language, subscriptions FROM telegram_users")
+                            cursor.execute("SELECT chat_id, language, subscriptions, only_daily_mode FROM telegram_users")
                             users = cursor.fetchall()
                             if users:
                                 for user in users:
                                     try:
+                                        if user["only_daily_mode"]:
+                                            continue
+                                            
                                         chat_id = user["chat_id"]
                                         lang = user["language"]
                                         subs = user["subscriptions"] if user["subscriptions"] else "all"
@@ -429,7 +608,13 @@ async def lifespan(app: FastAPI):
     task_news = asyncio.create_task(fetch_and_store_news())
     task_tg = asyncio.create_task(poll_telegram_updates())
     task_cleanup = asyncio.create_task(cleanup_old_news())
+    
+    scheduler = AsyncIOScheduler(timezone="Europe/Kyiv")
+    scheduler.add_job(send_daily_report_to_users, 'cron', hour=9, minute=0)
+    scheduler.start()
+    
     yield
+    scheduler.shutdown()
     task_news.cancel()
     task_tg.cancel()
     task_cleanup.cancel()
