@@ -308,7 +308,7 @@ async def poll_telegram_updates():
 
 SYSTEM_PROMPT = """You are a senior B2B market analyst focusing on Ukraine.
 Analyze the following article. Provide the output strictly as a raw JSON object with these exact keys: 'summary_en', 'summary_ua', 'summary_ru'.
-Do not include any other text, markdown formatting, or ```json blocks.
+IMPORTANT: Your output must be ONLY a valid JSON object. You must carefully escape any inner double quotes inside the text values using a backslash (\\"). Do not wrap the output in markdown blocks like ```json.
 
 NEW CONSTRAINTS: The summary must be STRICTLY under 35 words per language.
 NEW STRUCTURE: The summary must contain exactly two parts:
@@ -331,7 +331,7 @@ async def generate_summary(text: str):
             raw_text = response.text.strip()
             if raw_text.startswith("```json"):
                 raw_text = raw_text[7:]
-            if raw_text.startswith("```"):
+            elif raw_text.startswith("```"):
                 raw_text = raw_text[3:]
             if raw_text.endswith("```"):
                 raw_text = raw_text[:-3]
@@ -391,7 +391,7 @@ async def generate_daily_pdf_report():
     for cat, content in categories.items():
         try:
             resp = await aclient.chat.completions.create(
-                model="gpt 5-4 Mini",
+                model="gpt-5 mini",
                 messages=[
                     {"role": "system", "content": "You are a pharmaceutical market analyst. Extract only key facts without fluff."},
                     {"role": "user", "content": f"Category: {cat}\nNews:\n{content}"}
@@ -411,7 +411,7 @@ async def generate_daily_pdf_report():
     
     try:
         response = await aclient.chat.completions.create(
-            model="gpt 5-4 Mini",
+            model="gpt-5 mini",
             messages=[
                 {"role": "system", "content": prompt},
                 {"role": "user", "content": reduce_content}
@@ -508,6 +508,7 @@ async def send_daily_report_to_users():
 
 async def fetch_and_store_news():
     while True:
+        conn = None
         try:
             print("Running background task: Fetching latest news and summarizing...")
             conn = get_db_connection()
@@ -520,7 +521,8 @@ async def fetch_and_store_news():
                     raw_link = getattr(entry, "link", "")
                     link = raw_link.split('?')[0] if raw_link else ""
                     
-                    cursor.execute("SELECT 1 FROM articles WHERE link = ?", (link,))
+                    # Strict pre-check for duplicates (also check title to combat Google News dynamic URLs)
+                    cursor.execute("SELECT 1 FROM articles WHERE link = ? OR title = ?", (link, title))
                     if cursor.fetchone():
                         continue
 
@@ -626,10 +628,15 @@ async def fetch_and_store_news():
                     except Exception as e:
                         print(f"Error broadcasting to Telegram: {e}")
             
-            conn.close()
             print("Successfully updated news database.")
         except Exception as e:
             print(f"Error fetching news: {e}")
+        finally:
+            if conn:
+                try:
+                    conn.close()
+                except Exception as ce:
+                    print(f"Error closing DB connection: {ce}")
         
         await asyncio.sleep(900)
 
