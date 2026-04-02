@@ -517,25 +517,38 @@ async def generate_daily_pdf_report():
             print(f"PDF write error (skipping line): {e}")
 
     pdf.set_font(font_main, style="B", size=16)
-    safe_write(pdf, "Premium Pharmaceutical Intelligence - Daily Report", h=10)
+    pdf.multi_cell(0, 10, txt="Premium Pharmaceutical Intelligence - Daily Report")
 
     pdf.set_font(font_main, style="", size=11)
-    safe_write(pdf, today.strftime("%Y-%m-%d"), h=8)
+    pdf.multi_cell(0, 8, txt=today.strftime("%Y-%m-%d"))
     pdf.ln(5)
 
     pdf.set_font(font_main, size=10)
     for line in report_text.split('\n'):
-        if (line.startswith('#') or line.startswith('**') or
-                line.strip().startswith('1. Main events') or
-                line.strip().startswith('2. Category breakdown') or
-                line.strip().startswith('3. Actionable Business Insights')):
-            pdf.set_font(font_main, style="B", size=12)
-            cleaned_line = line.replace('#', '').replace('**', '').strip()
+        # Убираем markdown символы
+        clean = line.replace('**', '').replace('##', '').replace('#', '').strip()
+        if not clean:
             pdf.ln(3)
-            safe_write(pdf, cleaned_line, h=8)
+            continue
+
+        # Определяем заголовок — начинается с цифры+точки или является коротким болд-текстом
+        is_header = (
+            line.strip().startswith('1.') or
+            line.strip().startswith('2.') or
+            line.strip().startswith('3.') or
+            line.strip().startswith('4.') or
+            line.strip().startswith('5.') or
+            line.strip().startswith('#') or
+            (line.strip().startswith('**') and line.strip().endswith('**'))
+        )
+
+        if is_header:
+            pdf.ln(2)
+            pdf.set_font(font_main, style="B", size=11)
+            pdf.multi_cell(0, 7, txt=clean)
             pdf.set_font(font_main, style="", size=10)
         else:
-            safe_write(pdf, line, h=6)
+            pdf.multi_cell(0, 6, txt=clean)
 
     pdf_path = os.path.join(base_dir, f'daily_report_{today.strftime("%Y%m%d")}.pdf')
     pdf.output(pdf_path)
