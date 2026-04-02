@@ -524,7 +524,8 @@ async def fetch_and_store_news():
                     
                     try:
                         cursor.execute("SELECT 1 FROM articles WHERE link = ?", (link,))
-                        if cursor.fetchone():
+                        if cursor.fetchone() is not None:
+                            print(f"Duplicate skipped: {link}")
                             continue
                     except Exception as e:
                         print(f"DB check error: {e}")
