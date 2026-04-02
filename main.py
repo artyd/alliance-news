@@ -54,6 +54,19 @@ def init_db():
         cursor.execute("ALTER TABLE telegram_users ADD COLUMN only_daily_mode BOOLEAN DEFAULT 0")
     except sqlite3.OperationalError:
         pass
+    # Таблица учёта отправленных новостей — предотвращает дубли при рестарте
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS telegram_sent (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            chat_id INTEGER NOT NULL,
+            article_link TEXT NOT NULL,
+            sent_at TEXT NOT NULL,
+            UNIQUE(chat_id, article_link)
+        )
+    ''')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_sent_link ON telegram_sent(article_link)')
+    # Индекс по заголовку для дедупликации статей с разными URL
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_articles_title ON articles(title)')
     conn.commit()
     conn.close()
 
@@ -527,6 +540,11 @@ async def fetch_and_store_news():
                         if cursor.fetchone() is not None:
                             print(f"Duplicate skipped: {link}")
                             continue
+                        # Дополнительная проверка по заголовку — защита от смены URL
+                        cursor.execute("SELECT 1 FROM articles WHERE title = ?", (title,))
+                        if cursor.fetchone() is not None:
+                            print(f"Duplicate by title skipped: {title[:60]}")
+                            continue
                     except Exception as e:
                         print(f"DB check error: {e}")
                         continue
@@ -605,15 +623,32 @@ async def fetch_and_store_news():
                                             sub_list = subs.split(",")
                                             if category not in sub_list:
                                                 continue
-                                                
+
+                                        # Проверяем, не отправляли ли уже эту новость этому пользователю
+                                        cursor.execute(
+                                            "SELECT 1 FROM telegram_sent WHERE chat_id = ? AND article_link = ?",
+                                            (chat_id, link)
+                                        )
+                                        if cursor.fetchone() is not None:
+                                            continue
+
                                         summary_text = summaries.get(f"summary_{lang}", sum_en)
                                         msg = f"📰 <b>{title}</b>\n\n📝 <i>{summary_text}</i>\n\n🏷 Category: #{category}\n🔗 <a href='{link}'>Read full article</a>"
                                         
-                                        await client.post(f"{TELEGRAM_API_URL}/sendMessage", json={
+                                        resp = await client.post(f"{TELEGRAM_API_URL}/sendMessage", json={
                                             "chat_id": chat_id,
                                             "text": msg,
                                             "parse_mode": "HTML"
                                         })
+                                        
+                                        # Записываем факт отправки только если успешно
+                                        if resp.status_code == 200:
+                                            sent_at = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                                            cursor.execute(
+                                                "INSERT OR IGNORE INTO telegram_sent (chat_id, article_link, sent_at) VALUES (?, ?, ?)",
+                                                (chat_id, link, sent_at)
+                                            )
+                                            conn.commit()
                                     except Exception as e:
                                         print(f"Error sending to DB user {user['chat_id']}: {e}")
 
@@ -621,12 +656,27 @@ async def fetch_and_store_news():
                             chat_ids = [id.strip() for id in os.getenv("TELEGRAM_CHAT_ID", "").split(",") if id.strip()]
                             for admin_chat_id in chat_ids:
                                 try:
+                                    # Проверяем, не отправляли ли уже эту новость
+                                    cursor.execute(
+                                        "SELECT 1 FROM telegram_sent WHERE chat_id = ? AND article_link = ?",
+                                        (int(admin_chat_id), link)
+                                    )
+                                    if cursor.fetchone() is not None:
+                                        continue
+
                                     msg = f"📰 <b>{title}</b>\n\n📝 <i>{sum_en}</i>\n\n🏷 Category: #{category}\n🔗 <a href='{link}'>Read full article</a>"
-                                    await client.post(f"{TELEGRAM_API_URL}/sendMessage", json={
+                                    resp = await client.post(f"{TELEGRAM_API_URL}/sendMessage", json={
                                         "chat_id": admin_chat_id,
                                         "text": msg,
                                         "parse_mode": "HTML"
                                     })
+                                    if resp.status_code == 200:
+                                        sent_at = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                                        cursor.execute(
+                                            "INSERT OR IGNORE INTO telegram_sent (chat_id, article_link, sent_at) VALUES (?, ?, ?)",
+                                            (int(admin_chat_id), link, sent_at)
+                                        )
+                                        conn.commit()
                                 except Exception as e:
                                     print(f"Error sending to static chat_id {admin_chat_id}: {e}")
 
@@ -655,9 +705,12 @@ async def cleanup_old_news():
             cursor = conn.cursor()
             cursor.execute("DELETE FROM articles WHERE published != '' AND published < ?", (cutoff_date,))
             deleted_count = cursor.rowcount
+            # Чистим записи об отправке для удалённых статей
+            cursor.execute("DELETE FROM telegram_sent WHERE sent_at < ?", (cutoff_date,))
+            sent_deleted = cursor.rowcount
             conn.commit()
             conn.close()
-            print(f"Cleanup finished. Deleted {deleted_count} old articles.")
+            print(f"Cleanup finished. Deleted {deleted_count} old articles, {sent_deleted} sent records.")
         except Exception as e:
             print(f"Error during cleanup_old_news: {e}")
         
