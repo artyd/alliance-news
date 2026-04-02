@@ -473,80 +473,42 @@ async def generate_daily_pdf_report():
         print(f"OpenAI REDUCE error: {e}")
         return None
 
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    font_path = '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'
+    font_bold_path = '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf'
+
+    # add_font должен быть ДО add_page
     pdf = FPDF()
     pdf.set_margins(15, 15, 15)
+    pdf.add_font("DejaVu", fname=font_path)
+    pdf.add_font("DejaVu", style="B", fname=font_bold_path)
     pdf.add_page()
-
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-
-    # Ищем шрифт с поддержкой Unicode/кириллицы
-    font_candidates = [
-        os.path.join(base_dir, 'DejaVuSans.ttf'),
-        '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
-        '/usr/share/fonts/dejavu/DejaVuSans.ttf',
-    ]
-    font_bold_candidates = [
-        os.path.join(base_dir, 'DejaVuSans-Bold.ttf'),
-        '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
-        '/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf',
-    ]
-
-    font_path = next((p for p in font_candidates if os.path.exists(p)), None)
-    font_bold_path = next((p for p in font_bold_candidates if os.path.exists(p)), None)
-
-    if font_path:
-        pdf.add_font("DejaVu", fname=font_path)
-        pdf.add_font("DejaVu", style="B", fname=font_bold_path if font_bold_path else font_path)
-        font_main = "DejaVu"
-    else:
-        font_main = "Helvetica"
 
     logo_path = os.path.join(base_dir, 'logo.png')
     if os.path.exists(logo_path):
-        pdf.image(logo_path, x=15, y=15, w=30)
-        pdf.ln(20)
+        pdf.image(logo_path, x=15, y=15, w=25)
+        pdf.ln(22)
 
-    def safe_write(pdf, text, h=8):
-        """Пишет текст, заменяя символы которые не может отрендерить шрифт."""
-        if font_main == "Helvetica":
-            # Arial/Helvetica не поддерживает кириллицу — транслитерируем или пропускаем
-            text = text.encode('latin-1', errors='replace').decode('latin-1')
-        try:
-            pdf.multi_cell(0, h, text=text)
-        except Exception as e:
-            print(f"PDF write error (skipping line): {e}")
-
-    pdf.set_font(font_main, style="B", size=16)
+    pdf.set_font("DejaVu", style="B", size=14)
     pdf.multi_cell(0, 10, text="Premium Pharmaceutical Intelligence - Daily Report")
+    pdf.set_font("DejaVu", size=10)
+    pdf.multi_cell(0, 7, text=today.strftime("%Y-%m-%d"))
+    pdf.ln(4)
 
-    pdf.set_font(font_main, style="", size=11)
-    pdf.multi_cell(0, 8, text=today.strftime("%Y-%m-%d"))
-    pdf.ln(5)
-
-    pdf.set_font(font_main, size=10)
     for line in report_text.split('\n'):
-        # Убираем markdown символы
         clean = line.replace('**', '').replace('##', '').replace('#', '').strip()
         if not clean:
-            pdf.ln(3)
+            pdf.ln(2)
             continue
-
-        # Определяем заголовок — начинается с цифры+точки или является коротким болд-текстом
         is_header = (
-            line.strip().startswith('1.') or
-            line.strip().startswith('2.') or
-            line.strip().startswith('3.') or
-            line.strip().startswith('4.') or
-            line.strip().startswith('5.') or
-            line.strip().startswith('#') or
+            clean[:3] in ['1. ', '2. ', '3. ', '4. ', '5. '] or
             (line.strip().startswith('**') and line.strip().endswith('**'))
         )
-
         if is_header:
             pdf.ln(2)
-            pdf.set_font(font_main, style="B", size=11)
+            pdf.set_font("DejaVu", style="B", size=11)
             pdf.multi_cell(0, 7, text=clean)
-            pdf.set_font(font_main, style="", size=10)
+            pdf.set_font("DejaVu", size=10)
         else:
             pdf.multi_cell(0, 6, text=clean)
 
