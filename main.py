@@ -6,7 +6,10 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 import feedparser
-import google.generativeai as genai
+try:
+    import google.genai as genai
+except ImportError:
+    import google.generativeai as genai
 from dotenv import load_dotenv
 import email.utils
 import re
