@@ -495,11 +495,11 @@ async def generate_daily_pdf_report():
     font_bold_path = next((p for p in font_bold_candidates if os.path.exists(p)), None)
 
     if font_path:
-        pdf.add_font("DejaVu", "", font_path, uni=True)
-        pdf.add_font("DejaVu", "B", font_bold_path if font_bold_path else font_path, uni=True)
+        pdf.add_font("DejaVu", fname=font_path)
+        pdf.add_font("DejaVu", style="B", fname=font_bold_path if font_bold_path else font_path)
         font_main = "DejaVu"
     else:
-        font_main = "Helvetica"  # Helvetica безопаснее Arial в fpdf2
+        font_main = "Helvetica"
 
     logo_path = os.path.join(base_dir, 'logo.png')
     if os.path.exists(logo_path):
