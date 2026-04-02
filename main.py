@@ -512,15 +512,15 @@ async def generate_daily_pdf_report():
             # Arial/Helvetica не поддерживает кириллицу — транслитерируем или пропускаем
             text = text.encode('latin-1', errors='replace').decode('latin-1')
         try:
-            pdf.multi_cell(0, h, txt=text)
+            pdf.multi_cell(0, h, text=text)
         except Exception as e:
             print(f"PDF write error (skipping line): {e}")
 
     pdf.set_font(font_main, style="B", size=16)
-    pdf.multi_cell(0, 10, txt="Premium Pharmaceutical Intelligence - Daily Report")
+    pdf.multi_cell(0, 10, text="Premium Pharmaceutical Intelligence - Daily Report")
 
     pdf.set_font(font_main, style="", size=11)
-    pdf.multi_cell(0, 8, txt=today.strftime("%Y-%m-%d"))
+    pdf.multi_cell(0, 8, text=today.strftime("%Y-%m-%d"))
     pdf.ln(5)
 
     pdf.set_font(font_main, size=10)
@@ -545,10 +545,10 @@ async def generate_daily_pdf_report():
         if is_header:
             pdf.ln(2)
             pdf.set_font(font_main, style="B", size=11)
-            pdf.multi_cell(0, 7, txt=clean)
+            pdf.multi_cell(0, 7, text=clean)
             pdf.set_font(font_main, style="", size=10)
         else:
-            pdf.multi_cell(0, 6, txt=clean)
+            pdf.multi_cell(0, 6, text=clean)
 
     pdf_path = os.path.join(base_dir, f'daily_report_{today.strftime("%Y%m%d")}.pdf')
     pdf.output(pdf_path)
