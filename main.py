@@ -474,42 +474,70 @@ async def generate_daily_pdf_report():
         return None
 
     pdf = FPDF()
+    pdf.set_margins(15, 15, 15)
     pdf.add_page()
 
-    font_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'DejaVuSans.ttf')
-    if os.path.exists(font_path):
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+
+    # Ищем шрифт с поддержкой Unicode/кириллицы
+    font_candidates = [
+        os.path.join(base_dir, 'DejaVuSans.ttf'),
+        '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
+        '/usr/share/fonts/dejavu/DejaVuSans.ttf',
+    ]
+    font_bold_candidates = [
+        os.path.join(base_dir, 'DejaVuSans-Bold.ttf'),
+        '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
+        '/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf',
+    ]
+
+    font_path = next((p for p in font_candidates if os.path.exists(p)), None)
+    font_bold_path = next((p for p in font_bold_candidates if os.path.exists(p)), None)
+
+    if font_path:
         pdf.add_font("DejaVu", "", font_path, uni=True)
-        pdf.add_font("DejaVu", "B", font_path, uni=True)
+        pdf.add_font("DejaVu", "B", font_bold_path if font_bold_path else font_path, uni=True)
         font_main = "DejaVu"
     else:
-        font_main = "Arial"
+        font_main = "Helvetica"  # Helvetica безопаснее Arial в fpdf2
 
-    logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'logo.png')
+    logo_path = os.path.join(base_dir, 'logo.png')
     if os.path.exists(logo_path):
-        pdf.image(logo_path, x=10, y=8, w=30)
+        pdf.image(logo_path, x=15, y=15, w=30)
         pdf.ln(20)
 
-    pdf.set_font(font_main, style="B", size=18)
-    pdf.cell(0, 10, txt="Premium Pharmaceutical Intelligence - Daily Report", ln=True, align='C')
+    def safe_write(pdf, text, h=8):
+        """Пишет текст, заменяя символы которые не может отрендерить шрифт."""
+        if font_main == "Helvetica":
+            # Arial/Helvetica не поддерживает кириллицу — транслитерируем или пропускаем
+            text = text.encode('latin-1', errors='replace').decode('latin-1')
+        try:
+            pdf.multi_cell(0, h, txt=text)
+        except Exception as e:
+            print(f"PDF write error (skipping line): {e}")
 
-    pdf.set_font(font_main, style="", size=12)
-    pdf.cell(0, 10, txt=today.strftime("%Y-%m-%d"), ln=True, align='C')
-    pdf.ln(10)
+    pdf.set_font(font_main, style="B", size=16)
+    safe_write(pdf, "Premium Pharmaceutical Intelligence - Daily Report", h=10)
 
-    pdf.set_font(font_main, size=11)
+    pdf.set_font(font_main, style="", size=11)
+    safe_write(pdf, today.strftime("%Y-%m-%d"), h=8)
+    pdf.ln(5)
+
+    pdf.set_font(font_main, size=10)
     for line in report_text.split('\n'):
         if (line.startswith('#') or line.startswith('**') or
                 line.strip().startswith('1. Main events') or
                 line.strip().startswith('2. Category breakdown') or
                 line.strip().startswith('3. Actionable Business Insights')):
-            pdf.set_font(font_main, style="B", size=14)
+            pdf.set_font(font_main, style="B", size=12)
             cleaned_line = line.replace('#', '').replace('**', '').strip()
-            pdf.multi_cell(0, 10, txt=cleaned_line)
-            pdf.set_font(font_main, style="", size=11)
+            pdf.ln(3)
+            safe_write(pdf, cleaned_line, h=8)
+            pdf.set_font(font_main, style="", size=10)
         else:
-            pdf.multi_cell(0, 8, txt=line)
+            safe_write(pdf, line, h=6)
 
-    pdf_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), f'daily_report_{today.strftime("%Y%m%d")}.pdf')
+    pdf_path = os.path.join(base_dir, f'daily_report_{today.strftime("%Y%m%d")}.pdf')
     pdf.output(pdf_path)
     return pdf_path
 
