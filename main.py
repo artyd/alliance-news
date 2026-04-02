@@ -17,6 +17,7 @@ import datetime
 from fpdf import FPDF
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from openai import AsyncOpenAI
+import pytz
 
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'articles.db')
 
@@ -309,7 +310,7 @@ SYSTEM_PROMPT = """You are a senior B2B market analyst focusing on Ukraine.
 Analyze the following article. Provide the output strictly as a raw JSON object with these exact keys: 'summary_en', 'summary_ua', 'summary_ru'.
 Do not include any other text, markdown formatting, or ```json blocks.
 
-NEW CONSTRAINTS: The summary must be STRICTLY under 45 words per language.
+NEW CONSTRAINTS: The summary must be STRICTLY under 35 words per language.
 NEW STRUCTURE: The summary must contain exactly two parts:
 1. The Core Event: What happened globally.
 2. Strategic B2B Impact: How a Ukrainian company in this sector should react or what they should prepare for.
@@ -320,7 +321,7 @@ async def generate_summary(text: str):
     if not text or not gemini_api_key:
         return {"summary_en": text, "summary_ua": text, "summary_ru": text}
     
-    model = genai.GenerativeModel("gemini-3.1-pro")
+    model = genai.GenerativeModel("gemini-2.5-flash")
     for attempt in range(3):
         try:
             response = await model.generate_content_async(
@@ -364,10 +365,12 @@ async def generate_daily_pdf_report():
     
     today = datetime.datetime.now()
     yesterday = today - datetime.timedelta(days=1)
-    date_str = yesterday.strftime("%Y-%m-%d")
     
-    cursor.execute("SELECT title, link, category, summary_en FROM articles WHERE published >= ? AND published < ?", 
-                   (date_str + " 00:00:00", today.strftime("%Y-%m-%d 00:00:00")))
+    date_str_start = yesterday.strftime("%Y-%m-%d %H:%M:%S")
+    date_str_end = today.strftime("%Y-%m-%d %H:%M:%S")
+    
+    cursor.execute("SELECT title, link, category, summary_en FROM articles WHERE published >= ? AND published <= ?", 
+                   (date_str_start, date_str_end))
     rows = cursor.fetchall()
     conn.close()
     
@@ -375,22 +378,48 @@ async def generate_daily_pdf_report():
         print("No articles from yesterday")
         return None
         
-    content = ""
+    # Group by category
+    categories = {}
     for r in rows:
-        content += f"- {r['title']} ({r['category']}): {r['summary_en']}\n"
+        cat = r['category']
+        if cat not in categories:
+            categories[cat] = ""
+        categories[cat] += f"- {r['title']}: {r['summary_en']}\n"
         
-    prompt = "You are a Chief Strategy Officer. Write a ONE-PAGE B2B executive summary of yesterday's news. Group into 3 global trends. For each, add 'Action for Ukrainian Business'. Max 400 words. Language: Russian/Ukrainian."
+    # Map step
+    category_summaries = {}
+    for cat, content in categories.items():
+        try:
+            resp = await aclient.chat.completions.create(
+                model="gpt 5-4 Mini",
+                messages=[
+                    {"role": "system", "content": "You are a pharmaceutical market analyst. Extract only key facts without fluff."},
+                    {"role": "user", "content": f"Category: {cat}\nNews:\n{content}"}
+                ]
+            )
+            category_summaries[cat] = resp.choices[0].message.content
+        except Exception as e:
+            print(f"OpenAI MAP error for {cat}: {e}")
+            category_summaries[cat] = "Failed to summarize."
+            
+    # Reduce step
+    reduce_content = ""
+    for cat, summary in category_summaries.items():
+        reduce_content += f"--- Category: {cat} ---\n{summary}\n\n"
+        
+    prompt = "You are a B2B strategist. Create an Executive Summary. Structure: 1. Main events of the day, 2. Category breakdown, 3. Actionable Business Insights."
     
     try:
         response = await aclient.chat.completions.create(
-            model="o1-mini",
+            model="gpt 5-4 Mini",
             messages=[
-                {"role": "user", "content": f"{prompt}\n\nNews Data:\n{content}"}
+                {"role": "system", "content": prompt},
+                {"role": "user", "content": reduce_content}
             ]
         )
         report_text = response.choices[0].message.content
     except Exception as e:
-        print(f"OpenAI error: {e}")
+        print(f"OpenAI REDUCE error: {e}")
         return None
     
     pdf = FPDF()
@@ -399,23 +428,35 @@ async def generate_daily_pdf_report():
     font_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'DejaVuSans.ttf')
     if os.path.exists(font_path):
         pdf.add_font("DejaVu", "", font_path, uni=True)
-        pdf.set_font("DejaVu", size=11)
+        pdf.add_font("DejaVu", "B", font_path, uni=True)
+        font_main = "DejaVu"
     else:
-        pdf.set_font("Arial", size=11)
+        font_main = "Arial"
         
     logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'logo.png')
     if os.path.exists(logo_path):
         pdf.image(logo_path, x=10, y=8, w=30)
         pdf.ln(20)
         
-    pdf.set_font("DejaVu" if os.path.exists(font_path) else "Arial", style="B", size=16)
-    pdf.cell(200, 10, txt=f"Daily B2B Report - {date_str}", ln=True, align='C')
+    pdf.set_font(font_main, style="B", size=18)
+    pdf.cell(0, 10, txt="Premium Pharmaceutical Intelligence - Daily Report", ln=True, align='C')
+    
+    pdf.set_font(font_main, style="", size=12)
+    pdf.cell(0, 10, txt=today.strftime("%Y-%m-%d"), ln=True, align='C')
     pdf.ln(10)
     
-    pdf.set_font("DejaVu" if os.path.exists(font_path) else "Arial", size=11)
-    pdf.multi_cell(0, 8, txt=report_text)
+    pdf.set_font(font_main, size=11)
     
-    pdf_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'daily_report.pdf')
+    for line in report_text.split('\n'):
+        if line.startswith('#') or line.startswith('**') or line.strip() in ['1. Main events of the day', '2. Category breakdown', '3. Actionable Business Insights'] or line.strip().startswith('1. Main events of the day') or line.strip().startswith('2. Category breakdown') or line.strip().startswith('3. Actionable Business Insights'):
+            pdf.set_font(font_main, style="B", size=14)
+            cleaned_line = line.replace('#', '').replace('**', '').strip()
+            pdf.multi_cell(0, 10, txt=cleaned_line)
+            pdf.set_font(font_main, style="", size=11)
+        else:
+            pdf.multi_cell(0, 8, txt=line)
+            
+    pdf_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), f'daily_report_{today.strftime("%Y%m%d")}.pdf')
     pdf.output(pdf_path)
     return pdf_path
 
@@ -431,6 +472,9 @@ async def send_daily_report_to_users():
     users = cursor.fetchall()
     conn.close()
     
+    today_str = datetime.datetime.now().strftime("%Y-%m-%d")
+    caption = f"📊 Your Daily Executive Summary for {today_str} is ready."
+    
     async with httpx.AsyncClient() as client:
         for user in users:
             try:
@@ -438,7 +482,7 @@ async def send_daily_report_to_users():
                 with open(pdf_path, 'rb') as f:
                     r = await client.post(
                         f"{TELEGRAM_API_URL}/sendDocument",
-                        data={"chat_id": chat_id},
+                        data={"chat_id": chat_id, "caption": caption},
                         files={"document": ("Daily_Report.pdf", f)}
                     )
                     
@@ -456,6 +500,11 @@ async def send_daily_report_to_users():
                             )
             except Exception as e:
                 print(f"Error sending PDF to {chat_id}: {e}")
+                
+    try:
+        os.remove(pdf_path)
+    except Exception as e:
+        print(f"Failed to delete {pdf_path}: {e}")
 
 async def fetch_and_store_news():
     while True:
@@ -609,7 +658,7 @@ async def lifespan(app: FastAPI):
     task_tg = asyncio.create_task(poll_telegram_updates())
     task_cleanup = asyncio.create_task(cleanup_old_news())
     
-    scheduler = AsyncIOScheduler(timezone="Europe/Kyiv")
+    scheduler = AsyncIOScheduler(timezone=pytz.timezone('Europe/Kyiv'))
     scheduler.add_job(send_daily_report_to_users, 'cron', hour=9, minute=0)
     scheduler.start()
     

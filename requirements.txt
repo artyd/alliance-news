@@ -10,3 +10,4 @@ beautifulsoup4
 openai
 fpdf2
 apscheduler
+pytz
