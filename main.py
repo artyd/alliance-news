@@ -520,10 +520,14 @@ async def fetch_and_store_news():
                     title = getattr(entry, "title", "")
                     raw_link = getattr(entry, "link", "")
                     link = raw_link.split('?')[0] if raw_link else ""
+                    link = link.strip()
                     
-                    # Strict pre-check for duplicates (also check title to combat Google News dynamic URLs)
-                    cursor.execute("SELECT 1 FROM articles WHERE link = ? OR title = ?", (link, title))
-                    if cursor.fetchone():
+                    try:
+                        cursor.execute("SELECT 1 FROM articles WHERE link = ?", (link,))
+                        if cursor.fetchone():
+                            continue
+                    except Exception as e:
+                        print(f"DB check error: {e}")
                         continue
 
                     raw_published = getattr(entry, "published", "")
