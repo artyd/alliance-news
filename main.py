@@ -411,103 +411,192 @@ async def generate_daily_pdf_report():
     conn = get_db_connection()
     cursor = conn.cursor()
 
-    today = datetime.datetime.now()
-    since = today - datetime.timedelta(hours=24)
-
-    date_str_start = since.strftime("%Y-%m-%d %H:%M:%S")
-    date_str_end = today.strftime("%Y-%m-%d %H:%M:%S")
+    # Звіт за вчорашній день (від 00:00 до 23:59 вчора)
+    kyiv_tz = pytz.timezone("Europe/Kyiv")
+    now_kyiv = datetime.datetime.now(kyiv_tz)
+    yesterday = now_kyiv - datetime.timedelta(days=1)
+    date_str_start = yesterday.strftime("%Y-%m-%d") + " 00:00:00"
+    date_str_end   = yesterday.strftime("%Y-%m-%d") + " 23:59:59"
+    report_date    = yesterday.strftime("%Y-%m-%d")
 
     rows = db_fetchall(cursor,
-        "SELECT title, link, category, summary_en FROM articles WHERE published >= %s AND published <= %s",
+        "SELECT title, link, category, summary_en FROM articles WHERE published >= %s AND published <= %s ORDER BY category",
         (date_str_start, date_str_end)
     )
     conn.close()
 
+    # Всі 9 категорій з RSS_FEEDS
+    ALL_CATEGORIES = list(RSS_FEEDS.keys())
+
+    # Якщо зовсім нема новин — беремо останні 24 години
     if not rows:
-        print("No articles from yesterday")
+        since = (now_kyiv - datetime.timedelta(hours=24)).strftime("%Y-%m-%d %H:%M:%S")
+        till  = now_kyiv.strftime("%Y-%m-%d %H:%M:%S")
+        conn2 = get_db_connection()
+        cursor2 = conn2.cursor()
+        rows = db_fetchall(cursor2,
+            "SELECT title, link, category, summary_en FROM articles WHERE published >= %s AND published <= %s ORDER BY category",
+            (since, till)
+        )
+        conn2.close()
+
+    if not rows:
+        print("No articles found for daily report")
         return None
 
-    categories = {}
+    # Групуємо по категоріях
+    categories = {cat: [] for cat in ALL_CATEGORIES}
     for r in rows:
-        cat = r['category']
-        if cat not in categories:
-            categories[cat] = ""
-        categories[cat] += f"- {r['title']}: {r['summary_en']}\n"
+        cat = r["category"]
+        if cat in categories:
+            categories[cat].append(f"- {r['title']}: {r['summary_en']}")
 
+    # MAP: summary для кожної категорії що має новини
     category_summaries = {}
-    for cat, content in categories.items():
+    for cat in ALL_CATEGORIES:
+        articles = categories[cat]
+        if not articles:
+            category_summaries[cat] = None
+            continue
+        content = "\n".join(articles)
         try:
             resp = await aclient.chat.completions.create(
                 model="gpt-4o-mini",
+                max_tokens=300,
                 messages=[
-                    {"role": "system", "content": "Ти аналітик фармацевтичного ринку. Виділи лише ключові факти без зайвого. Відповідай українською мовою."},
+                    {"role": "system", "content": "Ти аналітик фармацевтичного ринку. 2-4 речення ключових фактів. Тільки українською."},
                     {"role": "user", "content": f"Категорія: {cat}\nНовини:\n{content}"}
                 ]
             )
-            category_summaries[cat] = resp.choices[0].message.content
+            category_summaries[cat] = resp.choices[0].message.content.strip()
         except Exception as e:
             print(f"OpenAI MAP error for {cat}: {e}")
             category_summaries[cat] = "Не вдалося узагальнити."
 
+    # REDUCE: головні події дня
     reduce_content = ""
-    for cat, summary in category_summaries.items():
-        reduce_content += f"--- Категорія: {cat} ---\n{summary}\n\n"
-
-    prompt = "Ти B2B стратег. Створи Executive Summary українською мовою. Структура: 1. Головні події дня, 2. Розбивка по категоріях, 3. Практичні бізнес-інсайти для українських компаній."
+    for cat in ALL_CATEGORIES:
+        s = category_summaries.get(cat)
+        if s:
+            reduce_content += f"[{cat.upper()}] {s}\n\n"
 
     try:
-        response = await aclient.chat.completions.create(
+        resp_main = await aclient.chat.completions.create(
             model="gpt-4o-mini",
+            max_tokens=400,
             messages=[
-                {"role": "system", "content": prompt},
+                {"role": "system", "content": "Ти B2B стратег. На основі зведення по категоріях напиши короткий параграф (5-7 речень) 'Головні події дня' українською — найважливіші тренди для фармацевтичного бізнесу."},
                 {"role": "user", "content": reduce_content}
             ]
         )
-        report_text = response.choices[0].message.content
+        main_events_text = resp_main.choices[0].message.content.strip()
     except Exception as e:
-        print(f"OpenAI REDUCE error: {e}")
-        return None
+        print(f"OpenAI MAIN error: {e}")
+        main_events_text = "Підсумок дня недоступний."
 
+    try:
+        resp_insights = await aclient.chat.completions.create(
+            model="gpt-4o-mini",
+            max_tokens=350,
+            messages=[
+                {"role": "system", "content": "Ти B2B стратег. Дай 4-5 конкретних практичних бізнес-інсайтів для українських фармацевтичних компаній. Кожен інсайт — окремий рядок починаючи з '• '. Тільки українською."},
+                {"role": "user", "content": reduce_content}
+            ]
+        )
+        insights_text = resp_insights.choices[0].message.content.strip()
+    except Exception as e:
+        print(f"OpenAI INSIGHTS error: {e}")
+        insights_text = "Інсайти недоступні."
+
+    # --- PDF ---
     base_dir = os.path.dirname(os.path.abspath(__file__))
-    font_path = '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'
+    font_path      = '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'
     font_bold_path = '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf'
 
-    # add_font должен быть ДО add_page
     pdf = FPDF()
-    pdf.set_margins(15, 15, 15)
-    pdf.add_font("DejaVu", fname=font_path)
+    pdf.add_font("DejaVu",       fname=font_path)
     pdf.add_font("DejaVu", style="B", fname=font_bold_path)
     pdf.add_page()
+    pdf.set_margins(15, 15, 15)
+    pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.set_x(pdf.l_margin)
 
+    # Логотип
     logo_path = os.path.join(base_dir, 'logo.png')
     if os.path.exists(logo_path):
         pdf.image(logo_path, x=15, y=15, w=25)
         pdf.ln(22)
+    pdf.set_x(pdf.l_margin)
 
-    pdf.set_font("DejaVu", style="B", size=14)
-    pdf.multi_cell(0, 10, text="Premium Pharmaceutical Intelligence - Daily Report")
-    pdf.set_font("DejaVu", size=10)
-    pdf.multi_cell(0, 7, text=today.strftime("%Y-%m-%d"))
+    # Заголовок
+    pdf.set_font("DejaVu", style="B", size=15)
+    pdf.multi_cell(0, 10, text="Premium Pharmaceutical Intelligence")
+    pdf.set_x(pdf.l_margin)
+    pdf.set_font("DejaVu", style="B", size=13)
+    pdf.multi_cell(0, 8, text="Daily Report — " + report_date)
+    pdf.set_x(pdf.l_margin)
     pdf.ln(4)
 
-    for line in report_text.split('\n'):
-        clean = line.replace('**', '').replace('##', '').replace('#', '').strip()
-        if not clean:
-            pdf.ln(2)
-            continue
-        is_header = (
-            clean[:3] in ['1. ', '2. ', '3. ', '4. ', '5. '] or
-            (line.strip().startswith('**') and line.strip().endswith('**'))
-        )
-        if is_header:
-            pdf.ln(2)
-            pdf.set_font("DejaVu", style="B", size=11)
-            pdf.multi_cell(0, 7, text=clean)
-            pdf.set_font("DejaVu", size=10)
-        else:
-            pdf.multi_cell(0, 6, text=clean)
+    def section_header(title):
+        pdf.set_x(pdf.l_margin)
+        pdf.ln(3)
+        pdf.set_font("DejaVu", style="B", size=12)
+        pdf.multi_cell(0, 8, text=title)
+        pdf.set_x(pdf.l_margin)
+        pdf.ln(1)
 
-    pdf_path = os.path.join(base_dir, f'daily_report_{today.strftime("%Y%m%d")}.pdf')
+    def body_text(text):
+        pdf.set_x(pdf.l_margin)
+        pdf.set_font("DejaVu", size=10)
+        for line in text.split("\n"):
+            clean = line.replace("**", "").replace("##", "").replace("#", "").strip()
+            if not clean:
+                pdf.ln(2)
+                continue
+            try:
+                pdf.multi_cell(0, 6, text=clean)
+                pdf.set_x(pdf.l_margin)
+            except Exception:
+                pass
+
+    # 1. Головні події дня
+    section_header("1. Головні події дня")
+    body_text(main_events_text)
+
+    # 2. Розбивка по категоріях
+    section_header("2. Розбивка по категоріях")
+    CAT_LABELS = {
+        "api": "API (Фармацевтичні субстанції)",
+        "cosmetic": "Косметичні інгредієнти",
+        "herbal": "Рослинні екстракти",
+        "veterinary": "Ветеринарія",
+        "food": "Харчові інгредієнти",
+        "feed": "Кормові добавки",
+        "capsules": "Капсули та оболонки",
+        "pvc": "ПВХ плівка та пакування",
+        "logistics": "Логістика та постачання",
+    }
+    for cat in ALL_CATEGORIES:
+        s = category_summaries.get(cat)
+        label = CAT_LABELS.get(cat, cat.upper())
+        pdf.set_x(pdf.l_margin)
+        pdf.ln(2)
+        pdf.set_font("DejaVu", style="B", size=10)
+        pdf.multi_cell(0, 6, text=f"▸ {label}")
+        pdf.set_x(pdf.l_margin)
+        if s:
+            body_text(s)
+        else:
+            pdf.set_font("DejaVu", size=10)
+            pdf.set_x(pdf.l_margin)
+            pdf.multi_cell(0, 6, text="Новин за цей день не знайдено.")
+            pdf.set_x(pdf.l_margin)
+
+    # 3. Практичні бізнес-інсайти
+    section_header("3. Практичні бізнес-інсайти для українських компаній")
+    body_text(insights_text)
+
+    pdf_path = os.path.join(base_dir, f'daily_report_{report_date.replace("-","")}.pdf')
     pdf.output(pdf_path)
     return pdf_path
 
