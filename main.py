@@ -417,9 +417,9 @@ async def generate_daily_pdf_report():
     cursor = conn.cursor()
 
     today = datetime.datetime.now()
-    yesterday = today - datetime.timedelta(days=1)
+    since = today - datetime.timedelta(hours=24)
 
-    date_str_start = yesterday.strftime("%Y-%m-%d %H:%M:%S")
+    date_str_start = since.strftime("%Y-%m-%d %H:%M:%S")
     date_str_end = today.strftime("%Y-%m-%d %H:%M:%S")
 
     rows = db_fetchall(cursor,
@@ -445,20 +445,20 @@ async def generate_daily_pdf_report():
             resp = await aclient.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[
-                    {"role": "system", "content": "You are a pharmaceutical market analyst. Extract only key facts without fluff."},
-                    {"role": "user", "content": f"Category: {cat}\nNews:\n{content}"}
+                    {"role": "system", "content": "Ти аналітик фармацевтичного ринку. Виділи лише ключові факти без зайвого. Відповідай українською мовою."},
+                    {"role": "user", "content": f"Категорія: {cat}\nНовини:\n{content}"}
                 ]
             )
             category_summaries[cat] = resp.choices[0].message.content
         except Exception as e:
             print(f"OpenAI MAP error for {cat}: {e}")
-            category_summaries[cat] = "Failed to summarize."
+            category_summaries[cat] = "Не вдалося узагальнити."
 
     reduce_content = ""
     for cat, summary in category_summaries.items():
-        reduce_content += f"--- Category: {cat} ---\n{summary}\n\n"
+        reduce_content += f"--- Категорія: {cat} ---\n{summary}\n\n"
 
-    prompt = "You are a B2B strategist. Create an Executive Summary. Structure: 1. Main events of the day, 2. Category breakdown, 3. Actionable Business Insights."
+    prompt = "Ти B2B стратег. Створи Executive Summary українською мовою. Структура: 1. Головні події дня, 2. Розбивка по категоріях, 3. Практичні бізнес-інсайти для українських компаній."
 
     try:
         response = await aclient.chat.completions.create(
