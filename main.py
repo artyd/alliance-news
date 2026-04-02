@@ -6,10 +6,6 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 import feedparser
-try:
-    import google.genai as genai
-except ImportError:
-    import google.generativeai as genai
 from dotenv import load_dotenv
 import email.utils
 import re
@@ -76,10 +72,6 @@ def init_db():
     conn.commit()
     cursor.close()
     conn.close()
-
-gemini_api_key = os.getenv("GEMINI_API_KEY")
-if gemini_api_key:
-    genai.configure(api_key=gemini_api_key)
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_API_URL = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
