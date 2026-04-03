@@ -79,6 +79,13 @@ TELEGRAM_API_URL = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 aclient = AsyncOpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
 
+gemini_api_key = os.getenv("GEMINI_API_KEY")
+if gemini_api_key:
+    try:
+        genai.configure(api_key=gemini_api_key)
+    except AttributeError:
+        pass  # google.genai uses different init
+
 GLOBAL_SOURCES_RAW = "(site:reuters.com OR site:bloomberg.com OR site:ft.com OR site:wto.org OR site:bbc.com OR site:imf.org OR site:worldbank.org OR site:iccwbo.org OR site:theloadstar.com OR site:joc.com)"
 GLOBAL_SOURCES = urllib.parse.quote_plus(GLOBAL_SOURCES_RAW)
 
@@ -98,20 +105,13 @@ def get_topics_keyboard(current_subs_str, only_daily_mode=False):
     subs = current_subs_str.split(',') if current_subs_str != 'all' else []
     keyboard = []
 
-    # Якщо only_daily_mode — всі категорії неактивні (❌), бо новини не приходять
-    if only_daily_mode:
-        all_text = "❌ All Topics"
-    else:
-        all_text = "✅ All Topics" if current_subs_str == 'all' else "🔘 All Topics"
+    all_text = "✅ All Topics" if current_subs_str == 'all' else "🔘 All Topics"
     keyboard.append([{"text": all_text, "callback_data": "topic_all"}])
 
     row = []
     for cat in RSS_FEEDS.keys():
-        if only_daily_mode:
-            text = f"❌ {cat.upper()}"
-        else:
-            is_subbed = current_subs_str == 'all' or cat in subs
-            text = f"✅ {cat.upper()}" if is_subbed else f"❌ {cat.upper()}"
+        is_subbed = current_subs_str == 'all' or cat in subs
+        text = f"✅ {cat.upper()}" if is_subbed else f"❌ {cat.upper()}"
         row.append({"text": text, "callback_data": f"topic_{cat}"})
         if len(row) == 2:
             keyboard.append(row)
