@@ -98,13 +98,20 @@ def get_topics_keyboard(current_subs_str, only_daily_mode=False):
     subs = current_subs_str.split(',') if current_subs_str != 'all' else []
     keyboard = []
 
-    all_text = "✅ All Topics" if current_subs_str == 'all' else "🔘 All Topics"
+    # Якщо only_daily_mode — всі категорії неактивні (❌), бо новини не приходять
+    if only_daily_mode:
+        all_text = "❌ All Topics"
+    else:
+        all_text = "✅ All Topics" if current_subs_str == 'all' else "🔘 All Topics"
     keyboard.append([{"text": all_text, "callback_data": "topic_all"}])
 
     row = []
     for cat in RSS_FEEDS.keys():
-        is_subbed = current_subs_str == 'all' or cat in subs
-        text = f"✅ {cat.upper()}" if is_subbed else f"❌ {cat.upper()}"
+        if only_daily_mode:
+            text = f"❌ {cat.upper()}"
+        else:
+            is_subbed = current_subs_str == 'all' or cat in subs
+            text = f"✅ {cat.upper()}" if is_subbed else f"❌ {cat.upper()}"
         row.append({"text": text, "callback_data": f"topic_{cat}"})
         if len(row) == 2:
             keyboard.append(row)
