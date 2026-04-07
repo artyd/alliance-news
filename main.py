@@ -19,6 +19,7 @@ from fpdf import FPDF
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from openai import AsyncOpenAI
 import pytz
+import textwrap
 
 load_dotenv()
 
@@ -56,7 +57,6 @@ def init_db():
         )
     ''')
 
-    # Таблица учёта отправленных новостей — предотвращает дубли при рестарте
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS telegram_sent (
             id SERIAL PRIMARY KEY,
@@ -85,7 +85,7 @@ if gemini_api_key:
     try:
         genai.configure(api_key=gemini_api_key)
     except AttributeError:
-        pass  # google.genai uses different init
+        pass
 
 GLOBAL_SOURCES_RAW = "(site:reuters.com OR site:bloomberg.com OR site:ft.com OR site:wto.org OR site:bbc.com OR site:imf.org OR site:worldbank.org OR site:iccwbo.org OR site:theloadstar.com OR site:joc.com)"
 GLOBAL_SOURCES = urllib.parse.quote_plus(GLOBAL_SOURCES_RAW)
@@ -101,6 +101,101 @@ RSS_FEEDS = {
     "pvc": f"https://news.google.com/rss/search?q=pvc+film+packaging+{GLOBAL_SOURCES}+when:7d&hl=en-US&gl=US&ceid=US:en",
     "logistics": f"https://news.google.com/rss/search?q=global+logistics+shipping+{GLOBAL_SOURCES}+when:7d&hl=en-US&gl=US&ceid=US:en"
 }
+
+# ─────────────────────────────────────────────
+# MASTER REPORT PROMPT — повний звіт через AI
+# ─────────────────────────────────────────────
+DAILY_REPORT_SYSTEM_PROMPT = """Ти — старший аналітик ринку сировини та субстанцій для B2B-компанії в Україні, яка імпортує фармацевтичні, косметичні, ветеринарні субстанції, трави, харчову сировину, кормові амінокислоти, капсули, ПВХ-плівку та відстежує логістику.
+
+Твоє завдання: написати КОРОТКИЙ щоденний ринковий звіт за вчорашній день (Europe/Kyiv) у форматі, придатному для PDF.
+
+МОВА: Тільки українська. Діловий стиль. Для B2B-аудиторії.
+
+СТРУКТУРА ЗВІТУ:
+
+=== БЛОК 1: ОГЛЯД ЗА КАТЕГОРІЯМИ ===
+
+Для кожної з 9 категорій напиши СТИСЛИЙ розділ (не більше 6 рядків на категорію).
+
+Формат кожної категорії:
+[НАЗВА КАТЕГОРІЇ]
+• Що сталося: [1–2 факти вчорашнього дня]
+• Ризик/Можливість: [1 речення]
+• Дія: [1 конкретна дія]
+• Рівень: [Високий / Середній / Низький]
+
+Якщо новин немає — написати: "Суттєвих подій не виявлено. Моніторинг: [watchpoint]"
+
+Категорії в точному порядку:
+1. Фармацевтичні субстанції (API)
+2. Косметичні субстанції
+3. Трави
+4. Ветеринарні субстанції
+5. Харчова сировина
+6. Кормові амінокислоти
+7. Капсули (тверді / м'які)
+8. ПВХ-плівка
+9. Логістика та постачання для імпорту сировини
+
+=== БЛОК 2: БЛИЗЬКИЙ СХІД — НОВИНИ ДНЯ ===
+
+Знайди і опиши 3–5 найважливіших новин вчорашнього дня пов'язаних з:
+Іран, Ізраїль, Саудівська Аравія, ОАЕ, Катар, Ірак, Туреччина, Червоне море, Ормузька протока, атаки хуситів, санкції проти Ірану, регіональна нестабільність, нафтовий ринок Близького Сходу.
+
+Фільтр: тільки новини що можуть впливати на імпорт сировини, ціни на нафту, логістику або глобальні ланцюги постачання для України.
+
+Формат кожної новини:
+→ [Заголовок] | [Джерело] | [Дата]
+  [2–3 рядки: що сталося + вплив на наш імпорт]
+
+=== БЛОК 3: ТОВАРНІ РИНКИ — ЦІНИ ТА РУХИ ===
+
+Для кожного з 3 товарів надай:
+
+🌽 КУКУРУДЗА (Corn — CBOT ZC1!)
+Ціна вчора: [$/бушель]
+Зміна: [+/- % від попереднього дня]
+Аналіз: [2–3 рядки: погода, попит, експорт США, фундаментал, що вплинуло]
+Джерело: TradingView / CBOT
+
+🛢️ НАФТА (Crude Oil — WTI або Brent)
+Ціна вчора: [$/барель]
+Зміна: [+/- %]
+Аналіз: [2–3 рядки: ОПЕК, геополітика, запаси EIA, попит]
+Джерело: TradingView / EIA
+
+🌴 ПАЛЬМОВА ОЛІЯ (Palm Oil — BMD FCPO)
+Ціна вчора: [MYR/MT]
+Зміна: [+/- %]
+Аналіз: [2–3 рядки: врожай Малайзія/Індонезія, попит Китай/Індія, курс рінгіт]
+Джерело: TradingView / BMD
+
+=== БЛОК 4: ПІДСУМОК І ДІЇ ===
+
+КЛЮЧОВІ ВИСНОВКИ (3–5 пунктів, по одному реченню):
+• ...
+• ...
+
+ДІЇ СЬОГОДНІ:
+• ...
+• ...
+
+ДІЇ НА ТИЖДЕНЬ:
+• ...
+• ...
+
+КАРТА РИЗИКІВ (таблиця):
+Категорія | Сигнал | Рівень ризику | Рекомендована дія
+---------|--------|--------------|------------------
+... | ... | ... | ...
+
+ВАЖЛИВО:
+- Використовуй тільки реальні дані за вчорашній день
+- Не вигадуй ціни або факти яких не знаєш — пиши "дані уточнюються"
+- Звіт має читатися за 5–7 хвилин
+- Кожна категорія — максимум 6 рядків
+- Загальний обсяг: компактний executive brief"""
+
 
 def get_topics_keyboard(current_subs_str, only_daily_mode=False):
     subs = current_subs_str.split(',') if current_subs_str != 'all' else []
@@ -323,7 +418,7 @@ async def poll_telegram_updates():
                                 elif text.startswith("/generate_report"):
                                     await client.post(f"{TELEGRAM_API_URL}/sendMessage", json={
                                         "chat_id": chat_id,
-                                        "text": "Generating report, please wait..."
+                                        "text": "Генерую звіт, зачекайте..."
                                     })
                                     pdf_path = await generate_daily_pdf_report()
                                     if pdf_path and os.path.exists(pdf_path):
@@ -348,7 +443,7 @@ async def poll_telegram_updates():
                                     else:
                                         await client.post(f"{TELEGRAM_API_URL}/sendMessage", json={
                                             "chat_id": chat_id,
-                                            "text": "Failed to generate report. Check logs."
+                                            "text": "Не вдалося згенерувати звіт. Перевірте логи."
                                         })
                                 elif text.startswith("/settings") or text.startswith("/menu"):
                                     keyboard = {
@@ -417,203 +512,387 @@ async def generate_summary(text: str):
                 return {"summary_en": text, "summary_ua": text, "summary_ru": text}
 
 
-async def generate_daily_pdf_report():
+# ─────────────────────────────────────────────────────────────────
+# PDF RENDERING HELPERS
+# ─────────────────────────────────────────────────────────────────
+
+FONT_REGULAR = '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'
+FONT_BOLD    = '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf'
+
+# Accent colour (dark navy)
+COLOR_ACCENT  = (26, 54, 93)
+# Light grey for alternating rows / dividers
+COLOR_LIGHT   = (240, 244, 248)
+# Body text dark
+COLOR_BODY    = (30, 30, 30)
+# Risk badge colours
+RISK_COLORS   = {
+    "Високий": (220, 53, 69),
+    "Середній": (255, 165, 0),
+    "Низький":  (40, 167, 69),
+}
+
+
+def make_pdf_base() -> FPDF:
+    pdf = FPDF()
+    pdf.add_font("DejaVu",        fname=FONT_REGULAR)
+    pdf.add_font("DejaVu", style="B", fname=FONT_BOLD)
+    pdf.set_margins(18, 18, 18)
+    pdf.set_auto_page_break(auto=True, margin=20)
+    return pdf
+
+
+def draw_header_bar(pdf: FPDF, report_date: str, base_dir: str):
+    """Cover-style header with logo + title."""
+    pdf.set_fill_color(*COLOR_ACCENT)
+    pdf.rect(0, 0, 210, 42, style="F")
+
+    logo_path = os.path.join(base_dir, "logo.png")
+    if os.path.exists(logo_path):
+        pdf.image(logo_path, x=8, y=6, h=28)
+        text_x = 42
+    else:
+        text_x = 12
+
+    pdf.set_xy(text_x, 7)
+    pdf.set_font("DejaVu", style="B", size=16)
+    pdf.set_text_color(255, 255, 255)
+    pdf.cell(0, 9, "Щоденний ринковий звіт", ln=True)
+
+    pdf.set_x(text_x)
+    pdf.set_font("DejaVu", size=10)
+    pdf.set_text_color(180, 210, 255)
+    pdf.cell(0, 6, f"Для B2B-компанії в Україні  |  Огляд за {report_date}", ln=True)
+
+    pdf.set_x(text_x)
+    pdf.set_font("DejaVu", size=9)
+    pdf.set_text_color(140, 180, 230)
+    pdf.cell(0, 5, "Сировина · Субстанції · Логістика · Близький Схід · Товарні ринки", ln=True)
+
+    pdf.set_text_color(*COLOR_BODY)
+    pdf.ln(12)
+
+
+def section_title(pdf: FPDF, title: str):
+    """Coloured section banner."""
+    pdf.set_fill_color(*COLOR_ACCENT)
+    pdf.set_text_color(255, 255, 255)
+    pdf.set_font("DejaVu", style="B", size=11)
+    pdf.set_x(pdf.l_margin)
+    pdf.cell(0, 8, f"  {title}", ln=True, fill=True)
+    pdf.set_text_color(*COLOR_BODY)
+    pdf.ln(2)
+
+
+def sub_title(pdf: FPDF, title: str):
+    """Bold dark sub-heading."""
+    pdf.set_x(pdf.l_margin)
+    pdf.set_font("DejaVu", style="B", size=10)
+    pdf.set_text_color(*COLOR_ACCENT)
+    pdf.multi_cell(0, 6, title)
+    pdf.set_text_color(*COLOR_BODY)
+    pdf.set_x(pdf.l_margin)
+
+
+def body_text(pdf: FPDF, text: str, size: int = 9):
+    """Render plain text, stripping markdown artefacts."""
+    pdf.set_font("DejaVu", size=size)
+    pdf.set_text_color(*COLOR_BODY)
+    for line in text.split("\n"):
+        clean = line.replace("**", "").replace("##", "").replace("#", "").strip()
+        if not clean:
+            pdf.ln(2)
+            continue
+        pdf.set_x(pdf.l_margin)
+        try:
+            pdf.multi_cell(0, 5.5, clean)
+        except Exception:
+            pass
+    pdf.ln(1)
+
+
+def draw_divider(pdf: FPDF):
+    pdf.set_draw_color(*COLOR_ACCENT)
+    pdf.set_line_width(0.3)
+    pdf.line(pdf.l_margin, pdf.get_y(), 210 - pdf.r_margin, pdf.get_y())
+    pdf.ln(3)
+
+
+def draw_risk_table(pdf: FPDF, lines: list[str]):
+    """Renders a simple risk table from pipe-delimited lines."""
+    headers = ["Категорія", "Сигнал", "Рівень", "Дія"]
+    col_w   = [38, 55, 22, 65]
+
+    pdf.set_font("DejaVu", style="B", size=8)
+    pdf.set_fill_color(*COLOR_ACCENT)
+    pdf.set_text_color(255, 255, 255)
+    pdf.set_x(pdf.l_margin)
+    for i, h in enumerate(headers):
+        pdf.cell(col_w[i], 6, h, border=0, fill=True)
+    pdf.ln()
+    pdf.set_text_color(*COLOR_BODY)
+
+    alternate = False
+    for line in lines:
+        line = line.strip()
+        if not line or set(line.replace("|", "").replace("-", "").strip()) == set():
+            continue
+        cells = [c.strip() for c in line.split("|")]
+        if len(cells) < 4:
+            continue
+        # skip header repeat
+        if cells[0].lower() in ("категорія", "category"):
+            continue
+
+        pdf.set_fill_color(*(COLOR_LIGHT if alternate else (255, 255, 255)))
+        alternate = not alternate
+        pdf.set_font("DejaVu", size=8)
+        pdf.set_x(pdf.l_margin)
+
+        risk_level = cells[2] if len(cells) > 2 else ""
+        rc = RISK_COLORS.get(risk_level, COLOR_BODY)
+
+        for i, cell_text in enumerate(cells[:4]):
+            if i == 2:
+                pdf.set_text_color(*rc)
+            else:
+                pdf.set_text_color(*COLOR_BODY)
+            pdf.cell(col_w[i], 6, cell_text[:45], border=0, fill=True)
+        pdf.ln()
+
+    pdf.set_text_color(*COLOR_BODY)
+    pdf.ln(3)
+
+
+def draw_footer(pdf: FPDF, report_date: str):
+    pdf.set_y(-14)
+    pdf.set_font("DejaVu", size=7)
+    pdf.set_text_color(140, 140, 140)
+    pdf.cell(0, 5, f"MacroHarvey  ·  Ринковий звіт за {report_date}  ·  Стор. {pdf.page_no()}", align="C")
+
+
+# ─────────────────────────────────────────────────────────────────
+# MAIN REPORT GENERATION  (prompt-based, no MapReduce)
+# ─────────────────────────────────────────────────────────────────
+
+async def generate_daily_pdf_report() -> str | None:
     if not aclient:
         print("OpenAI API key missing")
         return None
 
-    conn = get_db_connection()
-    cursor = conn.cursor()
-
-    # Звіт за вчорашній день (від 00:00 до 23:59 вчора)
-    kyiv_tz = pytz.timezone("Europe/Kyiv")
-    now_kyiv = datetime.datetime.now(kyiv_tz)
+    kyiv_tz   = pytz.timezone("Europe/Kyiv")
+    now_kyiv  = datetime.datetime.now(kyiv_tz)
     yesterday = now_kyiv - datetime.timedelta(days=1)
-    date_str_start = yesterday.strftime("%Y-%m-%d") + " 00:00:00"
-    date_str_end   = yesterday.strftime("%Y-%m-%d") + " 23:59:59"
-    report_date    = yesterday.strftime("%Y-%m-%d")
+    report_date = yesterday.strftime("%d.%m.%Y")
+    weekdays_ua = ["понеділок","вівторок","середа","четвер","п'ятниця","субота","неділя"]
+    weekday_ua  = weekdays_ua[yesterday.weekday()]
+    today_weekday_ua = weekdays_ua[now_kyiv.weekday()]
 
-    rows = db_fetchall(cursor,
-        "SELECT title, link, category, summary_en FROM articles WHERE published >= %s AND published <= %s ORDER BY category",
-        (date_str_start, date_str_end)
+    user_message = (
+        f"Сьогодні {now_kyiv.strftime('%d.%m.%Y')} ({today_weekday_ua}), "
+        f"Київ (Europe/Kyiv). "
+        f"Напиши повний щоденний ринковий звіт за вчора — {report_date} ({weekday_ua}). "
+        f"Використай своє актуальне знання ринків, новин та цін. "
+        f"Дотримуйся структури та формату зазначеного у системному промпті."
     )
-    conn.close()
 
-    # Всі 9 категорій з RSS_FEEDS
-    ALL_CATEGORIES = list(RSS_FEEDS.keys())
+    print(f"Generating prompt-based daily report for {report_date}...")
 
-    # Якщо зовсім нема новин — беремо останні 24 години
-    if not rows:
-        since = (now_kyiv - datetime.timedelta(hours=24)).strftime("%Y-%m-%d %H:%M:%S")
-        till  = now_kyiv.strftime("%Y-%m-%d %H:%M:%S")
-        conn2 = get_db_connection()
-        cursor2 = conn2.cursor()
-        rows = db_fetchall(cursor2,
-            "SELECT title, link, category, summary_en FROM articles WHERE published >= %s AND published <= %s ORDER BY category",
-            (since, till)
+    try:
+        response = await aclient.chat.completions.create(
+            model="gpt-4o",
+            max_tokens=3800,
+            temperature=0.3,
+            messages=[
+                {"role": "system", "content": DAILY_REPORT_SYSTEM_PROMPT},
+                {"role": "user",   "content": user_message}
+            ]
         )
-        conn2.close()
-
-    if not rows:
-        print("No articles found for daily report")
+        report_text = response.choices[0].message.content.strip()
+    except Exception as e:
+        print(f"OpenAI report generation error: {e}")
         return None
 
-    # Групуємо по категоріях
-    categories = {cat: [] for cat in ALL_CATEGORIES}
-    for r in rows:
-        cat = r["category"]
-        if cat in categories:
-            categories[cat].append(f"- {r['title']}: {r['summary_en']}")
+    # ── Parse the 4 blocks by section markers ─────────────────────
+    def extract_block(text: str, start_marker: str, end_marker: str | None) -> str:
+        idx = text.find(start_marker)
+        if idx == -1:
+            return ""
+        chunk = text[idx + len(start_marker):]
+        if end_marker:
+            end_idx = chunk.find(end_marker)
+            if end_idx != -1:
+                chunk = chunk[:end_idx]
+        return chunk.strip()
 
-    # MAP: summary для кожної категорії що має новини
-    category_summaries = {}
-    for cat in ALL_CATEGORIES:
-        articles = categories[cat]
-        if not articles:
-            category_summaries[cat] = None
-            continue
-        content = "\n".join(articles)
-        try:
-            resp = await aclient.chat.completions.create(
-                model="gpt-4o-mini",
-                max_tokens=300,
-                messages=[
-                    {"role": "system", "content": "Ти аналітик фармацевтичного ринку. 2-4 речення ключових фактів. Тільки українською."},
-                    {"role": "user", "content": f"Категорія: {cat}\nНовини:\n{content}"}
-                ]
-            )
-            category_summaries[cat] = resp.choices[0].message.content.strip()
-        except Exception as e:
-            print(f"OpenAI MAP error for {cat}: {e}")
-            category_summaries[cat] = "Не вдалося узагальнити."
+    block1 = extract_block(report_text, "=== БЛОК 1:", "=== БЛОК 2:")
+    block2 = extract_block(report_text, "=== БЛОК 2:", "=== БЛОК 3:")
+    block3 = extract_block(report_text, "=== БЛОК 3:", "=== БЛОК 4:")
+    block4 = extract_block(report_text, "=== БЛОК 4:", None)
 
-    # REDUCE: головні події дня
-    reduce_content = ""
-    for cat in ALL_CATEGORIES:
-        s = category_summaries.get(cat)
-        if s:
-            reduce_content += f"[{cat.upper()}] {s}\n\n"
+    # If markers not present — use full text as block1
+    if not any([block1, block2, block3, block4]):
+        block1 = report_text
 
-    try:
-        resp_main = await aclient.chat.completions.create(
-            model="gpt-4o-mini",
-            max_tokens=400,
-            messages=[
-                {"role": "system", "content": "Ти B2B стратег. На основі зведення по категоріях напиши короткий параграф (5-7 речень) 'Головні події дня' українською — найважливіші тренди для фармацевтичного бізнесу."},
-                {"role": "user", "content": reduce_content}
-            ]
-        )
-        main_events_text = resp_main.choices[0].message.content.strip()
-    except Exception as e:
-        print(f"OpenAI MAIN error: {e}")
-        main_events_text = "Підсумок дня недоступний."
-
-    try:
-        resp_insights = await aclient.chat.completions.create(
-            model="gpt-4o-mini",
-            max_tokens=350,
-            messages=[
-                {"role": "system", "content": "Ти B2B стратег. Дай 4-5 конкретних практичних бізнес-інсайтів для українських фармацевтичних компаній. Кожен інсайт — окремий рядок починаючи з '• '. Тільки українською."},
-                {"role": "user", "content": reduce_content}
-            ]
-        )
-        insights_text = resp_insights.choices[0].message.content.strip()
-    except Exception as e:
-        print(f"OpenAI INSIGHTS error: {e}")
-        insights_text = "Інсайти недоступні."
-
-    # --- PDF ---
+    # ── Build PDF ─────────────────────────────────────────────────
     base_dir = os.path.dirname(os.path.abspath(__file__))
-    font_path      = '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'
-    font_bold_path = '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf'
+    pdf = make_pdf_base()
 
-    pdf = FPDF()
-    pdf.add_font("DejaVu",       fname=font_path)
-    pdf.add_font("DejaVu", style="B", fname=font_bold_path)
+    # Page 1
     pdf.add_page()
-    pdf.set_margins(15, 15, 15)
-    pdf.set_auto_page_break(auto=True, margin=15)
-    pdf.set_x(pdf.l_margin)
+    draw_header_bar(pdf, report_date, base_dir)
 
-    # Логотип
-    logo_path = os.path.join(base_dir, 'logo.png')
-    if os.path.exists(logo_path):
-        pdf.image(logo_path, x=15, y=15, w=25)
-        pdf.ln(22)
-    pdf.set_x(pdf.l_margin)
+    # ── BLOCK 1: 9 categories ────────────────────────────────────
+    section_title(pdf, "БЛОК 1  ·  Огляд за категоріями")
 
-    # Заголовок
-    pdf.set_font("DejaVu", style="B", size=15)
-    pdf.multi_cell(0, 10, text="Premium Pharmaceutical Intelligence")
-    pdf.set_x(pdf.l_margin)
-    pdf.set_font("DejaVu", style="B", size=13)
-    pdf.multi_cell(0, 8, text="Daily Report — " + report_date)
-    pdf.set_x(pdf.l_margin)
-    pdf.ln(4)
-
-    def section_header(title):
-        pdf.set_x(pdf.l_margin)
-        pdf.ln(3)
-        pdf.set_font("DejaVu", style="B", size=12)
-        pdf.multi_cell(0, 8, text=title)
-        pdf.set_x(pdf.l_margin)
-        pdf.ln(1)
-
-    def body_text(text):
-        pdf.set_x(pdf.l_margin)
-        pdf.set_font("DejaVu", size=10)
-        for line in text.split("\n"):
-            clean = line.replace("**", "").replace("##", "").replace("#", "").strip()
-            if not clean:
-                pdf.ln(2)
-                continue
-            try:
-                pdf.multi_cell(0, 6, text=clean)
-                pdf.set_x(pdf.l_margin)
-            except Exception:
-                pass
-
-    # 1. Головні події дня
-    section_header("1. Головні події дня")
-    body_text(main_events_text)
-
-    # 2. Розбивка по категоріях
-    section_header("2. Розбивка по категоріях")
     CAT_LABELS = {
-        "api": "API (Фармацевтичні субстанції)",
-        "cosmetic": "Косметичні інгредієнти",
-        "herbal": "Рослинні екстракти",
-        "veterinary": "Ветеринарія",
-        "food": "Харчові інгредієнти",
-        "feed": "Кормові добавки",
-        "capsules": "Капсули та оболонки",
-        "pvc": "ПВХ плівка та пакування",
-        "logistics": "Логістика та постачання",
+        "1.": "1. Фармацевтичні субстанції (API)",
+        "2.": "2. Косметичні субстанції",
+        "3.": "3. Трави",
+        "4.": "4. Ветеринарні субстанції",
+        "5.": "5. Харчова сировина",
+        "6.": "6. Кормові амінокислоти",
+        "7.": "7. Капсули",
+        "8.": "8. ПВХ-плівка",
+        "9.": "9. Логістика та постачання",
     }
-    for cat in ALL_CATEGORIES:
-        s = category_summaries.get(cat)
-        label = CAT_LABELS.get(cat, cat.upper())
-        pdf.set_x(pdf.l_margin)
-        pdf.ln(2)
-        pdf.set_font("DejaVu", style="B", size=10)
-        pdf.multi_cell(0, 6, text=f"▸ {label}")
-        pdf.set_x(pdf.l_margin)
-        if s:
-            body_text(s)
+
+    b1_lines = block1.split("\n") if block1 else report_text.split("\n")
+    current_cat_lines: list[str] = []
+    current_cat_title = ""
+
+    def flush_category(pdf: FPDF, title: str, lines: list[str]):
+        if not title and not lines:
+            return
+        if title:
+            sub_title(pdf, title)
+        body_text(pdf, "\n".join(lines))
+        draw_divider(pdf)
+
+    for raw_line in b1_lines:
+        line = raw_line.strip()
+        # Detect category heading (starts with digit dot)
+        is_cat_heading = (
+            len(line) > 3
+            and line[0].isdigit()
+            and line[1] == "."
+            and not line.startswith("===")
+        )
+        if is_cat_heading:
+            flush_category(pdf, current_cat_title, current_cat_lines)
+            current_cat_title = line
+            current_cat_lines = []
         else:
-            pdf.set_font("DejaVu", size=10)
-            pdf.set_x(pdf.l_margin)
-            pdf.multi_cell(0, 6, text="Новин за цей день не знайдено.")
-            pdf.set_x(pdf.l_margin)
+            current_cat_lines.append(line)
+    flush_category(pdf, current_cat_title, current_cat_lines)
 
-    # 3. Практичні бізнес-інсайти
-    section_header("3. Практичні бізнес-інсайти для українських компаній")
-    body_text(insights_text)
+    # ── BLOCK 2: Middle East ──────────────────────────────────────
+    pdf.add_page()
+    draw_header_bar(pdf, report_date, base_dir)
+    section_title(pdf, "БЛОК 2  ·  Близький Схід — Новини дня")
+    if block2:
+        body_text(pdf, block2)
+    else:
+        body_text(pdf, "Даних по Близькому Сходу за вчора не знайдено.")
+    draw_divider(pdf)
 
-    pdf_path = os.path.join(base_dir, f'daily_report_{report_date.replace("-","")}.pdf')
+    # ── BLOCK 3: Commodities ──────────────────────────────────────
+    section_title(pdf, "БЛОК 3  ·  Товарні ринки")
+
+    commodity_icons = {
+        "КУКУРУДЗА":     "🌽 КУКУРУДЗА (Corn — CBOT ZC1!)",
+        "НАФТА":         "🛢️ НАФТА (WTI / Brent)",
+        "ПАЛЬМОВА":      "🌴 ПАЛЬМОВА ОЛІЯ (BMD FCPO)",
+    }
+
+    if block3:
+        b3_lines = block3.split("\n")
+        current_com_lines: list[str] = []
+        current_com_title = ""
+
+        def flush_commodity(pdf, title, lines):
+            if not title and not lines:
+                return
+            if title:
+                sub_title(pdf, title)
+            body_text(pdf, "\n".join(lines))
+            # TradingView reference
+            tv_links = {
+                "КУКУРУДЗА":  "https://www.tradingview.com/chart/?symbol=CBOT%3AZC1!",
+                "НАФТА":      "https://www.tradingview.com/chart/?symbol=TVC%3AUSOIL",
+                "ПАЛЬМОВА":   "https://www.tradingview.com/chart/?symbol=MYX%3AKPO1!",
+            }
+            for key, url in tv_links.items():
+                if key in title.upper():
+                    pdf.set_font("DejaVu", size=8)
+                    pdf.set_text_color(26, 100, 200)
+                    pdf.set_x(pdf.l_margin)
+                    pdf.cell(0, 5, f"Графік TradingView: {url}", ln=True)
+                    pdf.set_text_color(*COLOR_BODY)
+                    break
+            draw_divider(pdf)
+
+        for raw_line in b3_lines:
+            line = raw_line.strip()
+            is_com = any(k in line.upper() for k in commodity_icons.keys()) and len(line) < 80
+            if is_com:
+                flush_commodity(pdf, current_com_title, current_com_lines)
+                current_com_title = line
+                current_com_lines = []
+            else:
+                current_com_lines.append(line)
+        flush_commodity(pdf, current_com_title, current_com_lines)
+    else:
+        body_text(pdf, "Дані по товарних ринках будуть додані наступного дня.")
+
+    # ── BLOCK 4: Summary + actions + risk map ─────────────────────
+    pdf.add_page()
+    draw_header_bar(pdf, report_date, base_dir)
+    section_title(pdf, "БЛОК 4  ·  Підсумок і рекомендовані дії")
+
+    if block4:
+        b4_lines = block4.split("\n")
+        risk_table_lines: list[str] = []
+        in_risk_table = False
+        pre_table_lines: list[str] = []
+
+        for line in b4_lines:
+            stripped = line.strip()
+            # Detect risk table start
+            if "КАРТА РИЗИКІВ" in stripped.upper() or (
+                stripped.startswith("Категорія") and "|" in stripped
+            ):
+                in_risk_table = True
+                body_text(pdf, "\n".join(pre_table_lines))
+                pre_table_lines = []
+                sub_title(pdf, "Карта ризиків")
+                continue
+            if in_risk_table:
+                risk_table_lines.append(stripped)
+            else:
+                pre_table_lines.append(stripped)
+
+        if pre_table_lines:
+            body_text(pdf, "\n".join(pre_table_lines))
+        if risk_table_lines:
+            draw_risk_table(pdf, risk_table_lines)
+    else:
+        body_text(pdf, "Підсумок та карта ризиків недоступні.")
+
+    # Footer on every page
+    for page_num in range(1, pdf.page_no() + 1):
+        pdf.page = page_num
+        draw_footer(pdf, report_date)
+
+    pdf_path = os.path.join(base_dir, f"daily_report_{yesterday.strftime('%Y%m%d')}.pdf")
     pdf.output(pdf_path)
+    print(f"Report saved: {pdf_path}")
     return pdf_path
 
+
+# ─────────────────────────────────────────────────────────────────
+# SEND DAILY REPORT
+# ─────────────────────────────────────────────────────────────────
 
 async def send_daily_report_to_users():
     pdf_path = await generate_daily_pdf_report()
@@ -626,8 +905,8 @@ async def send_daily_report_to_users():
     users = db_fetchall(cursor, "SELECT chat_id FROM telegram_users")
     conn.close()
 
-    today_str = datetime.datetime.now().strftime("%Y-%m-%d")
-    caption = f"📊 Your Daily Executive Summary for {today_str} is ready."
+    today_str = datetime.datetime.now().strftime("%d.%m.%Y")
+    caption = f"📊 Щоденний ринковий звіт за {today_str} готовий."
 
     async with httpx.AsyncClient() as client:
         for user in users:
@@ -654,11 +933,29 @@ async def send_daily_report_to_users():
             except Exception as e:
                 print(f"Error sending PDF to {chat_id}: {e}")
 
+    # Also send to static admin chat IDs from env
+    chat_ids = [cid.strip() for cid in os.getenv("TELEGRAM_CHAT_ID", "").split(",") if cid.strip()]
+    async with httpx.AsyncClient() as client:
+        for admin_chat_id in chat_ids:
+            try:
+                with open(pdf_path, 'rb') as f:
+                    await client.post(
+                        f"{TELEGRAM_API_URL}/sendDocument",
+                        data={"chat_id": admin_chat_id, "caption": caption},
+                        files={"document": ("Daily_Report.pdf", f)}
+                    )
+            except Exception as e:
+                print(f"Error sending PDF to admin {admin_chat_id}: {e}")
+
     try:
         os.remove(pdf_path)
     except Exception as e:
         print(f"Failed to delete {pdf_path}: {e}")
 
+
+# ─────────────────────────────────────────────────────────────────
+# BACKGROUND TASKS (news fetching unchanged)
+# ─────────────────────────────────────────────────────────────────
 
 async def fetch_and_store_news():
     while True:
@@ -672,24 +969,20 @@ async def fetch_and_store_news():
                 feed = await asyncio.to_thread(feedparser.parse, url)
 
                 for entry in feed.entries[:15]:
-                    title = getattr(entry, "title", "")
+                    title    = getattr(entry, "title", "")
                     raw_link = getattr(entry, "link", "")
-                    link = raw_link.split('?')[0] if raw_link else ""
-                    link = link.strip()
+                    link     = raw_link.split('?')[0] if raw_link else ""
+                    link     = link.strip()
 
                     if not link or not title:
                         continue
 
                     try:
-                        # Проверка по link
                         cursor.execute("SELECT 1 FROM articles WHERE link = %s", (link,))
                         if cursor.fetchone() is not None:
-                            print(f"Duplicate skipped: {link}")
                             continue
-                        # Проверка по заголовку — защита от смены URL
                         cursor.execute("SELECT 1 FROM articles WHERE title = %s", (title,))
                         if cursor.fetchone() is not None:
-                            print(f"Duplicate by title skipped: {title[:60]}")
                             continue
                     except Exception as e:
                         print(f"DB check error: {e}")
@@ -752,7 +1045,6 @@ async def fetch_and_store_news():
 
                     try:
                         async with httpx.AsyncClient() as http_client:
-                            # 1. Broadcast to database users
                             users = db_fetchall(cursor,
                                 "SELECT chat_id, language, subscriptions, only_daily_mode FROM telegram_users"
                             )
@@ -760,16 +1052,14 @@ async def fetch_and_store_news():
                                 try:
                                     if user["only_daily_mode"]:
                                         continue
-
                                     chat_id = user["chat_id"]
-                                    lang = user["language"]
-                                    subs = user["subscriptions"] if user["subscriptions"] else "all"
+                                    lang    = user["language"]
+                                    subs    = user["subscriptions"] if user["subscriptions"] else "all"
 
                                     if subs != "all":
                                         if category not in subs.split(","):
                                             continue
 
-                                    # Проверяем, не отправляли ли уже эту новость этому пользователю
                                     cursor.execute(
                                         "SELECT 1 FROM telegram_sent WHERE chat_id = %s AND article_link = %s",
                                         (chat_id, link)
@@ -778,7 +1068,12 @@ async def fetch_and_store_news():
                                         continue
 
                                     summary_text = summaries.get(f"summary_{lang}", sum_en)
-                                    msg = f"📰 <b>{title}</b>\n\n📝 <i>{summary_text}</i>\n\n🏷 Category: #{category}\n🔗 <a href='{link}'>Read full article</a>"
+                                    msg = (
+                                        f"📰 <b>{title}</b>\n\n"
+                                        f"📝 <i>{summary_text}</i>\n\n"
+                                        f"🏷 Category: #{category}\n"
+                                        f"🔗 <a href='{link}'>Read full article</a>"
+                                    )
 
                                     resp = await http_client.post(f"{TELEGRAM_API_URL}/sendMessage", json={
                                         "chat_id": chat_id,
@@ -795,7 +1090,6 @@ async def fetch_and_store_news():
                                 except Exception as e:
                                     print(f"Error sending to DB user {user['chat_id']}: {e}")
 
-                            # 2. Broadcast to static admin chat IDs from env
                             chat_ids = [cid.strip() for cid in os.getenv("TELEGRAM_CHAT_ID", "").split(",") if cid.strip()]
                             for admin_chat_id in chat_ids:
                                 try:
@@ -806,7 +1100,12 @@ async def fetch_and_store_news():
                                     if cursor.fetchone() is not None:
                                         continue
 
-                                    msg = f"📰 <b>{title}</b>\n\n📝 <i>{sum_en}</i>\n\n🏷 Category: #{category}\n🔗 <a href='{link}'>Read full article</a>"
+                                    msg = (
+                                        f"📰 <b>{title}</b>\n\n"
+                                        f"📝 <i>{sum_en}</i>\n\n"
+                                        f"🏷 Category: #{category}\n"
+                                        f"🔗 <a href='{link}'>Read full article</a>"
+                                    )
                                     resp = await http_client.post(f"{TELEGRAM_API_URL}/sendMessage", json={
                                         "chat_id": admin_chat_id,
                                         "text": msg,
@@ -820,7 +1119,6 @@ async def fetch_and_store_news():
                                         conn.commit()
                                 except Exception as e:
                                     print(f"Error sending to static chat_id {admin_chat_id}: {e}")
-
                     except Exception as e:
                         print(f"Error broadcasting to Telegram: {e}")
 
@@ -857,14 +1155,19 @@ async def cleanup_old_news():
         await asyncio.sleep(86400)
 
 
+# ─────────────────────────────────────────────────────────────────
+# APP STARTUP
+# ─────────────────────────────────────────────────────────────────
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
-    task_news = asyncio.create_task(fetch_and_store_news())
-    task_tg = asyncio.create_task(poll_telegram_updates())
+    task_news    = asyncio.create_task(fetch_and_store_news())
+    task_tg      = asyncio.create_task(poll_telegram_updates())
     task_cleanup = asyncio.create_task(cleanup_old_news())
 
     scheduler = AsyncIOScheduler(timezone=pytz.timezone('Europe/Kyiv'))
+    # Daily report at 09:00 Kyiv time
     scheduler.add_job(send_daily_report_to_users, 'cron', hour=9, minute=0)
     scheduler.start()
 
@@ -889,17 +1192,18 @@ app.add_middleware(
 
 @app.get("/", response_class=FileResponse)
 async def read_index():
-    base_dir = os.path.dirname(os.path.abspath(__file__))
+    base_dir   = os.path.dirname(os.path.abspath(__file__))
     index_path = os.path.join(base_dir, "index.html")
     return FileResponse(index_path)
 
 
 @app.get("/news")
 def get_all_news():
-    conn = get_db_connection()
+    conn   = get_db_connection()
     cursor = conn.cursor()
-    rows = db_fetchall(cursor,
-        "SELECT title, link, published, category, summary_en, summary_ua, summary_ru, image_url FROM articles ORDER BY published DESC LIMIT 1000"
+    rows   = db_fetchall(cursor,
+        "SELECT title, link, published, category, summary_en, summary_ua, summary_ru, image_url "
+        "FROM articles ORDER BY published DESC LIMIT 1000"
     )
     conn.close()
     return rows
@@ -907,9 +1211,9 @@ def get_all_news():
 
 @app.get("/alerts")
 def get_latest_alerts():
-    conn = get_db_connection()
+    conn   = get_db_connection()
     cursor = conn.cursor()
-    rows = db_fetchall(cursor,
+    rows   = db_fetchall(cursor,
         "SELECT title, link, published FROM articles ORDER BY published DESC LIMIT 5"
     )
     conn.close()
@@ -921,19 +1225,17 @@ def get_latest_alerts():
         from datetime import timezone, timedelta
         tz = timezone(timedelta(hours=2))
 
-    now = datetime.datetime.now(tz)
+    now     = datetime.datetime.now(tz)
     results = []
     for r in rows:
         pub_str = r["published"]
-        dt_obj = None
+        dt_obj  = None
         if pub_str:
             try:
-                dt_obj = datetime.datetime.strptime(pub_str, "%Y-%m-%d %H:%M:%S")
-                dt_obj = dt_obj.replace(tzinfo=tz)
+                dt_obj = datetime.datetime.strptime(pub_str, "%Y-%m-%d %H:%M:%S").replace(tzinfo=tz)
             except ValueError:
                 try:
-                    dt_email = email.utils.parsedate_to_datetime(pub_str)
-                    dt_obj = dt_email.astimezone(tz)
+                    dt_obj = email.utils.parsedate_to_datetime(pub_str).astimezone(tz)
                 except Exception:
                     pass
 
@@ -948,7 +1250,7 @@ def get_latest_alerts():
             display_time = dt_obj.strftime("%H:%M")
 
         r["display_time"] = display_time
-        r["published"] = dt_obj.strftime("%Y-%m-%d %H:%M:%S")
+        r["published"]    = dt_obj.strftime("%Y-%m-%d %H:%M:%S")
         results.append(r)
 
     return results
@@ -959,11 +1261,21 @@ def get_category_news(category: str):
     if category not in RSS_FEEDS:
         raise HTTPException(status_code=404, detail="Category not found")
 
-    conn = get_db_connection()
+    conn   = get_db_connection()
     cursor = conn.cursor()
-    rows = db_fetchall(cursor,
-        "SELECT title, link, published, category, summary_en, summary_ua, summary_ru, image_url FROM articles WHERE category = %s ORDER BY published DESC LIMIT 15",
+    rows   = db_fetchall(cursor,
+        "SELECT title, link, published, category, summary_en, summary_ua, summary_ru, image_url "
+        "FROM articles WHERE category = %s ORDER BY published DESC LIMIT 15",
         (category,)
     )
     conn.close()
     return rows
+
+
+@app.get("/generate_report")
+async def trigger_report():
+    """HTTP endpoint to manually trigger report generation."""
+    pdf_path = await generate_daily_pdf_report()
+    if pdf_path and os.path.exists(pdf_path):
+        return FileResponse(pdf_path, media_type="application/pdf", filename="Daily_Report.pdf")
+    raise HTTPException(status_code=500, detail="Report generation failed")
