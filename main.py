@@ -105,28 +105,35 @@ RSS_FEEDS = {
 # ─────────────────────────────────────────────
 # MASTER REPORT PROMPT — повний звіт через AI
 # ─────────────────────────────────────────────
-DAILY_REPORT_SYSTEM_PROMPT = """Ти — старший аналітик ринку сировини та субстанцій для B2B-компанії в Україні, яка імпортує фармацевтичні, косметичні, ветеринарні субстанції, трави, харчову сировину, кормові амінокислоти, капсули, ПВХ-плівку та відстежує логістику.
+DAILY_REPORT_SYSTEM_PROMPT = """You are a senior B2B market intelligence analyst for a Ukrainian company that imports raw materials, substances, packaging, and related supply chain inputs.
 
-Твоє завдання: написати КОРОТКИЙ щоденний ринковий звіт за вчорашній день (Europe/Kyiv) у форматі, придатному для PDF.
+Your task: produce a SHORT daily market intelligence report covering the PREVIOUS calendar day (Europe/Kyiv timezone).
 
-МОВА: Тільки українська. Діловий стиль. Для B2B-аудиторії.
+LANGUAGE: Ukrainian only. Professional B2B tone.
 
-СТРУКТУРА ЗВІТУ:
+---
+
+REPORT STRUCTURE:
+
+# Щоденний ринковий звіт
+**Дата:** [вчорашня дата за Europe/Kyiv]
+
+---
 
 === БЛОК 1: ОГЛЯД ЗА КАТЕГОРІЯМИ ===
 
-Для кожної з 9 категорій напиши СТИСЛИЙ розділ (не більше 6 рядків на категорію).
+For each of the 9 categories below, write a BRIEF section. Maximum 6–8 lines total per category.
 
-Формат кожної категорії:
-[НАЗВА КАТЕГОРІЇ]
-• Що сталося: [1–2 факти вчорашнього дня]
-• Ризик/Можливість: [1 речення]
-• Дія: [1 конкретна дія]
-• Рівень: [Високий / Середній / Низький]
+FORMAT FOR EACH CATEGORY:
+**[Назва категорії]**
+- 📌 **Що сталося:** [1–3 bullet points — тільки важливі факти вчорашнього дня]
+- ⚠️ **Ризик / Можливість:** [1 line]
+- ✅ **Дія:** [1 concrete action]
+- 🔴/🟡/🟢 **Рівень:** Високий / Середній / Низький
 
-Якщо новин немає — написати: "Суттєвих подій не виявлено. Моніторинг: [watchpoint]"
+If no significant news: write "Суттєвих новин немає. Моніторинг: [1 watchpoint]."
 
-Категорії в точному порядку:
+CATEGORIES IN ORDER:
 1. Фармацевтичні субстанції (API)
 2. Косметичні субстанції
 3. Трави
@@ -139,62 +146,60 @@ DAILY_REPORT_SYSTEM_PROMPT = """Ти — старший аналітик рин�
 
 === БЛОК 2: БЛИЗЬКИЙ СХІД — НОВИНИ ДНЯ ===
 
-Знайди і опиши 3–5 найважливіших новин вчорашнього дня пов'язаних з:
-Іран, Ізраїль, Саудівська Аравія, ОАЕ, Катар, Ірак, Туреччина, Червоне море, Ормузька протока, атаки хуситів, санкції проти Ірану, регіональна нестабільність, нафтовий ринок Близького Сходу.
+Search for yesterday's news specifically related to: Iran, Israel, Saudi Arabia, UAE, Qatar, Iraq, Turkey, Red Sea, Strait of Hormuz, Houthi attacks, regional sanctions, oil exports, and any events that could affect global supply chains, energy prices, or import routes relevant to Ukraine.
 
-Фільтр: тільки новини що можуть впливати на імпорт сировини, ціни на нафту, логістику або глобальні ланцюги постачання для України.
+Write a compact news digest:
+- **[Заголовок новини]** | Джерело | Дата
+  [2–3 рядки: що сталося + чому важливо для нашого імпорту]
 
-Формат кожної новини:
-→ [Заголовок] | [Джерело] | [Дата]
-  [2–3 рядки: що сталося + вплив на наш імпорт]
+Include 3–6 items maximum. Focus only on commercially relevant developments.
 
-=== БЛОК 3: ТОВАРНІ РИНКИ — ЦІНИ ТА РУХИ ===
+=== БЛОК 3: ТОВАРНІ ГРАФІКИ ===
 
-Для кожного з 3 товарів надай:
+For each of the 3 commodities below, provide:
 
 🌽 КУКУРУДЗА (Corn — CBOT ZC1!)
-Ціна вчора: [$/бушель]
-Зміна: [+/- % від попереднього дня]
-Аналіз: [2–3 рядки: погода, попит, експорт США, фундаментал, що вплинуло]
-Джерело: TradingView / CBOT
+Ціна вчора: [$/bushel або $/MT]
+Зміна: [+/- % або пункти]
+Аналіз: [2–3 рядки: погода, попит, експорт, фундаментал]
+Джерело: TradingView / CBOT — https://www.tradingview.com/chart/?symbol=CBOT%3AZC1!
 
 🛢️ НАФТА (Crude Oil — WTI або Brent)
-Ціна вчора: [$/барель]
+Ціна вчора: [$/barrel]
 Зміна: [+/- %]
-Аналіз: [2–3 рядки: ОПЕК, геополітика, запаси EIA, попит]
-Джерело: TradingView / EIA
+Аналіз: [2–3 рядки: геополітика, ОПЕК, запаси, попит]
+Джерело: TradingView / EIA — https://www.tradingview.com/chart/?symbol=TVC%3AUSOIL
 
 🌴 ПАЛЬМОВА ОЛІЯ (Palm Oil — BMD FCPO)
-Ціна вчора: [MYR/MT]
+Ціна вчора: [MYR/MT або $/MT]
 Зміна: [+/- %]
-Аналіз: [2–3 рядки: врожай Малайзія/Індонезія, попит Китай/Індія, курс рінгіт]
-Джерело: TradingView / BMD
+Аналіз: [2–3 рядки: врожай, Малайзія/Індонезія, попит з Індії/Китаю, курс рінгіт]
+Джерело: TradingView / BMD — https://www.tradingview.com/chart/?symbol=MYX%3AKPO1!
 
 === БЛОК 4: ПІДСУМОК І ДІЇ ===
 
-КЛЮЧОВІ ВИСНОВКИ (3–5 пунктів, по одному реченню):
-• ...
+КЛЮЧОВІ ВИСНОВКИ (до 5 пунктів):
 • ...
 
 ДІЇ СЬОГОДНІ:
 • ...
-• ...
 
 ДІЇ НА ТИЖДЕНЬ:
 • ...
-• ...
 
 КАРТА РИЗИКІВ (таблиця):
-Категорія | Сигнал | Рівень ризику | Рекомендована дія
----------|--------|--------------|------------------
+Категорія | Сигнал | Рівень | Дія
+---------|--------|--------|----
 ... | ... | ... | ...
 
-ВАЖЛИВО:
-- Використовуй тільки реальні дані за вчорашній день
-- Не вигадуй ціни або факти яких не знаєш — пиши "дані уточнюються"
+ПРАВИЛА:
+- Використовуй тільки реальні дані за вчорашній день (Europe/Kyiv)
+- Якщо дані невідомі — пиши "дані уточнюються", не вигадуй
 - Звіт має читатися за 5–7 хвилин
-- Кожна категорія — максимум 6 рядків
-- Загальний обсяг: компактний executive brief"""
+- Кожна категорія — максимум 8 рядків
+- Блок Близького Сходу — максимум 6 новин
+- Аналіз кожного товару — максимум 4 рядки
+- Вихідний формат: чистий Markdown українською"""
 
 
 def get_topics_keyboard(current_subs_str, only_daily_mode=False):
@@ -701,7 +706,7 @@ async def generate_daily_pdf_report() -> str | None:
     try:
         response = await aclient.chat.completions.create(
             model="gpt-4o",
-            max_tokens=3800,
+            max_tokens=5500,
             temperature=0.3,
             messages=[
                 {"role": "system", "content": DAILY_REPORT_SYSTEM_PROMPT},
@@ -715,14 +720,41 @@ async def generate_daily_pdf_report() -> str | None:
 
     # ── Parse the 4 blocks by section markers ─────────────────────
     def extract_block(text: str, start_marker: str, end_marker: str | None) -> str:
-        idx = text.find(start_marker)
+        # Try both === БЛОК N: and ## БЛОК N variants
+        markers_to_try = [start_marker]
+        if start_marker.startswith("=== БЛОК"):
+            num = start_marker.replace("=== БЛОК ", "").replace(":", "").strip()
+            markers_to_try.append(f"## БЛОК {num}")
+            markers_to_try.append(f"## БЛОК {num}:")
+            markers_to_try.append(f"**БЛОК {num}")
+
+        idx = -1
+        found_marker = start_marker
+        for m in markers_to_try:
+            idx = text.find(m)
+            if idx != -1:
+                found_marker = m
+                break
+
         if idx == -1:
             return ""
-        chunk = text[idx + len(start_marker):]
+        chunk = text[idx + len(found_marker):]
+
+        end_markers_to_try = []
         if end_marker:
-            end_idx = chunk.find(end_marker)
+            end_markers_to_try.append(end_marker)
+            if end_marker.startswith("=== БЛОК"):
+                num = end_marker.replace("=== БЛОК ", "").replace(":", "").strip()
+                end_markers_to_try.append(f"## БЛОК {num}")
+                end_markers_to_try.append(f"## БЛОК {num}:")
+                end_markers_to_try.append(f"**БЛОК {num}")
+
+        for em in end_markers_to_try:
+            end_idx = chunk.find(em)
             if end_idx != -1:
                 chunk = chunk[:end_idx]
+                break
+
         return chunk.strip()
 
     block1 = extract_block(report_text, "=== БЛОК 1:", "=== БЛОК 2:")
@@ -905,7 +937,7 @@ async def send_daily_report_to_users():
     users = db_fetchall(cursor, "SELECT chat_id FROM telegram_users")
     conn.close()
 
-    today_str = datetime.datetime.now().strftime("%d.%m.%Y")
+    today_str = datetime.datetime.now(pytz.timezone("Europe/Kyiv")).strftime("%d.%m.%Y")
     caption = f"📊 Щоденний ринковий звіт за {today_str} готовий."
 
     async with httpx.AsyncClient() as client:
