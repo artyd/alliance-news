@@ -11,3 +11,5 @@ openai
 fpdf2
 apscheduler
 pytz
+yfinance
+matplotlib

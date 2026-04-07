@@ -20,6 +20,20 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from openai import AsyncOpenAI
 import pytz
 import textwrap
+import tempfile
+
+# ── Chart dependencies (optional — graceful fallback if missing) ──
+try:
+    import yfinance as yf
+    import matplotlib
+    matplotlib.use("Agg")          # non-interactive backend
+    import matplotlib.pyplot as plt
+    import matplotlib.dates as mdates
+    from matplotlib.patches import Patch
+    CHARTS_AVAILABLE = True
+except ImportError:
+    CHARTS_AVAILABLE = False
+    print("WARNING: yfinance/matplotlib not installed — charts disabled")
 
 load_dotenv()
 
@@ -768,6 +782,176 @@ def draw_footer(pdf: FPDF, report_date: str):
 
 
 # ─────────────────────────────────────────────────────────────────
+# CHART GENERATION  (yfinance → matplotlib → PNG → PDF)
+# ─────────────────────────────────────────────────────────────────
+
+# Ticker map: name → (yfinance ticker, display label, unit)
+CHART_TICKERS = {
+    "КУКУРУДЗА":  ("ZC=F",  "Кукурудза CBOT",      "¢/bushel"),
+    "ПШЕНИЦЯ":    ("ZW=F",  "Пшениця CBOT",        "¢/bushel"),
+    "НАФТА":      ("BZ=F",  "Нафта Brent ICE",     "$/barrel"),
+    "ПАЛЬМОВА":   ("FCPO=F","Пальмова олія BMD",   "MYR/MT"),
+    "TTF":        ("TTF=F", "Газ TTF ЄС",           "EUR/MWh"),
+}
+
+
+def _make_candle_chart(ticker_sym: str, label: str, unit: str,
+                       date_from: datetime.date, date_to: datetime.date,
+                       out_path: str) -> bool:
+    """
+    Download OHLC data for [date_from-30d .. date_to+1d],
+    draw a candlestick chart with volume bars, save to out_path.
+    Returns True on success.
+    """
+    if not CHARTS_AVAILABLE:
+        return False
+    try:
+        start = date_from - datetime.timedelta(days=45)
+        end   = date_to   + datetime.timedelta(days=2)
+        tk = yf.Ticker(ticker_sym)
+        df = tk.history(start=start.isoformat(), end=end.isoformat(), interval="1d")
+        if df.empty:
+            return False
+
+        df.index = df.index.tz_localize(None) if df.index.tzinfo else df.index
+        # keep only up to report date
+        df = df[df.index.date <= date_to]
+        if df.empty:
+            return False
+
+        # ── figure layout ──────────────────────────────────────────
+        fig, (ax_price, ax_vol) = plt.subplots(
+            2, 1, figsize=(9, 4.2),
+            gridspec_kw={"height_ratios": [3, 1]},
+            facecolor="#111111"
+        )
+        for ax in (ax_price, ax_vol):
+            ax.set_facecolor("#1a1a1a")
+            ax.tick_params(colors="#cccccc", labelsize=7)
+            for spine in ax.spines.values():
+                spine.set_edgecolor("#333333")
+
+        # ── candlesticks ───────────────────────────────────────────
+        w = 0.6   # bar width in days
+        for i, (ts, row) in enumerate(df.iterrows()):
+            o, h, l, c = row["Open"], row["High"], row["Low"], row["Close"]
+            color = "#26a69a" if c >= o else "#ef5350"   # teal / red
+            # candle body
+            ax_price.bar(i, abs(c - o), bottom=min(o, c),
+                         color=color, width=w, linewidth=0)
+            # wick
+            ax_price.plot([i, i], [l, h], color=color, linewidth=0.8)
+
+        # ── highlight today (last bar) ─────────────────────────────
+        last_i = len(df) - 1
+        last_close = df["Close"].iloc[-1]
+        last_open  = df["Open"].iloc[-1]
+        ax_price.bar(last_i,
+                     abs(last_close - last_open),
+                     bottom=min(last_close, last_open),
+                     color="#f5a623", width=w, linewidth=0, zorder=5)
+
+        # ── price label on last candle ─────────────────────────────
+        ax_price.annotate(
+            f"{last_close:.2f}",
+            xy=(last_i, last_close),
+            xytext=(last_i - 1.5, last_close),
+            fontsize=7.5, color="#f5a623", fontweight="bold",
+            ha="right", va="center",
+        )
+
+        # ── volume bars ────────────────────────────────────────────
+        vol_colors = ["#26a69a" if df["Close"].iloc[i] >= df["Open"].iloc[i]
+                      else "#ef5350" for i in range(len(df))]
+        ax_vol.bar(range(len(df)), df["Volume"], color=vol_colors,
+                   width=w, linewidth=0, alpha=0.7)
+        ax_vol.set_ylabel("Обсяг", color="#888888", fontsize=6)
+        ax_vol.yaxis.set_major_formatter(
+            matplotlib.ticker.FuncFormatter(
+                lambda x, _: f"{x/1e6:.0f}M" if x >= 1e6 else f"{x/1e3:.0f}K"
+            )
+        )
+
+        # ── x-axis: show only ~6 date labels ──────────────────────
+        step = max(1, len(df) // 6)
+        tick_positions = list(range(0, len(df), step))
+        tick_labels    = [df.index[i].strftime("%d.%m") for i in tick_positions]
+        ax_price.set_xticks([])
+        ax_vol.set_xticks(tick_positions)
+        ax_vol.set_xticklabels(tick_labels, color="#aaaaaa", fontsize=6)
+
+        # ── y-axis formatting ──────────────────────────────────────
+        ax_price.yaxis.tick_right()
+        ax_price.yaxis.set_label_position("right")
+        ax_price.set_ylabel(unit, color="#888888", fontsize=6)
+
+        # ── title & OHLC info ──────────────────────────────────────
+        last_row = df.iloc[-1]
+        prev_close = df["Close"].iloc[-2] if len(df) > 1 else last_row["Close"]
+        chg   = last_row["Close"] - prev_close
+        chg_p = chg / prev_close * 100 if prev_close else 0
+        chg_color = "#26a69a" if chg >= 0 else "#ef5350"
+        chg_sign  = "+" if chg >= 0 else ""
+
+        title_str = (
+            f"{label}   "
+            f"O:{last_row['Open']:.2f}  "
+            f"H:{last_row['High']:.2f}  "
+            f"L:{last_row['Low']:.2f}  "
+            f"C:{last_row['Close']:.2f}  "
+        )
+        ax_price.set_title(title_str, color="#dddddd", fontsize=7.5,
+                           loc="left", pad=4)
+        # change badge in top-right
+        ax_price.annotate(
+            f"{chg_sign}{chg:.2f} ({chg_sign}{chg_p:.2f}%)",
+            xy=(1, 1), xycoords="axes fraction",
+            xytext=(-4, -4), textcoords="offset points",
+            fontsize=7.5, color=chg_color, fontweight="bold",
+            ha="right", va="top",
+        )
+
+        # ── date of report marker ──────────────────────────────────
+        report_idx = len(df) - 1
+        ax_price.axvline(x=report_idx, color="#f5a623",
+                         linewidth=0.7, linestyle="--", alpha=0.5)
+
+        fig.tight_layout(pad=0.4)
+        fig.savefig(out_path, dpi=130, bbox_inches="tight",
+                    facecolor="#111111")
+        plt.close(fig)
+        return True
+    except Exception as e:
+        print(f"Chart error [{ticker_sym}]: {e}")
+        return False
+
+
+def generate_all_charts(report_date_str: str, tmp_dir: str) -> dict[str, str]:
+    """
+    Generate PNG charts for all 5 commodities.
+    Returns dict: keyword → PNG path  (only successfully generated ones).
+    """
+    if not CHARTS_AVAILABLE:
+        return {}
+
+    try:
+        rd = datetime.datetime.strptime(report_date_str, "%d.%m.%Y").date()
+    except ValueError:
+        return {}
+
+    result = {}
+    for key, (sym, label, unit) in CHART_TICKERS.items():
+        out = os.path.join(tmp_dir, f"chart_{key}.png")
+        ok  = _make_candle_chart(sym, label, unit, rd, rd, out)
+        if ok:
+            result[key] = out
+            print(f"Chart generated: {key} → {out}")
+        else:
+            print(f"Chart skipped: {key}")
+    return result
+
+
+# ─────────────────────────────────────────────────────────────────
 # MAIN REPORT GENERATION  (prompt-based, no MapReduce)
 # ─────────────────────────────────────────────────────────────────
 
@@ -880,6 +1064,11 @@ async def generate_daily_pdf_report() -> str | None:
     if not any([block2a, block2b, block2c]):
         block2a = block2
 
+    # ── Generate commodity charts (yfinance → PNG) ────────────────
+    tmp_dir = tempfile.mkdtemp(prefix="report_charts_")
+    chart_images = generate_all_charts(report_date, tmp_dir)
+    print(f"Charts generated: {list(chart_images.keys())}")
+
     # ── Build PDF ─────────────────────────────────────────────────
     base_dir = os.path.dirname(os.path.abspath(__file__))
     pdf = make_pdf_base()
@@ -917,7 +1106,6 @@ async def generate_daily_pdf_report() -> str | None:
 
     for raw_line in b1_lines:
         line = raw_line.strip()
-        # Detect category heading (starts with digit dot)
         is_cat_heading = (
             len(line) > 3
             and line[0].isdigit()
@@ -954,49 +1142,81 @@ async def generate_daily_pdf_report() -> str | None:
         body_text(pdf, block2 if block2 else "Даних по Близькому Сходу не знайдено.")
         draw_divider(pdf)
 
-    # ── BLOCK 3: Commodities (5 товарів) ─────────────────────────
+    # ── BLOCK 3: Commodities (5 товарів) — кожен товар на окремій сторінці ──
+    pdf.add_page()
+    draw_header_bar(pdf, report_date, base_dir)
     section_title(pdf, "БЛОК 3  ·  Товарні ринки")
 
-    commodity_keys = ["КУКУРУДЗА", "ПШЕНИЦЯ", "НАФТА", "ПАЛЬМОВА", "ХІМІЧНІ"]
+    commodity_keys = ["КУКУРУДЗА", "ПШЕНИЦЯ", "НАФТА", "ПАЛЬМОВА", "ХІМІЧНІ", "TTF"]
     tv_links = {
         "КУКУРУДЗА": "https://www.tradingview.com/chart/?symbol=CBOT%3AZC1!",
         "ПШЕНИЦЯ":   "https://www.tradingview.com/chart/?symbol=CBOT%3AZW1!",
         "НАФТА":     "https://www.tradingview.com/chart/?symbol=TVC%3AUKOIL",
         "ПАЛЬМОВА":  "https://www.tradingview.com/chart/?symbol=MYX%3AKPO1!",
         "ХІМІЧНІ":   "https://www.tradingview.com/chart/?symbol=ICEEUR%3ATTF1!",
+        "TTF":       "https://www.tradingview.com/chart/?symbol=ICEEUR%3ATTF1!",
+    }
+    chart_key_map = {
+        "КУКУРУДЗА": "КУКУРУДЗА",
+        "ПШЕНИЦЯ":   "ПШЕНИЦЯ",
+        "НАФТА":     "НАФТА",
+        "ПАЛЬМОВА":  "ПАЛЬМОВА",
+        "ХІМІЧНІ":   "TTF",
+        "TTF":       "TTF",
     }
 
     if block3:
         b3_lines = block3.split("\n")
         current_com_lines: list[str] = []
         current_com_title = ""
+        current_com_key   = ""
 
-        def flush_commodity(pdf, title, lines):
+        def flush_commodity(pdf, title, lines, com_key):
             if not title and not lines:
                 return
             if title:
                 sub_title(pdf, title)
             body_text(pdf, "\n".join(lines))
-            for key, url in tv_links.items():
-                if key in title.upper():
-                    pdf.set_font("DejaVu", size=8)
-                    pdf.set_text_color(60, 60, 180)
-                    pdf.set_x(pdf.l_margin)
-                    pdf.cell(0, 5, f"Графік TradingView: {url}", ln=True)
-                    pdf.set_text_color(*COLOR_BODY)
-                    break
+
+            img_path = chart_images.get(com_key, "")
+            if img_path and os.path.exists(img_path):
+                avail_h = pdf.h - pdf.get_y() - pdf.b_margin - 6
+                img_h   = min(55, avail_h)
+                if img_h < 20:
+                    pdf.add_page()
+                    draw_header_bar(pdf, report_date, base_dir)
+                    img_h = 55
+                page_w = pdf.w - pdf.l_margin - pdf.r_margin
+                pdf.image(img_path, x=pdf.l_margin, y=pdf.get_y(),
+                          w=page_w, h=img_h)
+                pdf.ln(img_h + 2)
+            else:
+                for key, url in tv_links.items():
+                    if key in title.upper():
+                        pdf.set_font("DejaVu", size=8)
+                        pdf.set_text_color(60, 60, 180)
+                        pdf.set_x(pdf.l_margin)
+                        pdf.cell(0, 5, f"Графік TradingView: {url}", ln=True)
+                        pdf.set_text_color(*COLOR_BODY)
+                        break
             draw_divider(pdf)
 
         for raw_line in b3_lines:
             line = raw_line.strip()
-            is_com = any(k in line.upper() for k in commodity_keys) and len(line) < 100
-            if is_com:
-                flush_commodity(pdf, current_com_title, current_com_lines)
+            matched_key = next(
+                (k for k in commodity_keys if k in line.upper() and len(line) < 100),
+                None
+            )
+            if matched_key:
+                flush_commodity(pdf, current_com_title,
+                                current_com_lines, current_com_key)
                 current_com_title = line
                 current_com_lines = []
+                current_com_key   = chart_key_map.get(matched_key, "")
             else:
                 current_com_lines.append(line)
-        flush_commodity(pdf, current_com_title, current_com_lines)
+        flush_commodity(pdf, current_com_title,
+                        current_com_lines, current_com_key)
     else:
         body_text(pdf, "Дані по товарних ринках недоступні.")
 
@@ -1056,6 +1276,14 @@ async def generate_daily_pdf_report() -> str | None:
     pdf_path = os.path.join(base_dir, f"daily_report_{yesterday.strftime('%Y%m%d')}.pdf")
     pdf.output(pdf_path)
     print(f"Report saved: {pdf_path}")
+
+    # ── cleanup tmp chart PNGs ────────────────────────────────────
+    try:
+        import shutil
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+    except Exception:
+        pass
+
     return pdf_path
 
 
