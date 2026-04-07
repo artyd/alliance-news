@@ -812,11 +812,11 @@ def draw_footer(pdf: FPDF, report_date: str):
 
 # Ticker map: name → (yfinance ticker, display label, unit)
 CHART_TICKERS = {
-    "КУКУРУДЗА":  ("ZC=F",  "Кукурудза CBOT",      "¢/bushel"),
-    "ПШЕНИЦЯ":    ("ZW=F",  "Пшениця CBOT",        "¢/bushel"),
-    "НАФТА":      ("BZ=F",  "Нафта Brent ICE",     "$/barrel"),
-    "ПАЛЬМОВА":   ("FCPO=F","Пальмова олія BMD",   "MYR/MT"),
-    "TTF":        ("TTF=F", "Газ TTF ЄС",           "EUR/MWh"),
+    "КУКУРУДЗА":  ("ZC=F",   "Кукурудза CBOT",    "¢/bushel"),
+    "ПШЕНИЦЯ":    ("ZW=F",   "Пшениця CBOT",      "¢/bushel"),
+    "НАФТА":      ("BZ=F",   "Нафта Brent ICE",   "$/barrel"),
+    "ПАЛЬМОВА":   ("POO=F",  "Пальмова олія CME", "$/MT"),
+    "TTF":        ("TTF=F",  "Газ TTF ЄС",        "EUR/MWh"),
 }
 
 
@@ -1194,11 +1194,6 @@ async def generate_daily_pdf_report() -> str | None:
     if not any([block2a, block2b, block2c]):
         block2a = block2
 
-    # ── Generate commodity charts (yfinance → PNG) ────────────────
-    tmp_dir = tempfile.mkdtemp(prefix="report_charts_")
-    chart_images = generate_all_charts(report_date, tmp_dir)
-    print(f"Charts generated: {list(chart_images.keys())}")
-
     # ── Build PDF ─────────────────────────────────────────────────
     base_dir = os.path.dirname(os.path.abspath(__file__))
     pdf = make_pdf_base()
@@ -1272,83 +1267,156 @@ async def generate_daily_pdf_report() -> str | None:
         body_text(pdf, block2 if block2 else "Даних по Близькому Сходу не знайдено.")
         draw_divider(pdf)
 
-    # ── BLOCK 3: Commodities (5 товарів) — кожен товар на окремій сторінці ──
+    # ── BLOCK 3: Товарні ринки — реальні ціни з yfinance ─────────
     pdf.add_page()
     draw_header_bar(pdf, report_date, base_dir)
     section_title(pdf, "БЛОК 3  ·  Товарні ринки")
 
-    commodity_keys = ["КУКУРУДЗА", "ПШЕНИЦЯ", "НАФТА", "ПАЛЬМОВА", "ХІМІЧНІ", "TTF"]
-    tv_links = {
-        "КУКУРУДЗА": "https://www.tradingview.com/chart/?symbol=CBOT%3AZC1!",
-        "ПШЕНИЦЯ":   "https://www.tradingview.com/chart/?symbol=CBOT%3AZW1!",
-        "НАФТА":     "https://www.tradingview.com/chart/?symbol=TVC%3AUKOIL",
-        "ПАЛЬМОВА":  "https://www.tradingview.com/chart/?symbol=MYX%3AKPO1!",
-        "ХІМІЧНІ":   "https://www.tradingview.com/chart/?symbol=ICEEUR%3ATTF1!",
-        "TTF":       "https://www.tradingview.com/chart/?symbol=ICEEUR%3ATTF1!",
-    }
-    chart_key_map = {
-        "КУКУРУДЗА": "КУКУРУДЗА",
-        "ПШЕНИЦЯ":   "ПШЕНИЦЯ",
-        "НАФТА":     "НАФТА",
-        "ПАЛЬМОВА":  "ПАЛЬМОВА",
-        "ХІМІЧНІ":   "TTF",
-        "TTF":       "TTF",
+    # Конвертація пальмової олії з MYR в USD (якщо є курс)
+    # MYR/USD ≈ 0.215 (орієнтовно)
+    MYR_TO_USD = 0.215
+
+    COMMODITY_META = {
+        "КУКУРУДЗА": {
+            "emoji": "🌽", "name": "Кукурудза",
+            "exchange": "CBOT ZC1!", "unit_raw": "¢/bu",
+            "to_usd": lambda p: round(p / 100 * 27.2155, 2),  # ¢/bu → $/MT
+            "unit_usd": "$/MT",
+        },
+        "ПШЕНИЦЯ": {
+            "emoji": "🌾", "name": "Пшениця",
+            "exchange": "CBOT ZW1!", "unit_raw": "¢/bu",
+            "to_usd": lambda p: round(p / 100 * 36.744, 2),   # ¢/bu → $/MT
+            "unit_usd": "$/MT",
+        },
+        "НАФТА": {
+            "emoji": "🛢️", "name": "Нафта Brent",
+            "exchange": "ICE BRN1!", "unit_raw": "$/bbl",
+            "to_usd": lambda p: p,
+            "unit_usd": "$/bbl",
+        },
+        "ПАЛЬМОВА": {
+            "emoji": "🌴", "name": "Пальмова олія",
+            "exchange": "CME POO", "unit_raw": "$/MT",
+            "to_usd": lambda p: p,
+            "unit_usd": "$/MT",
+        },
+        "TTF": {
+            "emoji": "⚡", "name": "Газ TTF ЄС",
+            "exchange": "ICE TTF1!", "unit_raw": "EUR/MWh",
+            "to_usd": lambda p: p,
+            "unit_usd": "EUR/MWh",
+        },
     }
 
+    def draw_price_card(pdf: FPDF, key: str, price_data: dict):
+        """Малює картку ціни для одного товару."""
+        meta = COMMODITY_META.get(key, {})
+        if not meta:
+            return
+
+        p = price_data
+        close_raw = p["close"]
+        open_raw  = p["open"]
+        high_raw  = p["high"]
+        low_raw   = p["low"]
+        chg_pct   = p["change_pct"]
+        chg_usd   = round(meta["to_usd"](close_raw) - meta["to_usd"](open_raw), 2)
+        close_usd = meta["to_usd"](close_raw)
+        high_usd  = meta["to_usd"](high_raw)
+        low_usd   = meta["to_usd"](low_raw)
+        sign      = "+" if chg_pct >= 0 else ""
+        color     = (34, 139, 34) if chg_pct >= 0 else (200, 40, 40)
+
+        # ── заголовок товару ──────────────────────────────────────
+        pdf.set_x(pdf.l_margin)
+        pdf.set_font("DejaVu", style="B", size=11)
+        pdf.set_text_color(*COLOR_ACCENT)
+        pdf.cell(0, 7,
+                 f"{meta['emoji']}  {meta['name']}  ({meta['exchange']})",
+                 ln=True)
+        pdf.set_text_color(*COLOR_BODY)
+
+        # ── головна ціна + зміна ──────────────────────────────────
+        pdf.set_x(pdf.l_margin)
+        pdf.set_font("DejaVu", style="B", size=14)
+        pdf.set_text_color(*COLOR_BODY)
+        pdf.cell(60, 9, f"{close_usd} {meta['unit_usd']}")
+        pdf.set_font("DejaVu", style="B", size=12)
+        pdf.set_text_color(*color)
+        chg_usd_sign = "+" if chg_usd >= 0 else ""
+        pdf.cell(0, 9,
+                 f"  {sign}{chg_pct}%   ({chg_usd_sign}{chg_usd} {meta['unit_usd']})",
+                 ln=True)
+        pdf.set_text_color(*COLOR_BODY)
+
+        # ── OHLC рядок ────────────────────────────────────────────
+        pdf.set_x(pdf.l_margin)
+        pdf.set_font("DejaVu", size=8)
+        pdf.set_text_color(100, 100, 100)
+        pdf.cell(0, 6,
+                 f"Відкриття: {meta['to_usd'](open_raw)} {meta['unit_usd']}   "
+                 f"Макс: {high_usd}   Мін: {low_usd}   "
+                 f"Дата: {p['date']}",
+                 ln=True)
+        pdf.set_text_color(*COLOR_BODY)
+        pdf.ln(2)
+
+    # Спочатку малюємо всі цінові картки з реальних даних
+    drawn_keys = []
+    if prices:
+        sub_title(pdf, f"Ціни закриття за {report_date}  (джерело: yfinance / реальні ринкові дані)")
+        pdf.ln(2)
+        for key in ["КУКУРУДЗА", "ПШЕНИЦЯ", "НАФТА", "ПАЛЬМОВА", "TTF"]:
+            if key in prices:
+                draw_price_card(pdf, key, prices[key])
+                drawn_keys.append(key)
+                draw_divider(pdf)
+    else:
+        sub_title(pdf, "Цінові дані")
+        body_text(pdf, "Ринкові дані тимчасово недоступні.")
+        draw_divider(pdf)
+
+    # Потім аналітичний текст від GPT (тільки опис, без цін — вони вже є зверху)
     if block3:
+        commodity_keys = ["КУКУРУДЗА", "ПШЕНИЦЯ", "НАФТА", "ПАЛЬМОВА", "ХІМІЧНІ", "TTF"]
         b3_lines = block3.split("\n")
         current_com_lines: list[str] = []
         current_com_title = ""
-        current_com_key   = ""
 
-        def flush_commodity(pdf, title, lines, com_key):
+        def flush_commodity(pdf, title, lines):
             if not title and not lines:
                 return
+            # Фільтруємо рядки з цінами (GPT іноді дублює) — залишаємо тільки аналіз
+            filtered = []
+            for ln in lines:
+                low = ln.lower()
+                # пропускаємо рядки де є ціна закриття/зміна — вони вже є в картці
+                if any(x in low for x in ["ціна закриття", "зміна за день",
+                                          "зміна за тиж", "внутрішньоденна",
+                                          "tradingview", "http"]):
+                    continue
+                filtered.append(ln)
+            if not filtered:
+                return
             if title:
-                sub_title(pdf, title)
-            body_text(pdf, "\n".join(lines))
-
-            img_path = chart_images.get(com_key, "")
-            if img_path and os.path.exists(img_path):
-                avail_h = pdf.h - pdf.get_y() - pdf.b_margin - 6
-                img_h   = min(55, avail_h)
-                if img_h < 20:
-                    pdf.add_page()
-                    draw_header_bar(pdf, report_date, base_dir)
-                    img_h = 55
-                page_w = pdf.w - pdf.l_margin - pdf.r_margin
-                pdf.image(img_path, x=pdf.l_margin, y=pdf.get_y(),
-                          w=page_w, h=img_h)
-                pdf.ln(img_h + 2)
-            else:
-                for key, url in tv_links.items():
-                    if key in title.upper():
-                        pdf.set_font("DejaVu", size=8)
-                        pdf.set_text_color(60, 60, 180)
-                        pdf.set_x(pdf.l_margin)
-                        pdf.cell(0, 5, f"Графік TradingView: {url}", ln=True)
-                        pdf.set_text_color(*COLOR_BODY)
-                        break
+                sub_title(pdf, f"Аналіз: {title}")
+            body_text(pdf, "\n".join(filtered))
             draw_divider(pdf)
 
         for raw_line in b3_lines:
             line = raw_line.strip()
-            matched_key = next(
+            matched = next(
                 (k for k in commodity_keys if k in line.upper() and len(line) < 100),
                 None
             )
-            if matched_key:
-                flush_commodity(pdf, current_com_title,
-                                current_com_lines, current_com_key)
+            if matched:
+                flush_commodity(pdf, current_com_title, current_com_lines)
                 current_com_title = line
                 current_com_lines = []
-                current_com_key   = chart_key_map.get(matched_key, "")
             else:
                 current_com_lines.append(line)
-        flush_commodity(pdf, current_com_title,
-                        current_com_lines, current_com_key)
-    else:
-        body_text(pdf, "Дані по товарних ринках недоступні.")
+        flush_commodity(pdf, current_com_title, current_com_lines)
 
     # ── BLOCK 4: Підсумок + дії + карта ризиків + дашборд ────────
     pdf.add_page()
@@ -1406,14 +1474,6 @@ async def generate_daily_pdf_report() -> str | None:
     pdf_path = os.path.join(base_dir, f"daily_report_{yesterday.strftime('%Y%m%d')}.pdf")
     pdf.output(pdf_path)
     print(f"Report saved: {pdf_path}")
-
-    # ── cleanup tmp chart PNGs ────────────────────────────────────
-    try:
-        import shutil
-        shutil.rmtree(tmp_dir, ignore_errors=True)
-    except Exception:
-        pass
-
     return pdf_path
 
 
