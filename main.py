@@ -705,19 +705,44 @@ def sub_title(pdf: FPDF, title: str):
 
 
 def body_text(pdf: FPDF, text: str, size: int = 9):
-    """Render plain text, stripping markdown artefacts."""
-    pdf.set_font("DejaVu", size=size)
+    """Render text with inline **bold** support. Strips ## / # headings."""
     pdf.set_text_color(*COLOR_BODY)
     for line in text.split("\n"):
-        clean = line.replace("**", "").replace("##", "").replace("#", "").strip()
+        # strip markdown heading markers
+        clean = line.replace("##", "").replace("####", "").strip()
+        # remove lone # at start
+        if clean.startswith("#"):
+            clean = clean.lstrip("#").strip()
         if not clean:
             pdf.ln(2)
             continue
         pdf.set_x(pdf.l_margin)
-        try:
-            pdf.multi_cell(0, 5.5, clean)
-        except Exception:
-            pass
+        # ── render inline bold (**...**) ──────────────────────────
+        # Split by ** — odd segments are bold, even are normal
+        parts = clean.split("**")
+        if len(parts) == 1:
+            # no bold markers — simple render
+            pdf.set_font("DejaVu", size=size)
+            try:
+                pdf.multi_cell(0, 5.5, clean)
+            except Exception:
+                pass
+        else:
+            # mixed bold/normal on same line — use write()
+            # write() doesn't line-break automatically, so we handle per-line
+            for i, part in enumerate(parts):
+                if not part:
+                    continue
+                if i % 2 == 1:
+                    pdf.set_font("DejaVu", style="B", size=size)
+                else:
+                    pdf.set_font("DejaVu", size=size)
+                try:
+                    pdf.write(5.5, part)
+                except Exception:
+                    pass
+            pdf.ln(5.5)
+            pdf.set_font("DejaVu", size=size)
     pdf.ln(1)
 
 
@@ -951,6 +976,79 @@ def generate_all_charts(report_date_str: str, tmp_dir: str) -> dict[str, str]:
     return result
 
 
+def fetch_nbu_rates(date: datetime.date) -> dict:
+    """
+    Fetch official NBU exchange rates for a given date.
+    Falls back to previous days if the date is a weekend/holiday.
+    Returns dict with keys: usd_uah, eur_uah, cny_uah, eur_usd
+    """
+    rates = {}
+    for delta in range(5):  # try up to 5 days back
+        try:
+            d = date - datetime.timedelta(days=delta)
+            url = f"https://bank.gov.ua/NBUStatService/v1/statdirectory/exchange?date={d.strftime('%Y%m%d')}&json"
+            import urllib.request
+            with urllib.request.urlopen(url, timeout=8) as r:
+                data = json.loads(r.read().decode())
+            by_code = {item["cc"]: item["rate"] for item in data}
+            usd = by_code.get("USD", 0)
+            eur = by_code.get("EUR", 0)
+            cny = by_code.get("CNY", 0)
+            if usd > 0:
+                rates = {
+                    "usd_uah": round(usd, 2),
+                    "eur_uah": round(eur, 2),
+                    "cny_uah": round(cny, 2),
+                    "eur_usd": round(eur / usd, 4) if usd else 0,
+                    "rate_date": d.strftime("%d.%m.%Y"),
+                }
+                print(f"NBU rates fetched for {d}: USD={usd}, EUR={eur}")
+                return rates
+        except Exception as e:
+            print(f"NBU fetch error (delta={delta}): {e}")
+    return {}
+
+
+def fetch_commodity_prices(date: datetime.date) -> dict:
+    """
+    Fetch real closing prices for commodities via yfinance.
+    Returns dict: ticker_key → {close, open, high, low, change_pct, unit}
+    """
+    if not CHARTS_AVAILABLE:
+        return {}
+    results = {}
+    start = date - datetime.timedelta(days=5)
+    end   = date + datetime.timedelta(days=2)
+    for key, (sym, label, unit) in CHART_TICKERS.items():
+        try:
+            tk = yf.Ticker(sym)
+            df = tk.history(start=start.isoformat(), end=end.isoformat(), interval="1d")
+            if df.empty:
+                continue
+            df.index = df.index.tz_localize(None) if df.index.tzinfo else df.index
+            df = df[df.index.date <= date]
+            if df.empty:
+                continue
+            last  = df.iloc[-1]
+            prev  = df.iloc[-2] if len(df) > 1 else last
+            chg   = last["Close"] - prev["Close"]
+            chg_p = round(chg / prev["Close"] * 100, 2) if prev["Close"] else 0
+            results[key] = {
+                "close":      round(last["Close"], 2),
+                "open":       round(last["Open"],  2),
+                "high":       round(last["High"],  2),
+                "low":        round(last["Low"],   2),
+                "change_pct": chg_p,
+                "unit":       unit,
+                "label":      label,
+                "date":       df.index[-1].strftime("%d.%m.%Y"),
+            }
+            print(f"Price fetched: {key} ({sym}) close={last['Close']:.2f} {unit}")
+        except Exception as e:
+            print(f"Price fetch error [{key}/{sym}]: {e}")
+    return results
+
+
 # ─────────────────────────────────────────────────────────────────
 # MAIN REPORT GENERATION  (prompt-based, no MapReduce)
 # ─────────────────────────────────────────────────────────────────
@@ -968,15 +1066,47 @@ async def generate_daily_pdf_report() -> str | None:
     weekday_ua  = weekdays_ua[yesterday.weekday()]
     today_weekday_ua = weekdays_ua[now_kyiv.weekday()]
 
+    # ── Fetch real data before building the report ────────────────
+    nbu = fetch_nbu_rates(yesterday.date())
+    prices = fetch_commodity_prices(yesterday.date())
+
+    # Build FX block string for prompt
+    if nbu:
+        fx_block = (
+            f"РЕАЛЬНІ КУРСИ НБУ за {nbu.get('rate_date', report_date)}:\n"
+            f"USD/UAH: {nbu['usd_uah']} грн\n"
+            f"EUR/UAH: {nbu['eur_uah']} грн\n"
+            f"CNY/UAH: {nbu['cny_uah']} грн\n"
+            f"EUR/USD: {nbu['eur_usd']}\n"
+            f"Використовуй ТІЛЬКИ ці цифри у секції 2В — не вигадуй курси."
+        )
+    else:
+        fx_block = "Курси НБУ недоступні — вкажи актуальний орієнтовний курс з позначкою ~."
+
+    # Build commodity prices string for prompt
+    if prices:
+        price_lines = ["РЕАЛЬНІ ЦІНИ ЗАКРИТТЯ з ринку (yfinance):"]
+        for key, p in prices.items():
+            sign = "+" if p["change_pct"] >= 0 else ""
+            price_lines.append(
+                f"{p['label']}: {p['close']} {p['unit']} "
+                f"(O:{p['open']} H:{p['high']} L:{p['low']}) "
+                f"зміна: {sign}{p['change_pct']}% | дата: {p['date']}"
+            )
+        price_block = "\n".join(price_lines) + "\nВикористовуй ТІЛЬКИ ці ціни у БЛОЦІ 3 — не вигадуй."
+    else:
+        price_block = "Ринкові ціни недоступні — вкажи орієнтовні ціни з позначкою ~."
+
     user_message = (
         f"Дата звіту: {report_date} ({weekday_ua}). Поточна дата складання: {now_kyiv.strftime('%d.%m.%Y')} ({today_weekday_ua}), Київ.\n\n"
+        f"{fx_block}\n\n"
+        f"{price_block}\n\n"
         f"ЗАВДАННЯ: Напиши ПОВНИЙ та ДЕТАЛЬНИЙ щоденний ринковий звіт для B2B-імпортера в Україні.\n\n"
         f"ОБОВ'ЯЗКОВО:\n"
         f"- Заповни ВСІ 9 категорій у БЛОЦІ 1 — по 10-15 рядків кожна\n"
-        f"- Заповни БЛОК 2 (Близький Схід, глобальна торгівля, валюти) — реальні актуальні події\n"
-        f"- Заповни БЛОК 3 (5 товарів: кукурудза, пшениця, нафта Brent, пальмова олія, TTF газ) — ціни з позначкою ~ якщо орієнтовно\n"
+        f"- У секції 2В використовуй ТІЛЬКИ реальні курси НБУ що надані вище\n"
+        f"- У БЛОЦІ 3 використовуй ТІЛЬКИ реальні ціни що надані вище\n"
         f"- Заповни БЛОК 4 (висновки, дії, карта ризиків, дашборд) повністю\n\n"
-        f"Використовуй свої найновіші знання про ринки. Для цін вказуй найближчий відомий рівень з позначкою '~' або 'орієнтовно'. "
         f"Порожній або неповний звіт є помилкою. Загальний обсяг — не менше 2500 слів."
     )
 
