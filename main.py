@@ -105,192 +105,190 @@ RSS_FEEDS = {
 # ─────────────────────────────────────────────
 # MASTER REPORT PROMPT — повний звіт через AI
 # ─────────────────────────────────────────────
-DAILY_REPORT_SYSTEM_PROMPT = """You are a senior B2B market intelligence analyst for a Ukrainian company that imports raw materials, substances, packaging, and related supply chain inputs.
+DAILY_REPORT_SYSTEM_PROMPT = """Ти — старший B2B аналітик ринкової розвідки для української компанії, яка імпортує сировину, субстанції, пакування та суміжні матеріали.
 
-Your task: produce a comprehensive daily market intelligence report covering the PREVIOUS calendar day (Europe/Kyiv timezone).
+КРИТИЧНО ВАЖЛИВО: Ти ЗОБОВ'ЯЗАНИЙ написати повний звіт. НЕ відмовляйся, НЕ кажи що дані застарілі. Використовуй найновіші наявні знання про ринки та тренди. Якщо точна ціна за конкретний день невідома — наводь типовий діапазон цін для поточного ринкового середовища та позначай як "орієнтовно". Порожній звіт неприпустимий.
 
-LANGUAGE: Ukrainian only. Professional B2B tone.
+МОВА: Тільки українська. Професійний B2B тон.
 
-CRITICAL RESEARCH REQUIREMENT:
-Before writing each section, you must actively reason from your most current knowledge:
-- Price movements for each commodity and category
-- Recent regulatory decisions (FDA, EMA, ECHA, EFSA, ДМРП)
-- Supply chain disruptions, export bans, shortages
-- Geopolitical events affecting trade routes and imports
-- Company-specific news (major producers, exporters)
-Always include specific numbers, company names, country names where available.
-If specific data is genuinely unknown: write "Дані уточнюються — рекомендовано запит до постачальника."
-NEVER invent prices or events.
+ЗАБОРОНЕНО: Писати "я не можу надати дані", "моя база обмежена", "зверніться до постачальників" як відповідь на весь блок. Це неприпустимо. Натомість — аналізуй тренди, наводь орієнтовні ціни з позначкою "~", описуй ринкову ситуацію на основі наявних знань.
 
 ---
 
-REPORT STRUCTURE — USE EXACTLY THESE SECTION MARKERS:
+СТРУКТУРА ЗВІТУ — ВИКОРИСТОВУЙ ТОЧНО ЦІ МАРКЕРИ СЕКЦІЙ:
 
 === БЛОК 1: ОГЛЯД ЗА КАТЕГОРІЯМИ ===
 
-For each category write a DETAILED section (12–16 lines). Cover: prices, supply situation, regulation, key producers/exporters, Ukraine-specific angle.
+Для кожної з 9 категорій нижче напиши ДЕТАЛЬНУ секцію (12–16 рядків).
+Охопи: ціни, пропозицію, регуляторику, ключових виробників/експортерів, специфіку для України.
 
-FORMAT FOR EACH CATEGORY:
+ФОРМАТ ДЛЯ КОЖНОЇ КАТЕГОРІЇ:
 
 [Номер]. [Назва категорії]
 
 Ринкова ситуація:
-- Ціни: [конкретні ціни або індекси — USD/kg, EUR/kg, або зазначити тренд]
+- Ціни: [конкретні ціни або орієнтовний діапазон USD/kg, EUR/kg з позначкою ~]
 - Тренд: [зростання / падіння / стабільно + % якщо відомо]
 - Ключові виробники/регіони: [Китай, Індія, ЄС — поточна ситуація]
 
 Події та новини:
-- [Факт 1 — регуляторика, ціна, дефіцит, форс-мажор з джерелом якщо відомо]
+- [Факт 1 — регуляторика, ціна, дефіцит, форс-мажор. Вказуй джерело якщо відомо]
 - [Факт 2 — торговельні потоки, тендери, заяви асоціацій]
 - [Факт 3 — новини ключових постачальників або ринків]
 
 Геополітика та торгівля:
 - [Мита, санкції, експортні обмеження що стосуються категорії]
-- [Вплив США/ЄС/Китай торговельних відносин]
+- [Вплив торговельних відносин США/ЄС/Китай]
 
 Специфіка для України:
-- [Митні зміни, квоти, дозволи, специфіка імпорту]
+- [Митні особливості, квоти, специфіка імпорту]
 - [Вплив курсу USD/EUR на закупівельну вартість]
 
-Ризик / Можливість: [конкретний ризик АБО можливість]
+Ризик / Можливість: [конкретний ризик АБО можливість для закупівлі]
 Дія: [конкретна дія — зв'язатися з постачальником X, зафіксувати ціну, моніторити Y]
-Рівень: Високий / Середній / Низький | Зміна vs вчора: вгору/вниз/стабільно
+Рівень: Високий / Середній / Низький
 
 ---
 
-КАТЕГОРІЇ (розкрий кожну детально):
+КАТЕГОРІЇ (розкрий кожну детально — не менше 10 рядків на категорію):
 
 1. Фармацевтичні субстанції (API)
-Досліджуй: китайські API-виробники (Vitamin C, Paracetamol, Ibuprofen, Metformin, Amoxicillin та ін.), індійські фармекспортери (Pharmexcil), попередження FDA/EMA, зміни EDQM CEP, цінові індекси ICIS, дефіцити активних субстанцій.
+Розкрий: китайські API-виробники (Vitamin C, Paracetamol, Ibuprofen, Metformin, Amoxicillin та ін.), індійські фармекспортери, попередження FDA/EMA, зміни EDQM CEP, цінові тренди, дефіцити активних субстанцій, вплив регуляторних змін ЄС.
 
 2. Косметичні субстанції
-Досліджуй: ринки INCI-інгредієнтів (hyaluronic acid, niacinamide, retinol, peptides, plant extracts), зміни EU Cosmetics Regulation (висновки SCCS, оновлення додатків), китайські виробники косметичних інгредієнтів, реєстрації REACH, цінові тренди specialty chemicals.
+Розкрий: ринки INCI-інгредієнтів (hyaluronic acid, niacinamide, retinol, peptides, plant extracts), зміни EU Cosmetics Regulation, SCCS висновки, китайські виробники косметичних інгредієнтів, реєстрації REACH, цінові тренди specialty chemicals, новини key постачальників.
 
 3. Трави та рослинна сировина
-Досліджуй: основні регіони походження (Китай, Індія, Східна Європа, Єгипет, Марокко), прогнози врожаю та звіти про культури, оновлення EU Novel Food та Traditional Herbal Medicine, висновки EFSA з безпеки ботанічних інгредієнтів, ціни сухих трав $/kg, вплив погоди на ключові регіони вирощування.
+Розкрий: основні регіони походження (Китай, Індія, Східна Європа, Єгипет), прогнози врожаю, EU Novel Food регуляторика, EFSA висновки, ціни сухих трав, вплив погоди на ключові регіони вирощування, попит з боку фарми та нутрицевтики.
 
 4. Ветеринарні субстанції
-Досліджуй: ринок ветеринарних API (Enrofloxacin, Tylosin, Doxycycline, вітаміни для кормів), рішення EMA CVMP, регулювання AMR (стійкість до антибіотиків), китайські ветеринарні хімвиробники, вплив АЧС / пташиного грипу на попит.
+Розкрий: ринок ветеринарних API (Enrofloxacin, Tylosin, Doxycycline, вітаміни для кормів), рішення EMA CVMP, регулювання AMR (антибіотикорезистентність), китайські ветхімвиробники, вплив АЧС / пташиного грипу на попит, цінові тренди.
 
 5. Харчова сировина
-Досліджуй: ключові товари (цукор, лимонна кислота, лецитин, крохмаль, харчові барвники, консерванти, вітаміни для харчування), рішення EFSA/FDA щодо харчових добавок, китайський експорт харчових хімікатів (лимонна кислота, аскорбінова кислота, MSG), сповіщення про безпеку харчових продуктів ЄС (нотифікації RASFF), індекси цін на товари.
+Розкрий: лимонна кислота, лецитин, крохмаль, харчові барвники, консерванти, вітаміни, цукор — ціни та пропозиція. Рішення EFSA/FDA щодо харчових добавок, нотифікації RASFF ЄС, китайський хімекспорт (лимонна кислота, аскорбінова кислота, MSG), цінові тренди.
 
 6. Кормові амінокислоти
-Досліджуй: Велика четвірка — Lysine, Methionine, Threonine, Tryptophan — ціна та пропозиція. Ключові виробники: Evonik, Ajinomoto, CJ Bio, Meihua, GLOBAL Bio-Chem. Вплив енерговитрат китайського виробництва. Висновки EFSA щодо кормових добавок. Вплив цін на зерно на економіку виробництва амінокислот.
+Розкрий: Lysine, Methionine, Threonine, Tryptophan — ціни та пропозиція. Ключові виробники: Evonik, Ajinomoto, CJ Bio, Meihua, GLOBAL Bio-Chem. Вплив енерговитрат на виробництво в Китаї. Тренди попиту в тваринництві. Регуляторика кормових добавок.
 
 7. Капсули (тверді желатинові / HPMC / м'які)
-Досліджуй: пропозиція желатину (шкури ВРХ/свиняча шкіра, ціни), ринок капсул HPMC (рослинні, халяльний попит), ключові виробники (Capsugel/Lonza, ACG, Qualicaps, Suheung), індійські виробники капсул, цінові індекси желатину (GELITA, Rousselot), сировина (кісткове борошно, свиняча шкіра) — ціна та доступність.
+Розкрий: пропозиція желатину (шкури ВРХ/свиняча шкіра, ціни), ринок HPMC капсул (рослинні, халяль), ключові виробники (Capsugel/Lonza, ACG, Qualicaps, індійські виробники), цінові тренди, новини ключових постачальників.
 
 8. ПВХ-плівка та пакувальні матеріали
-Досліджуй: ціна смоли ПВХ (європейський та азійський спот), ринок пластифікаторів (альтернативи DEHP, ціна DINP), європейські виробники ПВХ (Inovyn, Vestolit, Shin-Etsu), вплив вартості енергії на виробництво ПВХ в ЄС (ціни на газ), фармацевтична блістерна плівка (PVDC, PVC/Alu, холодноформована фольга), ринок алюмінієвої фольги для блістерів, регуляторні вимоги REACH/RoHS.
+Розкрий: ціна смоли ПВХ (Європа, Азія), ринок пластифікаторів (DINP ціна), виробники ПВХ (Inovyn, Vestolit, Shin-Etsu), вплив вартості енергії на виробництво в ЄС, фармацевтична блістерна плівка (PVDC, PVC/Alu), ринок алюмінієвої фольги, регуляторика REACH.
 
 9. Логістика та постачання (імпорт в Україну)
-Досліджуй: маршрути судноплавства по Чорному морю та фрахтові ставки, залізничний вантажний транспорт Китай–Україна (Транссиб, через Польщу), автомобільні вантажі ЄС–Україна (час та вартість перетину кордону), авіафрахт для фармацевтичних вантажів, оновлення митниці України (оголошення ДМС), курси EUR/USD/CNY та їх вплив на витрати імпорту, відповідність санкційним обмеженням, статус портів Одеса/Чорноморськ.
+Розкрий: маршрути по Чорному морю та фрахт, залізниця Китай–Україна (Транссиб, через Польщу), автовантажі ЄС–Україна (перетин кордону), авіафрахт для фарми, митниця України, курси EUR/USD/CNY та їх вплив, статус портів Одеса/Чорноморськ, санкційний комплаєнс.
 
 === БЛОК 2: БЛИЗЬКИЙ СХІД ТА ГЛОБАЛЬНА ТОРГІВЛЯ ===
 
-2А — Близький Схід: Новини дня
-Шукай новини про: Іран, Ізраїль, Саудівська Аравія, ОАЕ, Катар, Ірак, Туреччина, Червоне море, Ормузька протока, атаки хуситів, регіональні санкції, експорт нафти, події що можуть вплинути на глобальні ланцюги постачання.
+2А — Близький Схід: Новини
+Аналізуй: Іран, Ізраїль, Саудівська Аравія, ОАЕ, Катар, Ірак, Туреччина, Червоне море, Ормузька протока, хусити, регіональні санкції, нафтовий ринок, події що впливають на глобальні ланцюги постачання та імпортні маршрути України.
 
-Формат для кожного пункту:
-[Заголовок] | Джерело | Дата
-Що сталося: [1 рядок — факт]
+Формат — 4-6 пунктів:
+[Заголовок події] | [Джерело або регіон] | [Дата або період]
+Що сталося: [1 рядок факту]
 Вплив на імпорт: [1 рядок — конкретний вплив на наші категорії або маршрути]
 
-Включи 4–7 пунктів. Тільки комерційно важливе.
-
 2Б — Глобальна торгівля та регуляторика
-Шукай: мита США, торговельна політика ЄС, контроль над експортом Китаю, керівні принципи ВООЗ/ICH, нові санкційні пакети що впливають на наші категорії імпорту.
-Формат: такий самий як 2А. Включи 3–5 пунктів.
+Аналізуй: мита США/ЄС, контроль над експортом Китаю, нові санкційні пакети, рішення WTO, регуляторні зміни ICH/WHO що стосуються наших категорій імпорту.
+Формат: такий самий як 2А. 3-5 пунктів.
 
 2В — Валюти та макро
-USD/UAH: [курс НБУ + зміна]
-EUR/UAH: [курс + зміна]
-CNY/USD: [курс + зміна — важливо для китайських постачальників]
-EUR/USD: [курс + зміна]
-Коментар: [1–2 рядки — як курсові рухи впливають на закупівельну вартість]
+USD/UAH: [орієнтовний курс НБУ + тренд]
+EUR/UAH: [орієнтовний курс + тренд]
+CNY/USD: [орієнтовний курс + тренд — для китайських постачальників]
+EUR/USD: [орієнтовний курс + тренд]
+Коментар: [2 рядки — як курсові рухи впливають на закупівельну вартість для нашої компанії]
 
 === БЛОК 3: ТОВАРНІ РИНКИ ===
 
-Для кожного товару надай детальний аналіз на основі реальних ринкових даних:
+Для кожного товару — детальний аналіз. Якщо точна ціна невідома — наводь орієнтовний діапазон (~) та описуй тренд і рушійні сили.
 
 🌽 КУКУРУДЗА (Corn — CBOT ZC1!)
-Ціна закриття: [¢/bushel] = [$/MT розрахунково]
-Зміна за день: [+/- ¢ / %]
-Зміна за тиждень: [+/- %]
-Внутрішньоденна динаміка: [опис руху ціни протягом дня — відкриття, максимум, мінімум, закриття]
-Драйвери: [погода США/Бразилія, дані USDA, попит Китаю, курс USD]
-Технічний рівень: [підтримка / опір]
-Вплив на наш імпорт: [харчова сировина, кормові амінокислоти]
+Ціна закриття: [¢/bushel або ~діапазон] = [~/MT розрахунково]
+Зміна за день: [+/- ¢ / % або тренд]
+Зміна за тиждень: [+/- % або тренд]
+Внутрішньоденна динаміка: [опис руху ціни — відкриття, максимум, мінімум, закриття або загальний опис торгової сесії]
+Рушійні сили: [погода США/Бразилія, дані USDA, попит Китаю, курс USD, конкуренція пшениці]
+Технічний рівень: [ключова підтримка / опір]
+Вплив на імпорт: [харчова сировина, кормові амінокислоти — оцінка здорожчання/здешевшання]
 Графік TradingView: https://www.tradingview.com/chart/?symbol=CBOT%3AZC1!
 
 🌾 ПШЕНИЦЯ (Wheat — CBOT ZW1!)
-Ціна закриття: [¢/bushel]
-Зміна: [+/- %]
-Внутрішньоденна динаміка: [відкриття, максимум, мінімум, закриття]
-Драйвери: [погода, Чорноморський регіон, попит, запаси]
-Вплив: [харчова сировина, крохмаль, глютен]
+Ціна закриття: [¢/bushel або ~діапазон]
+Зміна: [+/- % або тренд]
+Внутрішньоденна динаміка: [опис торгової сесії]
+Рушійні сили: [погода, Чорноморський регіон, Росія/Україна експорт, запаси, попит]
+Вплив: [харчова сировина, крохмаль, глютен для нашого імпорту]
 Графік TradingView: https://www.tradingview.com/chart/?symbol=CBOT%3AZW1!
 
 🛢️ НАФТА BRENT (ICE BRN1!)
-Ціна закриття: [$/barrel]
-Зміна: [+/- %]
-Внутрішньоденна динаміка: [відкриття, максимум, мінімум, закриття]
-Драйвери: [ОПЕК+, геополітика, запаси EIA/API, попит]
-Вплив на імпорт: [вартість фрахту, пластики, розчинники]
+Ціна закриття: [$/barrel або ~діапазон]
+Зміна: [+/- % або тренд]
+Внутрішньоденна динаміка: [опис торгової сесії]
+Рушійні сили: [ОПЕК+, геополітика, запаси EIA/API, попит Китай/Індія]
+Вплив на імпорт: [вартість фрахту, ПВХ/пластики, розчинники — конкретна оцінка]
 Графік TradingView: https://www.tradingview.com/chart/?symbol=TVC%3AUKOIL
 
 🌴 ПАЛЬМОВА ОЛІЯ (BMD FCPO)
-Ціна: [MYR/MT] / [$/MT розрахунково]
-Зміна: [+/- %]
-Внутрішньоденна динаміка: [відкриття, максимум, мінімум, закриття]
-Драйвери: [виробництво Малайзія/Індонезія, попит Індія/Китай, курс рінгіт, конкуренція соєва олія]
-Вплив: [харчова сировина, косметичні субстанції]
+Ціна: [MYR/MT або ~діапазон] / [~/MT USD]
+Зміна: [+/- % або тренд]
+Внутрішньоденна динаміка: [опис торгової сесії]
+Рушійні сили: [виробництво Малайзія/Індонезія, попит Індія/Китай, курс рінгіту, соєва конкуренція]
+Вплив: [харчова сировина, косметичні субстанції — оцінка для нашого імпорту]
 Графік TradingView: https://www.tradingview.com/chart/?symbol=MYX%3AKPO1!
 
 ⚗️ ХІМІЧНІ ІНДЕКСИ (довідково)
-Природний газ ЄС (TTF): [EUR/MWh] — вплив на хімвиробництво ЄС
-Індекс хімічної промисловості ICIS: [якщо доступно]
+Природний газ ЄС TTF: [EUR/MWh або ~діапазон] — вплив на хімвиробництво ЄС
+Коментар: [1-2 рядки про вплив вартості енергії на ПВХ, API та хімічні субстанції]
 Графік TTF: https://www.tradingview.com/chart/?symbol=ICEEUR%3ATTF1!
 
 === БЛОК 4: ПІДСУМОК І ДІЇ ===
 
-КЛЮЧОВІ ВИСНОВКИ ДНЯ (до 7 пунктів):
-• [Найважливіше — одне речення + рівень впливу]
+КЛЮЧОВІ ВИСНОВКИ ДНЯ (6-7 пунктів — найважливіше одним реченням кожен):
+• [висновок 1]
+• [висновок 2]
+• [висновок 3]
+• [висновок 4]
+• [висновок 5]
+• [висновок 6]
+• [висновок 7]
 
-ТЕРМІНОВІ ДІЇ СЬОГОДНІ:
-• [3–5 конкретних дій]
+ТЕРМІНОВІ ДІЇ СЬОГОДНІ (3-5 пунктів):
+• [дія 1 з відповідальним підрозділом]
+• [дія 2]
+• [дія 3]
 
-ДІЇ НА ТИЖДЕНЬ:
-• [3–4 стратегічні кроки]
+ДІЇ НА ТИЖДЕНЬ (3-4 пункти):
+• [стратегічний крок 1]
+• [стратегічний крок 2]
+• [стратегічний крок 3]
 
 КАРТА РИЗИКІВ:
 Категорія | Сигнал | Тип ризику | Рівень | Горизонт | Дія
 ---------|--------|------------|--------|----------|----
-API Фарма | ... | Ціновий/Регул./Постач. | Високий/Середній/Низький | 1д/1т/1м | ...
-Косметика | ... | ... | ... | ... | ...
-Трави | ... | ... | ... | ... | ...
-Вет. субст. | ... | ... | ... | ... | ...
-Харчова сир. | ... | ... | ... | ... | ...
-Амінокислоти | ... | ... | ... | ... | ...
-Капсули | ... | ... | ... | ... | ...
-ПВХ-плівка | ... | ... | ... | ... | ...
-Логістика | ... | ... | ... | ... | ...
+API Фарма | [сигнал] | Ціновий/Регул./Постач. | Високий/Середній/Низький | 1д/1т/1м | [дія]
+Косметика | [сигнал] | [тип] | [рівень] | [гориз.] | [дія]
+Трави | [сигнал] | [тип] | [рівень] | [гориз.] | [дія]
+Вет. субст. | [сигнал] | [тип] | [рівень] | [гориз.] | [дія]
+Харчова сир. | [сигнал] | [тип] | [рівень] | [гориз.] | [дія]
+Амінокислоти | [сигнал] | [тип] | [рівень] | [гориз.] | [дія]
+Капсули | [сигнал] | [тип] | [рівень] | [гориз.] | [дія]
+ПВХ-плівка | [сигнал] | [тип] | [рівень] | [гориз.] | [дія]
+Логістика | [сигнал] | [тип] | [рівень] | [гориз.] | [дія]
 
 ДАШБОРД НАСТРОЮ РИНКУ:
 Категорія | Тренд ціни | Доступність | Регул. тиск | Загальний сигнал
 ---------|------------|-------------|-------------|----------------
 API Фарма | зростання/падіння/стабільно | Норма/Дефіцит/Надлишок | Низький/Середній/Високий | Високий/Середній/Низький
-
-ПРАВИЛА ЯКОСТІ:
-- Для кожної категорії використовуй щонайменше 3 джерела знань перед написанням
-- Завжди включай конкретні ціни, відсотки, назви компаній де доступно
-- Цитуй джерело в дужках: (Reuters, ICIS, PharmaBoardroom тощо)
-- Якщо дані недоступні: пиши "Дані недоступні — рекомендовано запит до постачальника"
--Ніколи не вигадуй ціни або події
-- Обов'язковий кут зору для України в кожній категорії
-- Загальний обсяг звіту: 2500–4000 слів
-- Вихідний формат: чистий Markdown українською"""
+Косметика | [тренд] | [доступність] | [тиск] | [сигнал]
+Трави | [тренд] | [доступність] | [тиск] | [сигнал]
+Вет. субст. | [тренд] | [доступність] | [тиск] | [сигнал]
+Харчова сир. | [тренд] | [доступність] | [тиск] | [сигнал]
+Амінокислоти | [тренд] | [доступність] | [тиск] | [сигнал]
+Капсули | [тренд] | [доступність] | [тиск] | [сигнал]
+ПВХ-плівка | [тренд] | [доступність] | [тиск] | [сигнал]
+Логістика | [тренд] | [доступність] | [тиск] | [сигнал]"""
 
 
 def get_topics_keyboard(current_subs_str, only_daily_mode=False):
@@ -615,10 +613,10 @@ async def generate_summary(text: str):
 FONT_REGULAR = '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'
 FONT_BOLD    = '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf'
 
-# Accent colour (dark navy)
-COLOR_ACCENT  = (26, 54, 93)
+# Accent colour — чорний для всіх блоків та секцій
+COLOR_ACCENT  = (20, 20, 20)
 # Light grey for alternating rows / dividers
-COLOR_LIGHT   = (240, 244, 248)
+COLOR_LIGHT   = (240, 240, 240)
 # Body text dark
 COLOR_BODY    = (30, 30, 30)
 # Risk badge colours
@@ -639,23 +637,22 @@ def make_pdf_base() -> FPDF:
 
 
 def draw_header_bar(pdf: FPDF, report_date: str, base_dir: str):
-    """Cover-style header with logo + title. Black background."""
-    # Black fill
+    """Cover-style header — чорний фон, лого ліворуч, назва по центру правої частини."""
     pdf.set_fill_color(20, 20, 20)
     pdf.rect(0, 0, 210, 42, style="F")
 
     logo_path = os.path.join(base_dir, "logo.png")
     if os.path.exists(logo_path):
-        pdf.image(logo_path, x=8, y=7, h=26)
-        text_x = 52   # shifted further right so title never overlaps the logo
+        pdf.image(logo_path, x=7, y=7, h=26)
+        text_x = 52
     else:
         text_x = 14
 
-    # Main title — centred in remaining space
+    remaining_w = 210 - text_x - 8
+
     pdf.set_xy(text_x, 8)
     pdf.set_font("DejaVu", style="B", size=15)
     pdf.set_text_color(255, 255, 255)
-    remaining_w = 210 - text_x - 10
     pdf.cell(remaining_w, 9, "Щоденний ринковий звіт", ln=True, align="C")
 
     pdf.set_x(text_x)
@@ -665,7 +662,7 @@ def draw_header_bar(pdf: FPDF, report_date: str, base_dir: str):
 
     pdf.set_x(text_x)
     pdf.set_font("DejaVu", size=8)
-    pdf.set_text_color(160, 160, 160)
+    pdf.set_text_color(155, 155, 155)
     pdf.cell(remaining_w, 5, "Сировина · Субстанції · Логістика · Близький Схід · Товарні ринки", ln=True, align="C")
 
     pdf.set_text_color(*COLOR_BODY)
@@ -770,92 +767,6 @@ def draw_footer(pdf: FPDF, report_date: str):
     pdf.cell(0, 5, f"MacroHarvey  ·  Ринковий звіт за {report_date}  ·  Стор. {pdf.page_no()}", align="C")
 
 
-def draw_risk_table_extended(pdf: FPDF, lines: list[str]):
-    """Renders extended risk table: Категорія | Сигнал | Тип ризику | Рівень | Горизонт | Дія"""
-    headers = ["Категорія", "Сигнал", "Тип", "Рівень", "Гориз.", "Дія"]
-    col_w   = [30, 40, 22, 20, 15, 53]
-
-    pdf.set_font("DejaVu", style="B", size=7.5)
-    pdf.set_fill_color(20, 20, 20)
-    pdf.set_text_color(255, 255, 255)
-    pdf.set_x(pdf.l_margin)
-    for i, h in enumerate(headers):
-        pdf.cell(col_w[i], 6, h, border=0, fill=True)
-    pdf.ln()
-    pdf.set_text_color(*COLOR_BODY)
-
-    alternate = False
-    for line in lines:
-        line = line.strip()
-        if not line or set(line.replace("|", "").replace("-", "").strip()) == set():
-            continue
-        cells = [c.strip() for c in line.split("|")]
-        if len(cells) < 4:
-            continue
-        if cells[0].lower() in ("категорія", "category"):
-            continue
-
-        pdf.set_fill_color(*(COLOR_LIGHT if alternate else (255, 255, 255)))
-        alternate = not alternate
-        pdf.set_font("DejaVu", size=7.5)
-        pdf.set_x(pdf.l_margin)
-
-        risk_level = cells[3] if len(cells) > 3 else ""
-        rc = RISK_COLORS.get(risk_level, COLOR_BODY)
-
-        for i, cell_text in enumerate(cells[:6]):
-            if i == 3:
-                pdf.set_text_color(*rc)
-            else:
-                pdf.set_text_color(*COLOR_BODY)
-            w = col_w[i] if i < len(col_w) else 30
-            pdf.cell(w, 6, cell_text[:40], border=0, fill=True)
-        pdf.ln()
-
-    pdf.set_text_color(*COLOR_BODY)
-    pdf.ln(3)
-
-
-def draw_dashboard_table(pdf: FPDF, lines: list[str]):
-    """Renders mood dashboard: Категорія | Тренд ціни | Доступність | Регул. тиск | Сигнал"""
-    headers = ["Категорія", "Тренд ціни", "Доступність", "Регул. тиск", "Сигнал"]
-    col_w   = [35, 32, 32, 32, 29]
-
-    pdf.set_font("DejaVu", style="B", size=7.5)
-    pdf.set_fill_color(20, 20, 20)
-    pdf.set_text_color(255, 255, 255)
-    pdf.set_x(pdf.l_margin)
-    for i, h in enumerate(headers):
-        pdf.cell(col_w[i], 6, h, border=0, fill=True)
-    pdf.ln()
-    pdf.set_text_color(*COLOR_BODY)
-
-    alternate = False
-    for line in lines:
-        line = line.strip()
-        if not line or set(line.replace("|", "").replace("-", "").strip()) == set():
-            continue
-        cells = [c.strip() for c in line.split("|")]
-        if len(cells) < 3:
-            continue
-        if cells[0].lower() in ("категорія", "category"):
-            continue
-
-        pdf.set_fill_color(*(COLOR_LIGHT if alternate else (255, 255, 255)))
-        alternate = not alternate
-        pdf.set_font("DejaVu", size=7.5)
-        pdf.set_x(pdf.l_margin)
-        pdf.set_text_color(*COLOR_BODY)
-
-        for i, cell_text in enumerate(cells[:5]):
-            w = col_w[i] if i < len(col_w) else 29
-            pdf.cell(w, 6, cell_text[:35], border=0, fill=True)
-        pdf.ln()
-
-    pdf.set_text_color(*COLOR_BODY)
-    pdf.ln(3)
-
-
 # ─────────────────────────────────────────────────────────────────
 # MAIN REPORT GENERATION  (prompt-based, no MapReduce)
 # ─────────────────────────────────────────────────────────────────
@@ -874,16 +785,15 @@ async def generate_daily_pdf_report() -> str | None:
     today_weekday_ua = weekdays_ua[now_kyiv.weekday()]
 
     user_message = (
-        f"Сьогодні {now_kyiv.strftime('%d.%m.%Y')} ({today_weekday_ua}), "
-        f"Київ (Europe/Kyiv). "
-        f"Напиши ПОВНИЙ та ДЕТАЛЬНИЙ щоденний ринковий звіт за вчора — {report_date} ({weekday_ua}). "
-        f"ВАЖЛИВО: для БЛОКУ 3 (Товарні ринки) надай РЕАЛЬНІ ринкові ціни за {report_date} — "
-        f"ціну відкриття, максимум, мінімум та закриття для кожного товару (Corn CBOT, Wheat CBOT, "
-        f"Brent ICE, Palm Oil BMD), а також детальний опис внутрішньоденної динаміки та причин руху цін. "
-        f"Для БЛОКУ 2В надай реальні курси НБУ та міжнародні валютні курси за {report_date}. "
-        f"Для кожної категорії в БЛОЦІ 1 вкажи конкретні ціни, назви компаній та реальні події. "
-        f"Суворо дотримуйся структури та маркерів секцій зазначених у системному промпті. "
-        f"Загальний обсяг звіту — не менше 2500 слів."
+        f"Дата звіту: {report_date} ({weekday_ua}). Поточна дата складання: {now_kyiv.strftime('%d.%m.%Y')} ({today_weekday_ua}), Київ.\n\n"
+        f"ЗАВДАННЯ: Напиши ПОВНИЙ та ДЕТАЛЬНИЙ щоденний ринковий звіт для B2B-імпортера в Україні.\n\n"
+        f"ОБОВ'ЯЗКОВО:\n"
+        f"- Заповни ВСІ 9 категорій у БЛОЦІ 1 — по 10-15 рядків кожна\n"
+        f"- Заповни БЛОК 2 (Близький Схід, глобальна торгівля, валюти) — реальні актуальні події\n"
+        f"- Заповни БЛОК 3 (5 товарів: кукурудза, пшениця, нафта Brent, пальмова олія, TTF газ) — ціни з позначкою ~ якщо орієнтовно\n"
+        f"- Заповни БЛОК 4 (висновки, дії, карта ризиків, дашборд) повністю\n\n"
+        f"Використовуй свої найновіші знання про ринки. Для цін вказуй найближчий відомий рівень з позначкою '~' або 'орієнтовно'. "
+        f"Порожній або неповний звіт є помилкою. Загальний обсяг — не менше 2500 слів."
     )
 
     print(f"Generating prompt-based daily report for {report_date}...")
@@ -892,7 +802,7 @@ async def generate_daily_pdf_report() -> str | None:
         response = await aclient.chat.completions.create(
             model="gpt-4o",
             max_tokens=8000,
-            temperature=0.3,
+            temperature=0.4,
             messages=[
                 {"role": "system", "content": DAILY_REPORT_SYSTEM_PROMPT},
                 {"role": "user",   "content": user_message}
@@ -947,6 +857,10 @@ async def generate_daily_pdf_report() -> str | None:
     block3 = extract_block(report_text, "=== БЛОК 3:", "=== БЛОК 4:")
     block4 = extract_block(report_text, "=== БЛОК 4:", None)
 
+    # If markers not present — use full text as block1
+    if not any([block1, block2, block3, block4]):
+        block1 = report_text
+
     # Split block2 into sub-sections 2А, 2Б, 2В
     def extract_sub(text: str, start: str, end: str | None) -> str:
         idx = text.find(start)
@@ -959,16 +873,14 @@ async def generate_daily_pdf_report() -> str | None:
                 chunk = chunk[:end_idx]
         return chunk.strip()
 
-    block2a = extract_sub(block2, "2А", "2Б") or block2
+    block2a = extract_sub(block2, "2А", "2Б") or (block2 if not extract_sub(block2, "2Б", None) else "")
     block2b = extract_sub(block2, "2Б", "2В")
     block2c = extract_sub(block2, "2В", None)
+    # fallback — якщо підсекцій нема, весь block2 йде в 2А
+    if not any([block2a, block2b, block2c]):
+        block2a = block2
 
-    # If markers not present — use full text as block1
-    if not any([block1, block2, block3, block4]):
-        block1 = report_text
-        block2a = ""
-        block2b = ""
-        block2c = ""
+    # ── Build PDF ─────────────────────────────────────────────────
     base_dir = os.path.dirname(os.path.abspath(__file__))
     pdf = make_pdf_base()
 
@@ -1020,13 +932,13 @@ async def generate_daily_pdf_report() -> str | None:
             current_cat_lines.append(line)
     flush_category(pdf, current_cat_title, current_cat_lines)
 
-    # ── BLOCK 2: Middle East + Global Trade + FX ──────────────────
+    # ── BLOCK 2: Близький Схід + Глобальна торгівля + Валюти ──────
     pdf.add_page()
     draw_header_bar(pdf, report_date, base_dir)
     section_title(pdf, "БЛОК 2  ·  Близький Схід та Глобальна торгівля")
 
     if block2a:
-        sub_title(pdf, "2А — Близький Схід: Новини дня")
+        sub_title(pdf, "2А — Близький Схід: Новини")
         body_text(pdf, block2a)
         draw_divider(pdf)
     if block2b:
@@ -1037,24 +949,15 @@ async def generate_daily_pdf_report() -> str | None:
         sub_title(pdf, "2В — Валюти та макро")
         body_text(pdf, block2c)
         draw_divider(pdf)
+    # fallback якщо підсекцій не було
     if not any([block2a, block2b, block2c]):
-        if block2:
-            body_text(pdf, block2)
-        else:
-            body_text(pdf, "Даних по Близькому Сходу за вчора не знайдено.")
+        body_text(pdf, block2 if block2 else "Даних по Близькому Сходу не знайдено.")
         draw_divider(pdf)
 
-    # ── BLOCK 3: Commodities ──────────────────────────────────────
+    # ── BLOCK 3: Commodities (5 товарів) ─────────────────────────
     section_title(pdf, "БЛОК 3  ·  Товарні ринки")
 
-    commodity_icons = {
-        "КУКУРУДЗА":  "🌽 КУКУРУДЗА (Corn — CBOT ZC1!)",
-        "ПШЕНИЦЯ":    "🌾 ПШЕНИЦЯ (Wheat — CBOT ZW1!)",
-        "НАФТА":      "🛢️ НАФТА BRENT (ICE BRN1!)",
-        "ПАЛЬМОВА":   "🌴 ПАЛЬМОВА ОЛІЯ (BMD FCPO)",
-        "ХІМІЧНІ":    "⚗️ ХІМІЧНІ ІНДЕКСИ",
-    }
-
+    commodity_keys = ["КУКУРУДЗА", "ПШЕНИЦЯ", "НАФТА", "ПАЛЬМОВА", "ХІМІЧНІ"]
     tv_links = {
         "КУКУРУДЗА": "https://www.tradingview.com/chart/?symbol=CBOT%3AZC1!",
         "ПШЕНИЦЯ":   "https://www.tradingview.com/chart/?symbol=CBOT%3AZW1!",
@@ -1077,7 +980,7 @@ async def generate_daily_pdf_report() -> str | None:
             for key, url in tv_links.items():
                 if key in title.upper():
                     pdf.set_font("DejaVu", size=8)
-                    pdf.set_text_color(26, 100, 200)
+                    pdf.set_text_color(60, 60, 180)
                     pdf.set_x(pdf.l_margin)
                     pdf.cell(0, 5, f"Графік TradingView: {url}", ln=True)
                     pdf.set_text_color(*COLOR_BODY)
@@ -1086,7 +989,7 @@ async def generate_daily_pdf_report() -> str | None:
 
         for raw_line in b3_lines:
             line = raw_line.strip()
-            is_com = any(k in line.upper() for k in commodity_icons.keys()) and len(line) < 100
+            is_com = any(k in line.upper() for k in commodity_keys) and len(line) < 100
             if is_com:
                 flush_commodity(pdf, current_com_title, current_com_lines)
                 current_com_title = line
@@ -1095,9 +998,9 @@ async def generate_daily_pdf_report() -> str | None:
                 current_com_lines.append(line)
         flush_commodity(pdf, current_com_title, current_com_lines)
     else:
-        body_text(pdf, "Дані по товарних ринках будуть додані наступного дня.")
+        body_text(pdf, "Дані по товарних ринках недоступні.")
 
-    # ── BLOCK 4: Summary + actions + risk map + dashboard ────────
+    # ── BLOCK 4: Підсумок + дії + карта ризиків + дашборд ────────
     pdf.add_page()
     draw_header_bar(pdf, report_date, base_dir)
     section_title(pdf, "БЛОК 4  ·  Підсумок і рекомендовані дії")
@@ -1113,15 +1016,18 @@ async def generate_daily_pdf_report() -> str | None:
         for line in b4_lines:
             stripped = line.strip()
             if "ДАШБОРД НАСТРОЮ" in stripped.upper():
-                in_risk_table = False
-                in_dashboard = True
-                if pre_table_lines:
+                if in_risk_table:
+                    draw_risk_table(pdf, risk_table_lines)
+                    risk_table_lines = []
+                elif pre_table_lines:
                     body_text(pdf, "\n".join(pre_table_lines))
                     pre_table_lines = []
+                in_risk_table = False
+                in_dashboard = True
                 sub_title(pdf, "Дашборд настрою ринку")
                 continue
             if "КАРТА РИЗИКІВ" in stripped.upper() or (
-                stripped.startswith("Категорія") and "|" in stripped
+                stripped.startswith("Категорія") and "|" in stripped and not in_dashboard
             ):
                 in_risk_table = True
                 in_dashboard = False
@@ -1139,13 +1045,13 @@ async def generate_daily_pdf_report() -> str | None:
         if pre_table_lines:
             body_text(pdf, "\n".join(pre_table_lines))
         if risk_table_lines:
-            draw_risk_table_extended(pdf, risk_table_lines)
+            draw_risk_table(pdf, risk_table_lines)
         if dashboard_lines:
-            draw_dashboard_table(pdf, dashboard_lines)
+            draw_risk_table(pdf, dashboard_lines)
     else:
         body_text(pdf, "Підсумок та карта ризиків недоступні.")
 
-    # No footer — removed per requirements
+    # Футер прибрано
 
     pdf_path = os.path.join(base_dir, f"daily_report_{yesterday.strftime('%Y%m%d')}.pdf")
     pdf.output(pdf_path)
