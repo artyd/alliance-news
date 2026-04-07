@@ -754,49 +754,61 @@ def draw_divider(pdf: FPDF):
 
 
 def draw_risk_table(pdf: FPDF, lines: list[str]):
-    """Renders a simple risk table from pipe-delimited lines."""
-    headers = ["Категорія", "Сигнал", "Рівень", "Дія"]
-    col_w   = [38, 55, 22, 65]
+    """Красива таблиця ризиків: Категорія | Сигнал | Тип | Рівень | Дія"""
+    headers  = ["Категорія", "Сигнал", "Тип ризику", "Рівень", "Дія"]
+    col_w    = [35, 42, 25, 22, 56]   # сума = 180 = ширина тексту A4
 
-    pdf.set_font("DejaVu", style="B", size=8)
+    # ── шапка ──────────────────────────────────────────────────────
+    pdf.set_font("DejaVu", style="B", size=8.5)
     pdf.set_fill_color(*COLOR_ACCENT)
     pdf.set_text_color(255, 255, 255)
     pdf.set_x(pdf.l_margin)
     for i, h in enumerate(headers):
-        pdf.cell(col_w[i], 6, h, border=0, fill=True)
+        pdf.cell(col_w[i], 7, h, border=0, fill=True, align="L")
     pdf.ln()
-    pdf.set_text_color(*COLOR_BODY)
 
+    # ── рядки ──────────────────────────────────────────────────────
     alternate = False
     for line in lines:
         line = line.strip()
-        if not line or set(line.replace("|", "").replace("-", "").strip()) == set():
+        if not line:
+            continue
+        # пропускаємо роздільники ---
+        if set(line.replace("|","").replace("-","").strip()) == set():
             continue
         cells = [c.strip() for c in line.split("|")]
-        if len(cells) < 4:
+        if len(cells) < 2:
             continue
-        # skip header repeat
+        # пропускаємо повтор заголовка
         if cells[0].lower() in ("категорія", "category"):
             continue
 
+        # доповнюємо до 5 клітинок якщо менше
+        while len(cells) < 5:
+            cells.append("")
+
         pdf.set_fill_color(*(COLOR_LIGHT if alternate else (255, 255, 255)))
         alternate = not alternate
-        pdf.set_font("DejaVu", size=8)
         pdf.set_x(pdf.l_margin)
 
-        risk_level = cells[2] if len(cells) > 2 else ""
-        rc = RISK_COLORS.get(risk_level, COLOR_BODY)
+        # колір рівня ризику (4-та колонка, індекс 3)
+        level = cells[3] if len(cells) > 3 else ""
+        risk_color = RISK_COLORS.get(level, COLOR_BODY)
 
-        for i, cell_text in enumerate(cells[:4]):
-            if i == 2:
-                pdf.set_text_color(*rc)
+        for i, cell_text in enumerate(cells[:5]):
+            if i == 3:
+                pdf.set_font("DejaVu", style="B", size=8)
+                pdf.set_text_color(*risk_color)
             else:
+                pdf.set_font("DejaVu", size=8)
                 pdf.set_text_color(*COLOR_BODY)
-            pdf.cell(col_w[i], 6, cell_text[:45], border=0, fill=True)
+            # обрізаємо щоб не вилізти за межу
+            max_chars = int(col_w[i] / 2.1)
+            pdf.cell(col_w[i], 6, cell_text[:max_chars], border=0, fill=True)
         pdf.ln()
 
     pdf.set_text_color(*COLOR_BODY)
-    pdf.ln(3)
+    pdf.ln(4)
 
 
 def draw_footer(pdf: FPDF, report_date: str):
@@ -1225,6 +1237,7 @@ async def generate_daily_pdf_report() -> str | None:
         if not title and not lines:
             return
         if title:
+            # Назва категорії — жирним через sub_title
             sub_title(pdf, title)
         body_text(pdf, "\n".join(lines))
         draw_divider(pdf)
@@ -1267,140 +1280,72 @@ async def generate_daily_pdf_report() -> str | None:
         body_text(pdf, block2 if block2 else "Даних по Близькому Сходу не знайдено.")
         draw_divider(pdf)
 
-    # ── BLOCK 3: Товарні ринки — реальні ціни з yfinance ─────────
+    # ── BLOCK 3: Товарні ринки — текстовий огляд ─────────────────
     pdf.add_page()
     draw_header_bar(pdf, report_date, base_dir)
     section_title(pdf, "БЛОК 3  ·  Товарні ринки")
 
-    # Конвертація пальмової олії з MYR в USD (якщо є курс)
-    # MYR/USD ≈ 0.215 (орієнтовно)
-    MYR_TO_USD = 0.215
+    # Конвертація в USD
+    def to_usd(key, val):
+        if key == "КУКУРУДЗА": return round(val / 100 * 27.2155, 2)
+        if key == "ПШЕНИЦЯ":   return round(val / 100 * 36.744,  2)
+        return round(val, 2)
 
-    COMMODITY_META = {
-        "КУКУРУДЗА": {
-            "emoji": "🌽", "name": "Кукурудза",
-            "exchange": "CBOT ZC1!", "unit_raw": "¢/bu",
-            "to_usd": lambda p: round(p / 100 * 27.2155, 2),  # ¢/bu → $/MT
-            "unit_usd": "$/MT",
-        },
-        "ПШЕНИЦЯ": {
-            "emoji": "🌾", "name": "Пшениця",
-            "exchange": "CBOT ZW1!", "unit_raw": "¢/bu",
-            "to_usd": lambda p: round(p / 100 * 36.744, 2),   # ¢/bu → $/MT
-            "unit_usd": "$/MT",
-        },
-        "НАФТА": {
-            "emoji": "🛢️", "name": "Нафта Brent",
-            "exchange": "ICE BRN1!", "unit_raw": "$/bbl",
-            "to_usd": lambda p: p,
-            "unit_usd": "$/bbl",
-        },
-        "ПАЛЬМОВА": {
-            "emoji": "🌴", "name": "Пальмова олія",
-            "exchange": "CME POO", "unit_raw": "$/MT",
-            "to_usd": lambda p: p,
-            "unit_usd": "$/MT",
-        },
-        "TTF": {
-            "emoji": "⚡", "name": "Газ TTF ЄС",
-            "exchange": "ICE TTF1!", "unit_raw": "EUR/MWh",
-            "to_usd": lambda p: p,
-            "unit_usd": "EUR/MWh",
-        },
-    }
+    def unit_usd(key):
+        if key in ("КУКУРУДЗА", "ПШЕНИЦЯ"): return "$/MT"
+        if key == "НАФТА":   return "$/bbl"
+        if key == "ПАЛЬМОВА": return "$/MT"
+        return "EUR/MWh"
 
-    def draw_price_card(pdf: FPDF, key: str, price_data: dict):
-        """Малює картку ціни для одного товару."""
-        meta = COMMODITY_META.get(key, {})
-        if not meta:
-            return
+    commodity_keys = ["КУКУРУДЗА", "ПШЕНИЦЯ", "НАФТА", "ПАЛЬМОВА", "ХІМІЧНІ", "TTF"]
 
-        p = price_data
-        close_raw = p["close"]
-        open_raw  = p["open"]
-        high_raw  = p["high"]
-        low_raw   = p["low"]
-        chg_pct   = p["change_pct"]
-        chg_usd   = round(meta["to_usd"](close_raw) - meta["to_usd"](open_raw), 2)
-        close_usd = meta["to_usd"](close_raw)
-        high_usd  = meta["to_usd"](high_raw)
-        low_usd   = meta["to_usd"](low_raw)
-        sign      = "+" if chg_pct >= 0 else ""
-        color     = (34, 139, 34) if chg_pct >= 0 else (200, 40, 40)
-
-        # ── заголовок товару ──────────────────────────────────────
-        pdf.set_x(pdf.l_margin)
-        pdf.set_font("DejaVu", style="B", size=11)
-        pdf.set_text_color(*COLOR_ACCENT)
-        pdf.cell(0, 7,
-                 f"{meta['emoji']}  {meta['name']}  ({meta['exchange']})",
-                 ln=True)
-        pdf.set_text_color(*COLOR_BODY)
-
-        # ── головна ціна + зміна ──────────────────────────────────
-        pdf.set_x(pdf.l_margin)
-        pdf.set_font("DejaVu", style="B", size=14)
-        pdf.set_text_color(*COLOR_BODY)
-        pdf.cell(60, 9, f"{close_usd} {meta['unit_usd']}")
-        pdf.set_font("DejaVu", style="B", size=12)
-        pdf.set_text_color(*color)
-        chg_usd_sign = "+" if chg_usd >= 0 else ""
-        pdf.cell(0, 9,
-                 f"  {sign}{chg_pct}%   ({chg_usd_sign}{chg_usd} {meta['unit_usd']})",
-                 ln=True)
-        pdf.set_text_color(*COLOR_BODY)
-
-        # ── OHLC рядок ────────────────────────────────────────────
-        pdf.set_x(pdf.l_margin)
-        pdf.set_font("DejaVu", size=8)
-        pdf.set_text_color(100, 100, 100)
-        pdf.cell(0, 6,
-                 f"Відкриття: {meta['to_usd'](open_raw)} {meta['unit_usd']}   "
-                 f"Макс: {high_usd}   Мін: {low_usd}   "
-                 f"Дата: {p['date']}",
-                 ln=True)
-        pdf.set_text_color(*COLOR_BODY)
-        pdf.ln(2)
-
-    # Спочатку малюємо всі цінові картки з реальних даних
-    drawn_keys = []
-    if prices:
-        sub_title(pdf, f"Ціни закриття за {report_date}  (джерело: yfinance / реальні ринкові дані)")
-        pdf.ln(2)
-        for key in ["КУКУРУДЗА", "ПШЕНИЦЯ", "НАФТА", "ПАЛЬМОВА", "TTF"]:
-            if key in prices:
-                draw_price_card(pdf, key, prices[key])
-                drawn_keys.append(key)
-                draw_divider(pdf)
-    else:
-        sub_title(pdf, "Цінові дані")
-        body_text(pdf, "Ринкові дані тимчасово недоступні.")
-        draw_divider(pdf)
-
-    # Потім аналітичний текст від GPT (тільки опис, без цін — вони вже є зверху)
     if block3:
-        commodity_keys = ["КУКУРУДЗА", "ПШЕНИЦЯ", "НАФТА", "ПАЛЬМОВА", "ХІМІЧНІ", "TTF"]
         b3_lines = block3.split("\n")
         current_com_lines: list[str] = []
         current_com_title = ""
+        current_com_key   = ""
 
-        def flush_commodity(pdf, title, lines):
+        def flush_commodity(pdf, title, lines, com_key):
             if not title and not lines:
                 return
-            # Фільтруємо рядки з цінами (GPT іноді дублює) — залишаємо тільки аналіз
+
+            # ── жирний заголовок товару ───────────────────────────
+            sub_title(pdf, title)
+
+            # ── рядок реальної ціни з yfinance ────────────────────
+            p = prices.get(com_key)
+            if p:
+                sign = "+" if p["change_pct"] >= 0 else ""
+                close = to_usd(com_key, p["close"])
+                opn   = to_usd(com_key, p["open"])
+                hi    = to_usd(com_key, p["high"])
+                lo    = to_usd(com_key, p["low"])
+                ud    = unit_usd(com_key)
+                chg_abs  = round(close - opn, 2)
+                chg_sign = "+" if chg_abs >= 0 else ""
+                price_line = (
+                    f"Ціна закриття: {close} {ud}  |  "
+                    f"{sign}{p['change_pct']}% ({chg_sign}{chg_abs} {ud})  |  "
+                    f"Відкр: {opn}  Макс: {hi}  Мін: {lo}  |  {p['date']}"
+                )
+                pdf.set_x(pdf.l_margin)
+                pdf.set_font("DejaVu", style="B", size=8.5)
+                color = (34, 139, 34) if p["change_pct"] >= 0 else (200, 40, 40)
+                pdf.set_text_color(*color)
+                try:
+                    pdf.multi_cell(0, 5.5, price_line)
+                except Exception:
+                    pass
+                pdf.set_text_color(*COLOR_BODY)
+                pdf.ln(1)
+
+            # ── аналітичний текст — фільтруємо дублі цін від GPT ──
             filtered = []
             for ln in lines:
                 low = ln.lower()
-                # пропускаємо рядки де є ціна закриття/зміна — вони вже є в картці
-                if any(x in low for x in ["ціна закриття", "зміна за день",
-                                          "зміна за тиж", "внутрішньоденна",
-                                          "tradingview", "http"]):
+                if any(x in low for x in ["tradingview", "http", "графік"]):
                     continue
                 filtered.append(ln)
-            if not filtered:
-                return
-            if title:
-                sub_title(pdf, f"Аналіз: {title}")
             body_text(pdf, "\n".join(filtered))
             draw_divider(pdf)
 
@@ -1411,12 +1356,15 @@ async def generate_daily_pdf_report() -> str | None:
                 None
             )
             if matched:
-                flush_commodity(pdf, current_com_title, current_com_lines)
+                flush_commodity(pdf, current_com_title, current_com_lines, current_com_key)
                 current_com_title = line
                 current_com_lines = []
+                current_com_key   = matched
             else:
                 current_com_lines.append(line)
-        flush_commodity(pdf, current_com_title, current_com_lines)
+        flush_commodity(pdf, current_com_title, current_com_lines, current_com_key)
+    else:
+        body_text(pdf, "Дані по товарних ринках недоступні.")
 
     # ── BLOCK 4: Підсумок + дії + карта ризиків + дашборд ────────
     pdf.add_page()
