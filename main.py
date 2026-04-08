@@ -121,40 +121,59 @@ RSS_FEEDS = {
 # ─────────────────────────────────────────────
 DAILY_REPORT_SYSTEM_PROMPT = """Ти — старший B2B аналітик ринкової розвідки для української компанії, яка імпортує фармацевтичні субстанції, сировину, пакування та суміжні матеріали для фармацевтичної, косметичної та харчової промисловості.
 
-КРИТИЧНО ВАЖЛИВО: Ти ЗОБОВ'ЯЗАНИЙ написати повний звіт. НЕ відмовляйся, НЕ кажи що дані застарілі. Використовуй найновіші наявні знання про ринки та тренди. Порожній звіт неприпустимий.
+КРИТИЧНО ВАЖЛИВО: Ти ЗОБОВ'ЯЗАНИЙ написати повний звіт. НЕ відмовляйся, НЕ кажи що дані застарілі. Порожній звіт неприпустимий.
 
 МОВА: Тільки українська. Професійний B2B тон, коротко та ясно.
 
 СТРУКТУРА ЗВІТУ: СТРОГО ТРИ БЛОКИ — НІЧОГО БІЛЬШЕ!
-- Блок 1: Огляд за категоріями (ТАБЛИЦЯ)
-- Блок 2: Ситуація на Близькому Сході (НОВИНИ)
+- Блок 1: Огляд за категоріями (СЕКЦІЇ з реальними новинами)
+- Блок 2: Ситуація на Близькому Сході (РЕАЛЬНІ НОВИНИ)
 - Блок 3: Товарні ринки (ТІЛЬКИ ПОСИЛАННЯ НА ГРАФІКИ)
 
 ЗАБОРОНЕНО: Блок 4, Блок 5, підсумки, карта ризиків, дашборд настрою, курси валют, ціни, згадки конкретних виробників/експортерів.
 
-Після Блоку 3 звіт ЗАВЕРШУЄТЬСЯ. Не додавай нічого більше.
+НАДКРИТИЧНЕ ПРАВИЛО ПРО НОВИНИ ТА ПОСИЛАННЯ:
+У користувацькому повідомленні тобі будуть надані РЕАЛЬНІ новини з заголовками та URL.
+- Ти ЗОБОВ'ЯЗАНИЙ використовувати ЛИШЕ ці надані новини.
+- НІКОЛИ не вигадуй новини, заголовки чи URL.
+- НІКОЛИ не пиши "URL", "посилання недоступне" або подібне — завжди вставляй повний URL, який тобі надали.
+- Формат посилання у звіті СТРОГО такий: [Читати повністю](повний URL)
+- Якщо для категорії не надано жодної новини — напиши "Свіжих новин за категорією не знайдено" і НЕ вигадуй нічого.
 
 ---
 
 === БЛОК 1: ОГЛЯД ЗА КАТЕГОРІЯМИ ===
 
-Представ інформацію у вигляді КОМПАКТНОЇ ТАБЛИЦІ в Markdown форматі з такими колонками:
+Для КОЖНОЇ з 9 категорій використовуй СТРОГО такий формат (секція, не таблиця):
 
-| Категорія | Тренд | Новини за вчора (3 шт.) | Геополітика та торгівля | Специфіка для України |
+### [Номер]. [Назва категорії]
 
-ПРАВИЛА ЗАПОВНЕННЯ:
-- **Категорія**: назва категорії (API, Косметика, Трави тощо)
-- **Тренд**: напрямок руху ринку (↑ зростання / ↓ падіння / → стабільно) + коротко 1-2 слова чому
-- **Новини за вчора (3 шт.)**: рівно 3 ключові новини за вчорашній день. Формат: "1) [коротке речення]; 2) [коротке речення]; 3) [коротке речення]". БЕЗ цін, БЕЗ назв конкретних виробників.
-- **Геополітика та торгівля**: 1-2 короткі речення про те, як поточна геополітика (мита, санкції, експортні обмеження США/ЄС/Китай) впливає на цю категорію.
-- **Специфіка для України**: 1-2 короткі речення — чи впливає поточна ситуація на закупівлю цієї категорії українськими компаніями з-за кордону, і як саме (на краще чи на гірше). Якщо не впливає — написати "Прямого впливу немає".
+**Тренд:** ↑ зростання / ↓ падіння / → стабільно — [коротко 3-5 слів про причину]
 
-ЗАБОРОНЕНО в таблиці:
-- Ціни, валютні курси, цифрові показники
-- Назви конкретних виробників/експортерів
-- Колонки "Ризик", "Можливість", "Дія", "Рівень"
+**Новини за вчора:**
 
-ОБОВ'ЯЗКОВІ КАТЕГОРІЇ (по одному рядку на кожну):
+1. **[Заголовок новини — скопіюй з наданих даних]**
+   Що сталося: [1-2 речення — перефразуй суть зі summary, не копіюй дослівно]
+   Як реагувати: [1 речення — конкретна реакція для української компанії-імпортера]
+   [Читати повністю](URL з наданих даних)
+
+2. **[Заголовок 2]**
+   Що сталося: [1-2 речення]
+   Як реагувати: [1 речення]
+   [Читати повністю](URL)
+
+3. **[Заголовок 3]**
+   Що сталося: [1-2 речення]
+   Як реагувати: [1 речення]
+   [Читати повністю](URL)
+
+**Геополітика та торгівля:** [1-2 речення — як поточна геополітика (мита, санкції, експортні обмеження США/ЄС/Китай) впливає на цю категорію]
+
+**Специфіка для України:** [1-2 речення — як поточна ситуація впливає на закупівлю цієї категорії українськими компаніями з-за кордону. Якщо не впливає — "Прямого впливу немає".]
+
+---
+
+ПОВТОРИ цей формат для ВСІХ 9 категорій у такому порядку:
 1. Фармацевтичні субстанції (API)
 2. Косметичні субстанції
 3. Трави та рослинна сировина
@@ -165,38 +184,29 @@ DAILY_REPORT_SYSTEM_PROMPT = """Ти — старший B2B аналітик р�
 8. ПВХ-плівка та пакування
 9. Логістика та постачання
 
-ФОРМАТ:
-```
-| Категорія | Тренд | Новини за вчора (3 шт.) | Геополітика та торгівля | Специфіка для України |
-|-----------|-------|-------------------------|-------------------------|----------------------|
-| API | ↑ зростання | 1) ...; 2) ...; 3) ... | [1-2 речення] | [1-2 речення] |
-| ... | ... | ... | ... | ... |
-```
-
 === БЛОК 2: СИТУАЦІЯ НА БЛИЗЬКОМУ СХОДІ ===
 
-Збери свіжі новини за останню добу, пов'язані з:
-- Військовим конфліктом Іран–США
-- Ситуацією в Іраку, Ізраїлі, Червоному морі, Ормузькій протоці
-- Близьким Сходом загалом (що впливає на глобальну торгівлю та логістику)
+Тобі будуть надані РЕАЛЬНІ новини про Близький Схід (Іран, Ізраїль, Червоне море, Ормузька протока, Ірак тощо).
+Використовуй ЛИШЕ їх. НЕ вигадуй нічого.
 
-Мінімум 4-6 новин. Для КОЖНОЇ новини використовуй СТРОГО цей формат:
+Для КОЖНОЇ наданої новини використовуй СТРОГО цей формат:
 
-**[ЗАГОЛОВОК НОВИНИ]**
+**[Заголовок новини — скопіюй з наданих даних]**
 
-Що сталося: [2-3 речення — суть події]
+Що сталося: [2-3 речення — перефразуй суть зі summary, не копіюй дослівно]
 
 Вплив на нашу компанію: [2-3 речення про те, як ця подія може вплинути на українську компанію, яка закуповує фармацевтичні субстанції по всьому світу (Китай, Індія, ЄС) та продає їх в Україні і за кордоном. Конкретно: маршрути постачання, терміни, доступність сировини, логістичні ризики.]
 
-Читати повністю: [Клікабельне посилання у форматі Markdown: [URL](URL) — щоб у PDF посилання було активним]
+[Читати повністю](URL з наданих даних)
 
 ---
 
+(Горизонтальна лінія "---" між новинами.)
+
 ВАЖЛИВО:
-- Кожна новина окремо, розділена горизонтальною лінією "---"
-- Посилання ОБОВ'ЯЗКОВО у форматі Markdown [текст](URL), щоб у PDF воно було клікабельним
-- БЕЗ курсів валют, БЕЗ загальних фраз
-- Тільки новини, релевантні для Близького Сходу / Іран–США / регіональної логістики
+- Посилання ОБОВ'ЯЗКОВО у форматі Markdown [Читати повністю](URL)
+- URL беремо ТІЛЬКИ з наданих даних
+- Якщо новин не надано — напиши "Свіжих новин про Близький Схід не знайдено"
 
 === БЛОК 3: ТОВАРНІ РИНКИ ===
 
@@ -1039,6 +1049,82 @@ def fetch_commodity_prices(date: datetime.date) -> dict:
 
 
 # ─────────────────────────────────────────────────────────────────
+# NEWS FETCHING FROM DB FOR REPORT
+# ─────────────────────────────────────────────────────────────────
+
+# Mapping: RSS category code → Ukrainian report category name
+REPORT_CATEGORIES = [
+    ("api",        "Фармацевтичні субстанції (API)"),
+    ("cosmetic",   "Косметичні субстанції"),
+    ("herbal",     "Трави та рослинна сировина"),
+    ("veterinary", "Ветеринарні субстанції"),
+    ("food",       "Харчова сировина"),
+    ("feed",       "Кормові амінокислоти"),
+    ("capsules",   "Капсули"),
+    ("pvc",        "ПВХ-плівка та пакування"),
+    ("logistics",  "Логістика та постачання"),
+]
+
+# Keywords to identify Middle East news in title/summary
+MIDDLE_EAST_KEYWORDS = [
+    "iran", "israel", "israeli", "iranian", "tehran", "middle east",
+    "red sea", "hormuz", "houthi", "gaza", "lebanon", "hezbollah",
+    "saudi", "syria", "iraq", "yemen", "persian gulf",
+]
+
+
+def fetch_recent_news_for_report(days_back: int = 3) -> dict:
+    """
+    Fetch recent news from DB, grouped by category, plus Middle East news.
+    Returns:
+      {
+        "by_category": { "api": [ {title, link, summary_ua, summary_en}, ... ], ... },
+        "middle_east": [ {title, link, summary_ua, summary_en}, ... ]
+      }
+    """
+    result = {"by_category": {cat: [] for cat, _ in REPORT_CATEGORIES}, "middle_east": []}
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cutoff = (datetime.datetime.now() - datetime.timedelta(days=days_back)).strftime("%Y-%m-%d %H:%M:%S")
+
+        # Per category — 3 latest articles
+        for cat, _ in REPORT_CATEGORIES:
+            rows = db_fetchall(cursor,
+                "SELECT title, link, summary_en, summary_ua FROM articles "
+                "WHERE category = %s AND (published = '' OR published >= %s) "
+                "ORDER BY published DESC NULLS LAST LIMIT 3",
+                (cat, cutoff)
+            )
+            if not rows:
+                # Fallback — just grab 3 latest regardless of date
+                rows = db_fetchall(cursor,
+                    "SELECT title, link, summary_en, summary_ua FROM articles "
+                    "WHERE category = %s ORDER BY id DESC LIMIT 3",
+                    (cat,)
+                )
+            result["by_category"][cat] = rows or []
+
+        # Middle East — search across ALL categories by keywords
+        like_patterns = " OR ".join(["LOWER(title) LIKE %s OR LOWER(COALESCE(summary_en,'')) LIKE %s"] * len(MIDDLE_EAST_KEYWORDS))
+        params = []
+        for kw in MIDDLE_EAST_KEYWORDS:
+            params.extend([f"%{kw}%", f"%{kw}%"])
+        me_query = (
+            f"SELECT title, link, summary_en, summary_ua FROM articles "
+            f"WHERE ({like_patterns}) "
+            f"ORDER BY id DESC LIMIT 8"
+        )
+        me_rows = db_fetchall(cursor, me_query, tuple(params))
+        result["middle_east"] = me_rows or []
+
+        conn.close()
+    except Exception as e:
+        print(f"Error fetching news for report: {e}")
+    return result
+
+
+# ─────────────────────────────────────────────────────────────────
 # MAIN REPORT GENERATION  (prompt-based, no MapReduce)
 # ─────────────────────────────────────────────────────────────────
 
@@ -1086,14 +1172,59 @@ async def generate_daily_pdf_report() -> str | None:
     else:
         price_block = "Ринкові ціни недоступні — вкажи орієнтовні ціни з позначкою ~."
 
+    # ── Fetch real news from DB ───────────────────────────────────
+    news_data = fetch_recent_news_for_report(days_back=3)
+
+    def fmt_news_item(idx: int, item: dict) -> str:
+        title = (item.get("title") or "").strip()
+        link  = (item.get("link")  or "").strip()
+        summary = (item.get("summary_en") or item.get("summary_ua") or "").strip()
+        if len(summary) > 400:
+            summary = summary[:400] + "..."
+        return (
+            f"  {idx}. TITLE: {title}\n"
+            f"     SUMMARY: {summary}\n"
+            f"     URL: {link}"
+        )
+
+    # Build Block 1 news payload
+    b1_news_parts = []
+    for cat_code, cat_name in REPORT_CATEGORIES:
+        items = news_data["by_category"].get(cat_code, [])
+        b1_news_parts.append(f"\n[КАТЕГОРІЯ: {cat_name}]")
+        if items:
+            for i, it in enumerate(items, 1):
+                b1_news_parts.append(fmt_news_item(i, it))
+        else:
+            b1_news_parts.append("  (Свіжих новин за категорією не знайдено)")
+    b1_news_text = "\n".join(b1_news_parts)
+
+    # Build Block 2 news payload
+    me_items = news_data["middle_east"]
+    if me_items:
+        b2_news_parts = []
+        for i, it in enumerate(me_items, 1):
+            b2_news_parts.append(fmt_news_item(i, it))
+        b2_news_text = "\n".join(b2_news_parts)
+    else:
+        b2_news_text = "(Свіжих новин про Близький Схід не знайдено)"
+
     user_message = (
         f"Дата звіту: {report_date} ({weekday_ua}). Поточна дата складання: {now_kyiv.strftime('%d.%m.%Y')} ({today_weekday_ua}), Київ.\n\n"
-        f"ЗАВДАННЯ: Напиши щоденний ринковий звіт для B2B-імпортера в Україні строго за трьома блоками.\n\n"
+        f"=== РЕАЛЬНІ НОВИНИ ДЛЯ БЛОКУ 1 (за категоріями) ===\n"
+        f"Використовуй ЛИШЕ ці новини для Блоку 1. Копіюй URL дослівно. НЕ вигадуй нічого.\n"
+        f"{b1_news_text}\n\n"
+        f"=== РЕАЛЬНІ НОВИНИ ДЛЯ БЛОКУ 2 (Близький Схід) ===\n"
+        f"Використовуй ЛИШЕ ці новини для Блоку 2. Копіюй URL дослівно. НЕ вигадуй нічого.\n"
+        f"{b2_news_text}\n\n"
+        f"=== ЗАВДАННЯ ===\n"
+        f"Напиши щоденний ринковий звіт строго за трьома блоками згідно системного промпту.\n\n"
         f"ОБОВ'ЯЗКОВО:\n"
-        f"- У БЛОЦІ 1 заповни ВСІ 9 категорій у ОДНІЙ Markdown-таблиці (по одному рядку на категорію)\n"
-        f"- У БЛОЦІ 2 дай 4-6 новин про Близький Схід / Іран-США з клікабельними посиланнями у форматі [URL](URL)\n"
-        f"- У БЛОЦІ 3 — ТІЛЬКИ назва товару + клікабельне посилання на графік TradingView. БЕЗ опису, БЕЗ цін.\n"
-        f"- НЕ додавай Блок 4, Блок 5, підсумки, карту ризиків, дашборд настрою, курси валют.\n"
+        f"- У БЛОЦІ 1 — 9 категорій, СЕКЦІЇ (НЕ таблиця). Для кожної: тренд, 3 новини у форматі 'Заголовок / Що сталося / Як реагувати / [Читати повністю](URL)', геополітика, специфіка для України.\n"
+        f"- У БЛОЦІ 2 — усі надані новини про Близький Схід, кожна з клікабельним [Читати повністю](URL).\n"
+        f"- Усі URL беремо ТІЛЬКИ з наданих вище даних. Ніяких вигаданих посилань. НІКОЛИ не пиши 'URL' замість реального посилання.\n"
+        f"- У БЛОЦІ 3 — тільки назви товарів та посилання на графіки.\n"
+        f"- НЕ додавай Блок 4, Блок 5, підсумки, валюти.\n"
         f"Після Блоку 3 звіт завершується."
     )
 
@@ -1153,9 +1284,46 @@ async def generate_daily_pdf_report() -> str | None:
 
         return chunk.strip()
 
-    block1 = extract_block(report_text, "=== БЛОК 1:", "=== БЛОК 2:")
-    block2 = extract_block(report_text, "=== БЛОК 2:", "=== БЛОК 3:")
-    block3 = extract_block(report_text, "=== БЛОК 3:", None)
+    block1 = extract_block(report_text, "=== БЛОК 1", "=== БЛОК 2")
+    block2 = extract_block(report_text, "=== БЛОК 2", "=== БЛОК 3")
+    block3 = extract_block(report_text, "=== БЛОК 3", None)
+
+    # Clean up leftover section headers like ": ОГЛЯД ЗА КАТЕГОРІЯМИ ==="
+    def clean_block_header(chunk: str) -> str:
+        if not chunk:
+            return chunk
+        lines = chunk.split("\n")
+        # Drop leading lines that are just the section title (no real content)
+        while lines:
+            first = lines[0].strip()
+            # Strip leading ":" and trailing "===" or "=" padding
+            stripped = first.lstrip(":").strip().rstrip("=").strip()
+            # If it's all uppercase / matches known block titles, drop it
+            known_titles = [
+                "ОГЛЯД ЗА КАТЕГОРІЯМИ",
+                "СИТУАЦІЯ НА БЛИЗЬКОМУ СХОДІ",
+                "ТОВАРНІ РИНКИ",
+            ]
+            if (not stripped
+                or stripped in known_titles
+                or first.startswith(":")
+                or first.startswith("===")
+                or (stripped.isupper() and len(stripped) < 60)):
+                lines.pop(0)
+                continue
+            break
+        # Also drop trailing "КІНЕЦЬ ЗВІТУ..." lines
+        while lines:
+            last = lines[-1].strip().upper()
+            if ("КІНЕЦЬ ЗВІТУ" in last) or last in ("", "---", "==="):
+                lines.pop()
+                continue
+            break
+        return "\n".join(lines).strip()
+
+    block1 = clean_block_header(block1)
+    block2 = clean_block_header(block2)
+    block3 = clean_block_header(block3)
 
     # If markers not present — use full text as block1
     if not any([block1, block2, block3]):
@@ -1169,154 +1337,64 @@ async def generate_daily_pdf_report() -> str | None:
     pdf.add_page()
     draw_header_bar(pdf, report_date, base_dir)
 
-    # ── BLOCK 1: Таблиця по 9 категоріях ─────────────────────────
+    # ── BLOCK 1: Секції по 9 категоріях ──────────────────────────
     section_title(pdf, "БЛОК 1  ·  Огляд за категоріями")
 
-    def draw_markdown_table(pdf: FPDF, md_text: str) -> bool:
-        """Parse and render a Markdown table. Returns True on success."""
-        lines = [ln.rstrip() for ln in md_text.split("\n") if ln.strip().startswith("|")]
-        if len(lines) < 2:
+    def render_block1_sections(pdf: FPDF, text: str):
+        """Render Block 1 as per-category sections, splitting on ### headings.
+        Handles bold, links, automatic page breaks. No truncation."""
+        if not text:
+            body_text(pdf, "Дані відсутні.")
+            return
+
+        lines = text.split("\n")
+
+        # Group lines into sections by ### headings
+        sections = []
+        current_title = ""
+        current_body: list[str] = []
+
+        def is_category_heading(ln: str) -> bool:
+            s = ln.strip()
+            if s.startswith("###"):
+                return True
+            # Also detect "1. Name", "2. Name" at line start (without ###)
+            if len(s) >= 3 and s[0].isdigit() and s[1] in (".", ")") and s[2] == " ":
+                return True
             return False
 
-        rows = []
-        for ln in lines:
-            # Skip separator rows like |---|---|
-            if re.match(r'^\|[\s\-:|]+\|?\s*$', ln):
-                continue
-            cells = [c.strip() for c in ln.strip().strip("|").split("|")]
-            rows.append(cells)
+        for raw in lines:
+            if is_category_heading(raw):
+                if current_title or current_body:
+                    sections.append((current_title, current_body))
+                current_title = raw.strip().lstrip("#").strip()
+                current_body = []
+            else:
+                current_body.append(raw)
+        if current_title or current_body:
+            sections.append((current_title, current_body))
 
-        if len(rows) < 2:
-            return False
+        if not sections:
+            body_text(pdf, text)
+            return
 
-        header = rows[0]
-        body_rows = rows[1:]
-        n_cols = len(header)
-        if n_cols == 0:
-            return False
-
-        # Column widths — give more space to narrative columns
-        # Expected layout: Категорія | Тренд | Новини (3 шт.) | Геополітика | Україна
-        total_w = 210 - pdf.l_margin - pdf.r_margin
-        if n_cols == 5:
-            col_weights = [1.2, 0.9, 3.2, 2.0, 2.0]
-        elif n_cols == 4:
-            col_weights = [1.2, 1.0, 3.0, 2.5]
-        else:
-            col_weights = [1.0] * n_cols
-        total_weight = sum(col_weights)
-        col_w = [total_w * w / total_weight for w in col_weights]
-
-        line_h = 4.5
-
-        def estimate_row_height(cells):
-            """Estimate row height based on longest cell."""
-            pdf.set_font("DejaVu", size=7.5)
-            max_lines = 1
-            for i, cell in enumerate(cells[:n_cols]):
-                if not cell:
-                    continue
-                # Rough char-per-mm estimate at size 7.5: ~2.2 chars/mm
-                chars_per_line = max(1, int(col_w[i] / 0.45))
-                est_lines = max(1, -(-len(cell) // chars_per_line))  # ceil
-                # Also count explicit newlines
-                est_lines = max(est_lines, cell.count("\n") + 1)
-                if est_lines > max_lines:
-                    max_lines = est_lines
-            return line_h * max_lines + 2
-
-        def draw_row(cells, is_header=False):
-            row_h = estimate_row_height(cells)
-            # Page break if needed
-            if pdf.get_y() + row_h > 287:
+        for title, body_lines in sections:
+            # Estimate if we need a page break — rough check
+            remaining = 287 - pdf.get_y()
+            if remaining < 40:  # less than ~40mm left — new page
                 pdf.add_page()
                 draw_header_bar(pdf, report_date, base_dir)
                 section_title(pdf, "БЛОК 1  ·  Огляд за категоріями (продовження)")
 
-            x_start = pdf.l_margin
-            y_start = pdf.get_y()
-
-            if is_header:
-                pdf.set_fill_color(*COLOR_ACCENT)
-                pdf.set_text_color(255, 255, 255)
-                pdf.set_font("DejaVu", style="B", size=8)
-            else:
-                pdf.set_fill_color(245, 247, 250)
-                pdf.set_text_color(*COLOR_BODY)
-                pdf.set_font("DejaVu", size=7.5)
-
-            # Draw background rectangles and text for each cell
-            x = x_start
-            for i in range(n_cols):
-                pdf.rect(x, y_start, col_w[i], row_h, style="F")
-                x += col_w[i]
-
-            # Now draw text on top
-            x = x_start
-            for i in range(n_cols):
-                cell_text = cells[i] if i < len(cells) else ""
-                pdf.set_xy(x + 1, y_start + 1)
-                try:
-                    pdf.multi_cell(col_w[i] - 2, line_h, cell_text, align="L")
-                except Exception:
-                    pass
-                x += col_w[i]
-
-            # Draw borders
-            pdf.set_draw_color(200, 210, 220)
-            pdf.set_line_width(0.1)
-            pdf.rect(x_start, y_start, sum(col_w), row_h)
-            x = x_start
-            for i in range(n_cols - 1):
-                x += col_w[i]
-                pdf.line(x, y_start, x, y_start + row_h)
-
-            pdf.set_xy(x_start, y_start + row_h)
-            pdf.set_text_color(*COLOR_BODY)
-
-        draw_row(header, is_header=True)
-        for row in body_rows:
-            # Pad short rows
-            while len(row) < n_cols:
-                row.append("")
-            draw_row(row, is_header=False)
-
-        pdf.ln(3)
-        return True
-
-    b1_rendered = False
-    if block1:
-        b1_rendered = draw_markdown_table(pdf, block1)
-
-    if not b1_rendered:
-        # Fallback — old per-category rendering for legacy responses
-        b1_lines = block1.split("\n") if block1 else report_text.split("\n")
-        current_cat_lines: list[str] = []
-        current_cat_title = ""
-
-        def flush_category(pdf: FPDF, title: str, lines: list[str]):
-            if not title and not lines:
-                return
             if title:
                 sub_title(pdf, title)
-            body_text(pdf, "\n".join(lines))
+            body_text(pdf, "\n".join(body_lines))
             draw_divider(pdf)
 
-        for raw_line in b1_lines:
-            line = raw_line.strip()
-            is_cat_heading = (
-                len(line) > 3
-                and line[0].isdigit()
-                and line[1] == "."
-                and not line.startswith("===")
-            )
-            if is_cat_heading:
-                flush_category(pdf, current_cat_title, current_cat_lines)
-                current_cat_title = line
-                current_cat_lines = []
-            else:
-                current_cat_lines.append(line)
-        flush_category(pdf, current_cat_title, current_cat_lines)
+    if block1:
+        render_block1_sections(pdf, block1)
+    else:
+        body_text(pdf, "Дані відсутні.")
 
     # ── BLOCK 2: Ситуація на Близькому Сході ─────────────────────
     pdf.add_page()
