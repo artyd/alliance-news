@@ -29,6 +29,7 @@ try:
     matplotlib.use("Agg")          # non-interactive backend
     import matplotlib.pyplot as plt
     import matplotlib.dates as mdates
+    import matplotlib.ticker as mticker
     from matplotlib.patches import Patch
     CHARTS_AVAILABLE = True
 except ImportError:
@@ -132,10 +133,10 @@ DAILY_REPORT_SYSTEM_PROMPT = """Ти — старший B2B аналітик р�
 
 МОВА: Тільки українська. Професійний B2B тон, коротко та ясно.
 
-СТРУКТУРА ЗВІТУ: СТРОГО ТРИ БЛОКИ — НІЧОГО БІЛЬШЕ!
+СТРУКТУРА ЗВІТУ: ТИ ПИШЕШ ЛИШЕ ДВА БЛОКИ!
 - Блок 1: Огляд за категоріями (СЕКЦІЇ з реальними новинами)
 - Блок 2: Ситуація на Близькому Сході (РЕАЛЬНІ НОВИНИ)
-- Блок 3: Товарні ринки (ТІЛЬКИ ПОСИЛАННЯ НА ГРАФІКИ)
+- Блок 3: Товарні ринки — НЕ ПИШИ. Цей блок додається в PDF автоматично з yfinance-даних (графіки та ціни).
 
 ЗАБОРОНЕНО: Блок 4, Блок 5, підсумки, карта ризиків, дашборд настрою, курси валют, ціни, згадки конкретних виробників/експортерів.
 
@@ -214,19 +215,7 @@ DAILY_REPORT_SYSTEM_PROMPT = """Ти — старший B2B аналітик р�
 
 === БЛОК 3: ТОВАРНІ РИНКИ ===
 
-У цьому блоці — ТІЛЬКИ назва товару та клікабельне посилання на графік. БЕЗ опису, БЕЗ цін, БЕЗ аналізу.
-
-ФОРМАТ (використовуй точно):
-
-🌽 **Кукурудза** — [Графік TradingView](https://www.tradingview.com/chart/?symbol=CBOT%3AZC1!)
-
-🌾 **Пшениця** — [Графік TradingView](https://www.tradingview.com/chart/?symbol=CBOT%3AZW1!)
-
-🛢️ **Нафта Brent** — [Графік TradingView](https://www.tradingview.com/chart/?symbol=TVC%3AUKOIL)
-
-🌴 **Пальмова олія** — [Графік TradingView](https://www.tradingview.com/chart/?symbol=MYX%3AKPO1!)
-
-⚗️ **Хімічний індекс (Природний газ ЄС TTF)** — [Графік TradingView](https://www.tradingview.com/chart/?symbol=ICEEUR%3ATTF1!)
+ЦЕЙ БЛОК ГЕНЕРУЄТЬСЯ ЛОКАЛЬНО З ЯФІНАНС-ДАНИХ. ТИ НЕ ПИШЕШ ЦЕЙ БЛОК. Просто завершуй звіт після Блоку 2 — Блок 3 буде додано в PDF автоматично.
 
 ---
 
@@ -831,39 +820,76 @@ def draw_footer(pdf: FPDF, report_date: str):
 # CHART GENERATION  (yfinance → matplotlib → PNG → PDF)
 # ─────────────────────────────────────────────────────────────────
 
-# Ticker map: name → (yfinance ticker, display label, unit)
+# Ticker map: key → (yfinance ticker(s), display label, unit, TradingEconomics URL, TradingView URL)
+# The first ticker is primary; the rest are fallbacks (yfinance sometimes returns empty).
 CHART_TICKERS = {
-    "КУКУРУДЗА":  ("ZC=F",   "Кукурудза CBOT",    "¢/bushel"),
-    "ПШЕНИЦЯ":    ("ZW=F",   "Пшениця CBOT",      "¢/bushel"),
-    "НАФТА":      ("BZ=F",   "Нафта Brent ICE",   "$/barrel"),
-    "ПАЛЬМОВА":   ("POO=F",  "Пальмова олія CME", "$/MT"),
-    "TTF":        ("TTF=F",  "Газ TTF ЄС",        "EUR/MWh"),
+    "КУКУРУДЗА": {
+        "tickers": ("ZC=F",),
+        "label": "Кукурудза (CBOT Corn Futures)",
+        "unit": "¢/bushel",
+        "te_url": "https://tradingeconomics.com/commodity/corn",
+        "tv_url": "https://www.tradingview.com/chart/?symbol=CBOT%3AZC1!",
+        "emoji": "🌽",
+    },
+    "НАФТА": {
+        "tickers": ("BZ=F",),
+        "label": "Нафта Brent (ICE Brent Crude Futures)",
+        "unit": "$/barrel",
+        "te_url": "https://tradingeconomics.com/commodity/crude-oil",
+        "tv_url": "https://www.tradingview.com/chart/?symbol=TVC%3AUKOIL",
+        "emoji": "🛢️",
+    },
+    "ПАЛЬМОВА": {
+        # Palm oil has spotty yfinance coverage; try multiple tickers.
+        "tickers": ("POO=F", "FCPO=F", "CPO=F"),
+        "label": "Пальмова олія (Crude Palm Oil)",
+        "unit": "$/MT",
+        "te_url": "https://tradingeconomics.com/commodity/palm-oil",
+        "tv_url": "https://www.tradingview.com/chart/?symbol=MYX%3AKPO1!",
+        "emoji": "🌴",
+    },
 }
 
 
-def _make_candle_chart(ticker_sym: str, label: str, unit: str,
+def _make_candle_chart(tickers: tuple[str, ...], label: str, unit: str,
                        date_from: datetime.date, date_to: datetime.date,
-                       out_path: str) -> bool:
+                       out_path: str) -> tuple[bool, dict | None]:
     """
-    Download OHLC data for [date_from-30d .. date_to+1d],
-    draw a candlestick chart with volume bars, save to out_path.
-    Returns True on success.
+    Try multiple tickers in order until one returns data. Draw a candlestick
+    chart with volume bars for a ~45-day window ending at date_to, save to out_path.
+    Returns (success, price_info). price_info is a dict with close/open/high/low/change_pct
+    for the report day, or None on failure.
     """
     if not CHARTS_AVAILABLE:
-        return False
-    try:
-        start = date_from - datetime.timedelta(days=45)
-        end   = date_to   + datetime.timedelta(days=2)
-        tk = yf.Ticker(ticker_sym)
-        df = tk.history(start=start.isoformat(), end=end.isoformat(), interval="1d")
-        if df.empty:
-            return False
+        return False, None
 
+    # Try each ticker until we get non-empty data
+    df = None
+    used_ticker = None
+    for ticker_sym in tickers:
+        try:
+            start = date_from - datetime.timedelta(days=45)
+            end   = date_to   + datetime.timedelta(days=2)
+            tk = yf.Ticker(ticker_sym)
+            candidate = tk.history(start=start.isoformat(), end=end.isoformat(), interval="1d")
+            if candidate is not None and not candidate.empty:
+                df = candidate
+                used_ticker = ticker_sym
+                break
+        except Exception as e:
+            print(f"Chart ticker {ticker_sym} failed: {e}")
+            continue
+
+    if df is None or df.empty:
+        print(f"Chart: no data for any ticker in {tickers}")
+        return False, None
+
+    try:
         df.index = df.index.tz_localize(None) if df.index.tzinfo else df.index
         # keep only up to report date
         df = df[df.index.date <= date_to]
         if df.empty:
-            return False
+            return False, None
 
         # ── figure layout ──────────────────────────────────────────
         fig, (ax_price, ax_vol) = plt.subplots(
@@ -888,7 +914,7 @@ def _make_candle_chart(ticker_sym: str, label: str, unit: str,
             # wick
             ax_price.plot([i, i], [l, h], color=color, linewidth=0.8)
 
-        # ── highlight today (last bar) ─────────────────────────────
+        # ── highlight report day (last bar) ─────────────────────────
         last_i = len(df) - 1
         last_close = df["Close"].iloc[-1]
         last_open  = df["Open"].iloc[-1]
@@ -913,7 +939,7 @@ def _make_candle_chart(ticker_sym: str, label: str, unit: str,
                    width=w, linewidth=0, alpha=0.7)
         ax_vol.set_ylabel("Обсяг", color="#888888", fontsize=6)
         ax_vol.yaxis.set_major_formatter(
-            matplotlib.ticker.FuncFormatter(
+            mticker.FuncFormatter(
                 lambda x, _: f"{x/1e6:.0f}M" if x >= 1e6 else f"{x/1e3:.0f}K"
             )
         )
@@ -957,7 +983,7 @@ def _make_candle_chart(ticker_sym: str, label: str, unit: str,
             ha="right", va="top",
         )
 
-        # ── date of report marker ──────────────────────────────────
+        # ── report-day marker ──────────────────────────────────────
         report_idx = len(df) - 1
         ax_price.axvline(x=report_idx, color="#f5a623",
                          linewidth=0.7, linestyle="--", alpha=0.5)
@@ -966,108 +992,60 @@ def _make_candle_chart(ticker_sym: str, label: str, unit: str,
         fig.savefig(out_path, dpi=130, bbox_inches="tight",
                     facecolor="#111111")
         plt.close(fig)
-        return True
+
+        price_info = {
+            "close":      round(float(last_row["Close"]), 2),
+            "open":       round(float(last_row["Open"]),  2),
+            "high":       round(float(last_row["High"]),  2),
+            "low":        round(float(last_row["Low"]),   2),
+            "change_abs": round(float(chg), 2),
+            "change_pct": round(float(chg_p), 2),
+            "unit":       unit,
+            "date":       df.index[-1].strftime("%d.%m.%Y"),
+            "ticker":     used_ticker,
+        }
+        return True, price_info
     except Exception as e:
-        print(f"Chart error [{ticker_sym}]: {e}")
-        return False
+        print(f"Chart render error: {e}")
+        try:
+            plt.close("all")
+        except Exception:
+            pass
+        return False, None
 
 
-def generate_all_charts(report_date_str: str, tmp_dir: str) -> dict[str, str]:
+def generate_all_charts(report_date: datetime.date, tmp_dir: str) -> dict[str, dict]:
     """
-    Generate PNG charts for all 5 commodities.
-    Returns dict: keyword → PNG path  (only successfully generated ones).
+    Generate PNG charts for all configured commodities.
+    Returns dict: key → {png_path, price_info, meta} for successfully generated charts.
+    For failed generations the entry still exists but without png_path/price_info
+    (so the PDF section can still render a title+link without the image).
     """
-    if not CHARTS_AVAILABLE:
-        return {}
-
-    try:
-        rd = datetime.datetime.strptime(report_date_str, "%d.%m.%Y").date()
-    except ValueError:
-        return {}
-
-    result = {}
-    for key, (sym, label, unit) in CHART_TICKERS.items():
-        out = os.path.join(tmp_dir, f"chart_{key}.png")
-        ok  = _make_candle_chart(sym, label, unit, rd, rd, out)
-        if ok:
-            result[key] = out
-            print(f"Chart generated: {key} → {out}")
-        else:
-            print(f"Chart skipped: {key}")
+    result: dict[str, dict] = {}
+    for key, cfg in CHART_TICKERS.items():
+        entry = {
+            "png_path":   None,
+            "price_info": None,
+            "label":      cfg["label"],
+            "unit":       cfg["unit"],
+            "te_url":     cfg["te_url"],
+            "tv_url":     cfg["tv_url"],
+            "emoji":      cfg["emoji"],
+        }
+        if CHARTS_AVAILABLE:
+            out = os.path.join(tmp_dir, f"chart_{key}.png")
+            ok, price_info = _make_candle_chart(
+                cfg["tickers"], cfg["label"], cfg["unit"],
+                report_date, report_date, out
+            )
+            if ok:
+                entry["png_path"]   = out
+                entry["price_info"] = price_info
+                print(f"Chart generated: {key} → {out}  close={price_info['close']}")
+            else:
+                print(f"Chart skipped: {key} (no data)")
+        result[key] = entry
     return result
-
-
-def fetch_nbu_rates(date: datetime.date) -> dict:
-    """
-    Fetch official NBU exchange rates for a given date.
-    Falls back to previous days if the date is a weekend/holiday.
-    Returns dict with keys: usd_uah, eur_uah, cny_uah, eur_usd
-    """
-    rates = {}
-    for delta in range(5):  # try up to 5 days back
-        try:
-            d = date - datetime.timedelta(days=delta)
-            url = f"https://bank.gov.ua/NBUStatService/v1/statdirectory/exchange?date={d.strftime('%Y%m%d')}&json"
-            import urllib.request
-            with urllib.request.urlopen(url, timeout=8) as r:
-                data = json.loads(r.read().decode())
-            by_code = {item["cc"]: item["rate"] for item in data}
-            usd = by_code.get("USD", 0)
-            eur = by_code.get("EUR", 0)
-            cny = by_code.get("CNY", 0)
-            if usd > 0:
-                rates = {
-                    "usd_uah": round(usd, 2),
-                    "eur_uah": round(eur, 2),
-                    "cny_uah": round(cny, 2),
-                    "eur_usd": round(eur / usd, 4) if usd else 0,
-                    "rate_date": d.strftime("%d.%m.%Y"),
-                }
-                print(f"NBU rates fetched for {d}: USD={usd}, EUR={eur}")
-                return rates
-        except Exception as e:
-            print(f"NBU fetch error (delta={delta}): {e}")
-    return {}
-
-
-def fetch_commodity_prices(date: datetime.date) -> dict:
-    """
-    Fetch real closing prices for commodities via yfinance.
-    Returns dict: ticker_key → {close, open, high, low, change_pct, unit}
-    """
-    if not CHARTS_AVAILABLE:
-        return {}
-    results = {}
-    start = date - datetime.timedelta(days=5)
-    end   = date + datetime.timedelta(days=2)
-    for key, (sym, label, unit) in CHART_TICKERS.items():
-        try:
-            tk = yf.Ticker(sym)
-            df = tk.history(start=start.isoformat(), end=end.isoformat(), interval="1d")
-            if df.empty:
-                continue
-            df.index = df.index.tz_localize(None) if df.index.tzinfo else df.index
-            df = df[df.index.date <= date]
-            if df.empty:
-                continue
-            last  = df.iloc[-1]
-            prev  = df.iloc[-2] if len(df) > 1 else last
-            chg   = last["Close"] - prev["Close"]
-            chg_p = round(chg / prev["Close"] * 100, 2) if prev["Close"] else 0
-            results[key] = {
-                "close":      round(last["Close"], 2),
-                "open":       round(last["Open"],  2),
-                "high":       round(last["High"],  2),
-                "low":        round(last["Low"],   2),
-                "change_pct": chg_p,
-                "unit":       unit,
-                "label":      label,
-                "date":       df.index[-1].strftime("%d.%m.%Y"),
-            }
-            print(f"Price fetched: {key} ({sym}) close={last['Close']:.2f} {unit}")
-        except Exception as e:
-            print(f"Price fetch error [{key}/{sym}]: {e}")
-    return results
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -1230,37 +1208,6 @@ async def generate_daily_pdf_report() -> str | None:
     weekday_ua  = weekdays_ua[yesterday.weekday()]
     today_weekday_ua = weekdays_ua[now_kyiv.weekday()]
 
-    # ── Fetch real data before building the report ────────────────
-    nbu = fetch_nbu_rates(yesterday.date())
-    prices = fetch_commodity_prices(yesterday.date())
-
-    # Build FX block string for prompt
-    if nbu:
-        fx_block = (
-            f"РЕАЛЬНІ КУРСИ НБУ за {nbu.get('rate_date', report_date)}:\n"
-            f"USD/UAH: {nbu['usd_uah']} грн\n"
-            f"EUR/UAH: {nbu['eur_uah']} грн\n"
-            f"CNY/UAH: {nbu['cny_uah']} грн\n"
-            f"EUR/USD: {nbu['eur_usd']}\n"
-            f"Використовуй ТІЛЬКИ ці цифри у секції 2В — не вигадуй курси."
-        )
-    else:
-        fx_block = "Курси НБУ недоступні — вкажи актуальний орієнтовний курс з позначкою ~."
-
-    # Build commodity prices string for prompt
-    if prices:
-        price_lines = ["РЕАЛЬНІ ЦІНИ ЗАКРИТТЯ з ринку (yfinance):"]
-        for key, p in prices.items():
-            sign = "+" if p["change_pct"] >= 0 else ""
-            price_lines.append(
-                f"{p['label']}: {p['close']} {p['unit']} "
-                f"(O:{p['open']} H:{p['high']} L:{p['low']}) "
-                f"зміна: {sign}{p['change_pct']}% | дата: {p['date']}"
-            )
-        price_block = "\n".join(price_lines) + "\nВикористовуй ТІЛЬКИ ці ціни у БЛОЦІ 3 — не вигадуй."
-    else:
-        price_block = "Ринкові ціни недоступні — вкажи орієнтовні ціни з позначкою ~."
-
     # ── Fetch real news from DB ───────────────────────────────────
     news_data = fetch_recent_news_for_report(yesterday.date(), days_back=3)
 
@@ -1321,9 +1268,9 @@ async def generate_daily_pdf_report() -> str | None:
         f"- У БЛОЦІ 1 — 9 категорій. Для кожної: Тренд, Огляд дня (3-6 речень синтезу), Геополітика та торгівля, Специфіка для України. БЕЗ списків новин, БЕЗ посилань.\n"
         f"- У БЛОЦІ 2 — ЄДИНИЙ синтез: Огляд ситуації (7-10 речень), Ключові теми дня (булети), Вплив на нашу компанію, Джерела (список markdown-посилань). БЕЗ окремих карток по кожній новині.\n"
         f"- У БЛОЦІ 2 секція 'Джерела' МУСИТЬ містити ВСІ надані новини у форматі '- [Заголовок](URL)', по одній на рядок. Копіюй заголовки та URL дослівно.\n"
-        f"- У БЛОЦІ 3 — тільки назви товарів та посилання на графіки.\n"
+        f"- Блок 3 НЕ ПИШИ — він додається в PDF автоматично з yfinance-даних.\n"
         f"- НЕ додавай Блок 4, Блок 5, підсумки, валюти.\n"
-        f"Після Блоку 3 звіт завершується."
+        f"Після Блоку 2 звіт завершується."
     )
 
     print(f"Generating prompt-based daily report for {report_date}...")
@@ -1384,7 +1331,6 @@ async def generate_daily_pdf_report() -> str | None:
 
     block1 = extract_block(report_text, "=== БЛОК 1", "=== БЛОК 2")
     block2 = extract_block(report_text, "=== БЛОК 2", "=== БЛОК 3")
-    block3 = extract_block(report_text, "=== БЛОК 3", None)
 
     # Clean up leftover section headers like ": ОГЛЯД ЗА КАТЕГОРІЯМИ ==="
     def clean_block_header(chunk: str) -> str:
@@ -1421,10 +1367,9 @@ async def generate_daily_pdf_report() -> str | None:
 
     block1 = clean_block_header(block1)
     block2 = clean_block_header(block2)
-    block3 = clean_block_header(block3)
 
     # If markers not present — use full text as block1
-    if not any([block1, block2, block3]):
+    if not any([block1, block2]):
         block1 = report_text
 
     # ── Build PDF ─────────────────────────────────────────────────
@@ -1505,21 +1450,138 @@ async def generate_daily_pdf_report() -> str | None:
         body_text(pdf, "Даних по Близькому Сходу не знайдено.")
         draw_divider(pdf)
 
-    # ── BLOCK 3: Товарні ринки — тільки посилання на графіки ─────
+    # ── BLOCK 3: Товарні ринки — графіки з yfinance + посилання ──
     pdf.add_page()
     draw_header_bar(pdf, report_date, base_dir)
     section_title(pdf, "БЛОК 3  ·  Товарні ринки")
 
-    if block3:
-        body_text(pdf, block3)
+    # Generate chart PNGs into a temp dir; they live until we close the PDF.
+    charts_tmp_dir = tempfile.mkdtemp(prefix="charts_")
+    try:
+        charts = generate_all_charts(yesterday.date(), charts_tmp_dir)
+    except Exception as e:
+        print(f"Chart generation failed: {e}")
+        charts = {}
+
+    # Layout constants for each commodity card
+    page_w        = 210
+    left_margin   = pdf.l_margin
+    right_margin  = pdf.r_margin
+    content_w     = page_w - left_margin - right_margin
+    img_w         = min(content_w, 170)   # chart image width in mm
+    # keep 9:4.2 aspect ratio from matplotlib figsize
+    img_h         = img_w * (4.2 / 9.0)
+    card_gap      = 4                      # vertical gap after each card
+
+    def render_commodity_card(key: str, data: dict):
+        """Render one commodity: emoji + bold name + price line + chart image + links."""
+        emoji      = data.get("emoji", "")
+        label      = data.get("label", key)
+        unit       = data.get("unit", "")
+        te_url     = data.get("te_url", "")
+        tv_url     = data.get("tv_url", "")
+        png_path   = data.get("png_path")
+        price_info = data.get("price_info")
+
+        # Estimate total height needed for the card
+        needed_h = 8 + (img_h + 4 if png_path else 0) + 8 + card_gap
+        if pdf.get_y() + needed_h > 287:
+            pdf.add_page()
+            draw_header_bar(pdf, report_date, base_dir)
+            section_title(pdf, "БЛОК 3  ·  Товарні ринки (продовження)")
+
+        # ── Title line: emoji + bold label ─────────────────────────
+        pdf.set_x(left_margin)
+        pdf.set_font("DejaVu", style="B", size=10)
+        pdf.set_text_color(*COLOR_BODY)
+        try:
+            pdf.cell(0, 6, f"{emoji}  {label}", ln=True)
+        except Exception:
+            pdf.cell(0, 6, label, ln=True)
+
+        # ── Price summary line (if data available) ─────────────────
+        if price_info:
+            chg_abs = price_info["change_abs"]
+            chg_pct = price_info["change_pct"]
+            sign    = "+" if chg_abs >= 0 else ""
+            color   = (34, 139, 34) if chg_abs >= 0 else (200, 40, 40)
+            pdf.set_x(left_margin)
+            pdf.set_font("DejaVu", size=8.5)
+            pdf.set_text_color(*color)
+            summary = (
+                f"Ціна закриття за {price_info['date']}: "
+                f"{price_info['close']} {unit}  "
+                f"({sign}{chg_abs} / {sign}{chg_pct}%)  "
+                f"| O: {price_info['open']}  H: {price_info['high']}  L: {price_info['low']}"
+            )
+            try:
+                pdf.multi_cell(0, 5, summary)
+            except Exception:
+                pass
+            pdf.set_text_color(*COLOR_BODY)
+        else:
+            pdf.set_x(left_margin)
+            pdf.set_font("DejaVu", size=8.5)
+            pdf.set_text_color(140, 140, 140)
+            try:
+                pdf.multi_cell(0, 5, "Ціна: дані yfinance недоступні.")
+            except Exception:
+                pass
+            pdf.set_text_color(*COLOR_BODY)
+
+        # ── Chart image ────────────────────────────────────────────
+        if png_path and os.path.exists(png_path):
+            try:
+                x = left_margin + (content_w - img_w) / 2
+                y = pdf.get_y() + 1
+                pdf.image(png_path, x=x, y=y, w=img_w, h=img_h)
+                pdf.set_y(y + img_h + 2)
+            except Exception as e:
+                print(f"Failed to embed chart for {key}: {e}")
+
+        # ── Clickable links row ────────────────────────────────────
+        pdf.set_x(left_margin)
+        pdf.set_font("DejaVu", size=9)
+        link_color = (0, 102, 204)
+
+        # "Повний графік на TradingEconomics"
+        pdf.set_text_color(*link_color)
+        try:
+            pdf.write(5.5, "📊 Повний графік: ")
+            pdf.write(5.5, "TradingEconomics", link=te_url)
+            pdf.set_text_color(*COLOR_BODY)
+            pdf.write(5.5, "   •   ")
+            pdf.set_text_color(*link_color)
+            pdf.write(5.5, "TradingView", link=tv_url)
+        except Exception:
+            pass
+        pdf.set_text_color(*COLOR_BODY)
+        pdf.ln(7)
+
+        # ── Divider before next card ───────────────────────────────
+        draw_divider(pdf)
+        pdf.ln(card_gap - 3 if card_gap > 3 else 0)
+
+    if charts:
+        # Render in the fixed order: Corn, Brent, Palm oil
+        for key in ("КУКУРУДЗА", "НАФТА", "ПАЛЬМОВА"):
+            if key in charts:
+                render_commodity_card(key, charts[key])
     else:
         body_text(pdf, "Дані по товарних ринках недоступні.")
 
-    # Футер прибрано
-
+    # ── Save PDF ──────────────────────────────────────────────────
     pdf_path = os.path.join(base_dir, f"daily_report_{yesterday.strftime('%Y%m%d')}.pdf")
     pdf.output(pdf_path)
     print(f"Report saved: {pdf_path}")
+
+    # Clean up chart temp files (PDF is already written, safe to delete)
+    try:
+        import shutil
+        shutil.rmtree(charts_tmp_dir, ignore_errors=True)
+    except Exception:
+        pass
+
     return pdf_path
 
 
