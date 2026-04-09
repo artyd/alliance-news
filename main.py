@@ -144,34 +144,28 @@ DAILY_REPORT_SYSTEM_PROMPT = """Ти — старший B2B аналітик р�
 
 === БЛОК 1: ОГЛЯД ЗА КАТЕГОРІЯМИ ===
 
-Для КОЖНОЇ з 9 категорій використовуй СТРОГО такий формат (секція, не таблиця):
+Для КОЖНОЇ з 9 категорій тобі у користувацькому повідомленні надано список РЕАЛЬНИХ новин за день звіту (заголовки + короткі описи). Твоє завдання — НЕ переліковувати новини по одній, а написати ЄДИНУ аналітичну виЖимку.
+
+Використовуй СТРОГО такий формат для кожної категорії (без нумерованих списків новин, без markdown-посилань):
 
 ### [Номер]. [Назва категорії]
 
 **Тренд:** ↑ зростання / ↓ падіння / → стабільно — [коротко 3-5 слів про причину]
 
-**Новини за вчора:**
+**Огляд дня:** [ЗВ'ЯЗНИЙ текст 3-6 речень, що синтезує ВСІ надані новини за категорією. Має покривати: (1) що головного сталося на ринку за день, (2) що змінилося порівняно з попереднім днем чи тижнем, (3) як це впливає на українську компанію, яка займається закупівлею сировини цієї категорії по всьому світу та логістикою куплених товарів. НЕ цитуй заголовки. НЕ перераховуй новини по одній. Синтезуй їх у цілісний абзац. Якщо новин кілька на одну тему — об'єднай. Якщо новин зовсім немає — напиши "Свіжих новин за категорією не зафіксовано; ринок без істотних змін."]
 
-1. **[Заголовок новини — скопіюй з наданих даних]**
-   Що сталося: [1-2 речення — перефразуй суть зі summary, не копіюй дослівно]
-   Як реагувати: [1 речення — конкретна реакція для української компанії-імпортера]
-   [Читати повністю](URL з наданих даних)
+**Геополітика та торгівля:** [1-2 речення — як поточна геополітика (мита, санкції, експортні обмеження США/ЄС/Китай, близькосхідні ризики) впливає саме на цю категорію.]
 
-2. **[Заголовок 2]**
-   Що сталося: [1-2 речення]
-   Як реагувати: [1 речення]
-   [Читати повністю](URL)
-
-3. **[Заголовок 3]**
-   Що сталося: [1-2 речення]
-   Як реагувати: [1 речення]
-   [Читати повністю](URL)
-
-**Геополітика та торгівля:** [1-2 речення — як поточна геополітика (мита, санкції, експортні обмеження США/ЄС/Китай) впливає на цю категорію]
-
-**Специфіка для України:** [1-2 речення — як поточна ситуація впливає на закупівлю цієї категорії українськими компаніями з-за кордону. Якщо не впливає — "Прямого впливу немає".]
+**Специфіка для України:** [1-2 речення — як поточна ситуація впливає на закупівлю та логістику цієї категорії українською компанією-імпортером. Якщо не впливає — "Прямого впливу немає".]
 
 ---
+
+КРИТИЧНО ВАЖЛИВО ДЛЯ БЛОКУ 1:
+- НЕ створюй нумерований список новин (без "1.", "2.", "3.")
+- НЕ вставляй заголовки новин в лапках чи жирним
+- НЕ додавай markdown-посилання [Читати повністю](...) — посилання в Блоці 1 НЕ потрібні
+- Пиши ЦІЛІСНИЙ аналітичний абзац "Огляд дня" — це виЖимка журналіста, а не список посилань
+- Обсяг "Огляду дня" — 3-6 речень, без переліків
 
 ПОВТОРИ цей формат для ВСІХ 9 категорій у такому порядку:
 1. Фармацевтичні субстанції (API)
@@ -632,57 +626,73 @@ def sub_title(pdf: FPDF, title: str):
 _MD_LINK_RE = re.compile(r'\[([^\]]+)\]\((https?://[^\s\)]+)\)')
 # Regex for bare URLs (http/https)
 _BARE_URL_RE = re.compile(r'(?<!\()(?<!\])(https?://[^\s\)\]]+)')
+# Regex for **bold** — non-greedy, must have content between markers
+_BOLD_RE = re.compile(r'\*\*(.+?)\*\*')
 
 
-def _render_segment_with_links(pdf: FPDF, text: str, size: int, bold: bool):
-    """Render a text segment, detecting [text](url) and bare URLs as clickable links.
-
-    Uses pdf.write() so it stays inline. Wraps long lines automatically via write().
+def _tokenize_line(text: str) -> list[tuple[str, str, str | None]]:
+    """Split a line into tokens: (kind, content, url_or_none).
+    kind is one of: 'text', 'bold', 'link', 'boldlink'.
+    Handles **bold**, [text](url), and bare URLs.
+    Stray unmatched '**' markers are silently dropped.
     """
-    if not text:
-        return
+    # First, mask markdown links so their URLs don't get confused with bare URLs.
+    # We'll tokenize in two passes: first bold, then within each text span — links.
 
-    # First, find all markdown links and bare URLs, splitting the text into
-    # (kind, content, url) tuples where kind is 'text' | 'link'.
-    tokens = []
+    segments: list[tuple[str, str]] = []  # list of (kind: 'text'|'bold', content)
     pos = 0
-
-    # Build a combined match list from both regexes
-    matches = []
-    for m in _MD_LINK_RE.finditer(text):
-        matches.append(("mdlink", m.start(), m.end(), m.group(1), m.group(2)))
-    for m in _BARE_URL_RE.finditer(text):
-        # Skip if this bare URL is inside a markdown link already captured
-        if any(s <= m.start() < e for (_, s, e, _, _) in matches):
-            continue
-        matches.append(("url", m.start(), m.end(), m.group(1), m.group(1)))
-    matches.sort(key=lambda x: x[1])
-
-    for kind, start, end, label, url in matches:
-        if start > pos:
-            tokens.append(("text", text[pos:start], None))
-        tokens.append(("link", label, url))
-        pos = end
+    for m in _BOLD_RE.finditer(text):
+        if m.start() > pos:
+            segments.append(("text", text[pos:m.start()]))
+        segments.append(("bold", m.group(1)))
+        pos = m.end()
     if pos < len(text):
-        tokens.append(("text", text[pos:], None))
+        segments.append(("text", text[pos:]))
 
-    if not tokens:
-        tokens = [("text", text, None)]
+    # Remove any leftover stray '**' that wasn't part of a matched pair
+    segments = [(k, c.replace("**", "")) for k, c in segments]
 
-    # Render tokens
-    style = "B" if bold else ""
-    link_color = (0, 102, 204)  # blue for links
+    # Now expand links inside each segment
+    tokens: list[tuple[str, str, str | None]] = []
+    for kind, content in segments:
+        if not content:
+            continue
+        sub_pos = 0
+        matches = []
+        for m in _MD_LINK_RE.finditer(content):
+            matches.append(("link", m.start(), m.end(), m.group(1), m.group(2)))
+        for m in _BARE_URL_RE.finditer(content):
+            if any(s <= m.start() < e for (_, s, e, _, _) in matches):
+                continue
+            matches.append(("link", m.start(), m.end(), m.group(1), m.group(1)))
+        matches.sort(key=lambda x: x[1])
+
+        for _, start, end, label, url in matches:
+            if start > sub_pos:
+                tokens.append((kind, content[sub_pos:start], None))
+            link_kind = "boldlink" if kind == "bold" else "link"
+            tokens.append((link_kind, label, url))
+            sub_pos = end
+        if sub_pos < len(content):
+            tokens.append((kind, content[sub_pos:], None))
+
+    return tokens
+
+
+def _render_line_tokens(pdf: FPDF, tokens: list[tuple[str, str, str | None]], size: int):
+    """Render a tokenized line using pdf.write()."""
+    link_color = (0, 102, 204)
 
     for kind, content, url in tokens:
-        if kind == "text":
-            pdf.set_font("DejaVu", style=style, size=size)
-            pdf.set_text_color(*COLOR_BODY)
-            try:
-                pdf.write(5.5, content)
-            except Exception:
-                pass
-        else:  # link
-            pdf.set_font("DejaVu", style=style, size=size)
+        if not content:
+            continue
+        is_bold = kind in ("bold", "boldlink")
+        is_link = kind in ("link", "boldlink")
+
+        style = "B" if is_bold else ""
+        pdf.set_font("DejaVu", style=style, size=size)
+
+        if is_link:
             pdf.set_text_color(*link_color)
             try:
                 pdf.write(5.5, content, link=url)
@@ -692,41 +702,41 @@ def _render_segment_with_links(pdf: FPDF, text: str, size: int, bold: bool):
                 except Exception:
                     pass
             pdf.set_text_color(*COLOR_BODY)
+        else:
+            pdf.set_text_color(*COLOR_BODY)
+            try:
+                pdf.write(5.5, content)
+            except Exception:
+                pass
 
 
 def body_text(pdf: FPDF, text: str, size: int = 9):
     """Render text with inline **bold** and clickable [text](url) / bare URL support.
-    Strips ## / # headings."""
+    Strips ## / # headings. Stray ** markers are dropped."""
     pdf.set_text_color(*COLOR_BODY)
     for line in text.split("\n"):
-        # strip markdown heading markers
-        clean = line.replace("####", "").replace("##", "").strip()
-        # remove lone # at start
-        if clean.startswith("#"):
-            clean = clean.lstrip("#").strip()
+        # Strip markdown heading markers (# ## ### ####)
+        clean = line.strip()
+        while clean.startswith("#"):
+            clean = clean[1:]
+        clean = clean.strip()
+
         if not clean:
             pdf.ln(2)
             continue
+
         pdf.set_x(pdf.l_margin)
+        tokens = _tokenize_line(clean)
 
-        # Split by ** — odd segments are bold, even are normal
-        parts = clean.split("**")
-        has_links = bool(_MD_LINK_RE.search(clean) or _BARE_URL_RE.search(clean))
-
-        if len(parts) == 1 and not has_links:
-            # no bold, no links — simple fast path
+        # Fast path: single plain-text token, no bold, no link
+        if len(tokens) == 1 and tokens[0][0] == "text":
             pdf.set_font("DejaVu", size=size)
             try:
-                pdf.multi_cell(0, 5.5, clean)
+                pdf.multi_cell(0, 5.5, tokens[0][1])
             except Exception:
                 pass
         else:
-            # mixed content on same line — render inline with write()
-            for i, part in enumerate(parts):
-                if not part:
-                    continue
-                bold = (i % 2 == 1)
-                _render_segment_with_links(pdf, part, size, bold)
+            _render_line_tokens(pdf, tokens, size)
             pdf.ln(5.5)
             pdf.set_font("DejaVu", size=size)
             pdf.set_text_color(*COLOR_BODY)
@@ -1073,39 +1083,52 @@ MIDDLE_EAST_KEYWORDS = [
 ]
 
 
-def fetch_recent_news_for_report(days_back: int = 3) -> dict:
+def fetch_recent_news_for_report(report_date: datetime.date, days_back: int = 3) -> dict:
     """
-    Fetch recent news from DB, grouped by category, plus Middle East news.
-    Returns:
-      {
-        "by_category": { "api": [ {title, link, summary_ua, summary_en}, ... ], ... },
-        "middle_east": [ {title, link, summary_ua, summary_en}, ... ]
-      }
+    Fetch news from DB:
+    - by_category: ALL articles per category for the report day (yesterday Kyiv).
+      Fallback: up to 10 latest per category if nothing found for that day.
+    - middle_east: articles mentioning Middle East keywords (any recent).
     """
     result = {"by_category": {cat: [] for cat, _ in REPORT_CATEGORIES}, "middle_east": []}
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        cutoff = (datetime.datetime.now() - datetime.timedelta(days=days_back)).strftime("%Y-%m-%d %H:%M:%S")
 
-        # Per category — 3 latest articles
+        # Day-of-report window: 00:00 to 23:59 of the report date
+        day_start = datetime.datetime.combine(report_date, datetime.time.min).strftime("%Y-%m-%d %H:%M:%S")
+        day_end   = datetime.datetime.combine(report_date, datetime.time.max).strftime("%Y-%m-%d %H:%M:%S")
+        # Fallback window: last `days_back` days
+        fallback_cutoff = (datetime.datetime.now() - datetime.timedelta(days=days_back)).strftime("%Y-%m-%d %H:%M:%S")
+
+        # Per category — ALL articles from the report day (or fallback)
         for cat, _ in REPORT_CATEGORIES:
+            # Primary: articles from exactly the report day
             rows = db_fetchall(cursor,
                 "SELECT title, link, summary_en, summary_ua FROM articles "
-                "WHERE category = %s AND (published = '' OR published >= %s) "
-                "ORDER BY published DESC NULLS LAST LIMIT 3",
-                (cat, cutoff)
+                "WHERE category = %s AND published != '' "
+                "AND published >= %s AND published <= %s "
+                "ORDER BY published DESC",
+                (cat, day_start, day_end)
             )
             if not rows:
-                # Fallback — just grab 3 latest regardless of date
+                # Fallback 1: last `days_back` days
                 rows = db_fetchall(cursor,
                     "SELECT title, link, summary_en, summary_ua FROM articles "
-                    "WHERE category = %s ORDER BY id DESC LIMIT 3",
+                    "WHERE category = %s AND (published = '' OR published >= %s) "
+                    "ORDER BY published DESC NULLS LAST LIMIT 10",
+                    (cat, fallback_cutoff)
+                )
+            if not rows:
+                # Fallback 2: 10 latest regardless of date
+                rows = db_fetchall(cursor,
+                    "SELECT title, link, summary_en, summary_ua FROM articles "
+                    "WHERE category = %s ORDER BY id DESC LIMIT 10",
                     (cat,)
                 )
             result["by_category"][cat] = rows or []
 
-        # Middle East — search across ALL categories by keywords
+        # Middle East — search across ALL categories by keywords (any recent)
         like_patterns = " OR ".join(["LOWER(title) LIKE %s OR LOWER(COALESCE(summary_en,'')) LIKE %s"] * len(MIDDLE_EAST_KEYWORDS))
         params = []
         for kw in MIDDLE_EAST_KEYWORDS:
@@ -1173,7 +1196,7 @@ async def generate_daily_pdf_report() -> str | None:
         price_block = "Ринкові ціни недоступні — вкажи орієнтовні ціни з позначкою ~."
 
     # ── Fetch real news from DB ───────────────────────────────────
-    news_data = fetch_recent_news_for_report(days_back=3)
+    news_data = fetch_recent_news_for_report(yesterday.date(), days_back=3)
 
     def fmt_news_item(idx: int, item: dict) -> str:
         title = (item.get("title") or "").strip()
@@ -1187,16 +1210,24 @@ async def generate_daily_pdf_report() -> str | None:
             f"     URL: {link}"
         )
 
-    # Build Block 1 news payload
+    def fmt_news_item_b1(idx: int, item: dict) -> str:
+        """Shorter format for Block 1 — no URL needed (we synthesize, not cite)."""
+        title = (item.get("title") or "").strip()
+        summary = (item.get("summary_en") or item.get("summary_ua") or "").strip()
+        if len(summary) > 300:
+            summary = summary[:300] + "..."
+        return f"  - {title}\n    {summary}"
+
+    # Build Block 1 news payload — ALL articles per category (no limit)
     b1_news_parts = []
     for cat_code, cat_name in REPORT_CATEGORIES:
         items = news_data["by_category"].get(cat_code, [])
-        b1_news_parts.append(f"\n[КАТЕГОРІЯ: {cat_name}]")
+        b1_news_parts.append(f"\n[КАТЕГОРІЯ: {cat_name}] — {len(items)} новин:")
         if items:
             for i, it in enumerate(items, 1):
-                b1_news_parts.append(fmt_news_item(i, it))
+                b1_news_parts.append(fmt_news_item_b1(i, it))
         else:
-            b1_news_parts.append("  (Свіжих новин за категорією не знайдено)")
+            b1_news_parts.append("  (новин не зафіксовано)")
     b1_news_text = "\n".join(b1_news_parts)
 
     # Build Block 2 news payload
@@ -1211,18 +1242,18 @@ async def generate_daily_pdf_report() -> str | None:
 
     user_message = (
         f"Дата звіту: {report_date} ({weekday_ua}). Поточна дата складання: {now_kyiv.strftime('%d.%m.%Y')} ({today_weekday_ua}), Київ.\n\n"
-        f"=== РЕАЛЬНІ НОВИНИ ДЛЯ БЛОКУ 1 (за категоріями) ===\n"
-        f"Використовуй ЛИШЕ ці новини для Блоку 1. Копіюй URL дослівно. НЕ вигадуй нічого.\n"
+        f"=== РЕАЛЬНІ НОВИНИ ЗА ДЕНЬ ЗВІТУ ДЛЯ БЛОКУ 1 (за 9 категоріями) ===\n"
+        f"Це повний список новин з нашої БД за категорією. Твоє завдання — СИНТЕЗУВАТИ їх у єдиний аналітичний абзац 'Огляд дня' (3-6 речень) для кожної категорії. НЕ переліковуй новини, НЕ цитуй заголовки, НЕ вставляй посилань.\n"
         f"{b1_news_text}\n\n"
         f"=== РЕАЛЬНІ НОВИНИ ДЛЯ БЛОКУ 2 (Близький Схід) ===\n"
-        f"Використовуй ЛИШЕ ці новини для Блоку 2. Копіюй URL дослівно. НЕ вигадуй нічого.\n"
+        f"Використовуй ЛИШЕ ці новини для Блоку 2. Копіюй URL дослівно у форматі [Читати повністю](URL). НЕ вигадуй нічого.\n"
         f"{b2_news_text}\n\n"
         f"=== ЗАВДАННЯ ===\n"
         f"Напиши щоденний ринковий звіт строго за трьома блоками згідно системного промпту.\n\n"
         f"ОБОВ'ЯЗКОВО:\n"
-        f"- У БЛОЦІ 1 — 9 категорій, СЕКЦІЇ (НЕ таблиця). Для кожної: тренд, 3 новини у форматі 'Заголовок / Що сталося / Як реагувати / [Читати повністю](URL)', геополітика, специфіка для України.\n"
+        f"- У БЛОЦІ 1 — 9 категорій. Для кожної: Тренд (одна строка), Огляд дня (цілісний абзац 3-6 речень що синтезує ВСІ новини категорії), Геополітика та торгівля (1-2 речення), Специфіка для України (1-2 речення). БЕЗ нумерованих списків новин. БЕЗ посилань. БЕЗ цитування заголовків.\n"
         f"- У БЛОЦІ 2 — усі надані новини про Близький Схід, кожна з клікабельним [Читати повністю](URL).\n"
-        f"- Усі URL беремо ТІЛЬКИ з наданих вище даних. Ніяких вигаданих посилань. НІКОЛИ не пиши 'URL' замість реального посилання.\n"
+        f"- URL у Блоці 2 беремо ТІЛЬКИ з наданих вище даних.\n"
         f"- У БЛОЦІ 3 — тільки назви товарів та посилання на графіки.\n"
         f"- НЕ додавай Блок 4, Блок 5, підсумки, валюти.\n"
         f"Після Блоку 3 звіт завершується."
