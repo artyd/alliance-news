@@ -113,8 +113,15 @@ RSS_FEEDS = {
     "feed": f"https://news.google.com/rss/search?q=amino+acids+feed+industry+{GLOBAL_SOURCES}+when:7d&hl=en-US&gl=US&ceid=US:en",
     "capsules": f"https://news.google.com/rss/search?q=capsule+manufacturing+pharma+{GLOBAL_SOURCES}+when:7d&hl=en-US&gl=US&ceid=US:en",
     "pvc": f"https://news.google.com/rss/search?q=pvc+film+packaging+{GLOBAL_SOURCES}+when:7d&hl=en-US&gl=US&ceid=US:en",
-    "logistics": f"https://news.google.com/rss/search?q=global+logistics+shipping+{GLOBAL_SOURCES}+when:7d&hl=en-US&gl=US&ceid=US:en"
+    "logistics": f"https://news.google.com/rss/search?q=global+logistics+shipping+{GLOBAL_SOURCES}+when:7d&hl=en-US&gl=US&ceid=US:en",
+    # Service category — used only for the daily report's Block 2 (Middle East).
+    # Hidden from Telegram subscription UI via INTERNAL_CATEGORIES below.
+    "middle_east": f"https://news.google.com/rss/search?q=Iran+Israel+%22Red+Sea%22+Hormuz+Houthi+%22Middle+East%22+shipping+oil+{GLOBAL_SOURCES}+when:2d&hl=en-US&gl=US&ceid=US:en",
 }
+
+# Categories that are fetched into DB but NOT shown as subscription options to users.
+# They exist purely to feed the daily report.
+INTERNAL_CATEGORIES = {"middle_east"}
 
 # ─────────────────────────────────────────────
 # MASTER REPORT PROMPT — повний звіт через AI
@@ -180,27 +187,30 @@ DAILY_REPORT_SYSTEM_PROMPT = """Ти — старший B2B аналітик р�
 
 === БЛОК 2: СИТУАЦІЯ НА БЛИЗЬКОМУ СХОДІ ===
 
-Тобі будуть надані РЕАЛЬНІ новини про Близький Схід (Іран, Ізраїль, Червоне море, Ормузька протока, Ірак тощо).
-Використовуй ЛИШЕ їх. НЕ вигадуй нічого.
+Тобі у користувацькому повідомленні буде надано повний список РЕАЛЬНИХ новин з нашої БД про Близький Схід за день звіту (Іран, Ізраїль, США-Іран, Червоне море, Ормузька протока, Ірак, Хусити, нафта, судноплавство тощо). Твоє завдання — НЕ переліковувати новини по одній, а синтезувати їх в єдину аналітичну виЖимку.
 
-Для КОЖНОЇ наданої новини використовуй СТРОГО цей формат:
+Використовуй СТРОГО такий формат:
 
-**[Заголовок новини — скопіюй з наданих даних]**
+**Огляд ситуації на Близькому Сході:** [ЦІЛІСНИЙ аналітичний текст 7-10 речень, що синтезує ВСІ надані новини. Має покривати: (1) що головного відбувається на Близькому Сході за день звіту — ключові події, заяви, військові дії, дипломатичні кроки; (2) як це впливає на глобальну економіку та торгівлю — нафта, судноплавство, ланцюги постачання, страхування вантажів, Ормузька протока, Червоне море; (3) конкретний вплив на українську B2B-компанію, яка закуповує фармацевтичні субстанції, косметичну сировину, харчові інгредієнти, капсули, пакування та інші матеріали по всьому світу (Китай, Індія, ЄС, США) та займається логістикою цих товарів — терміни доставки, маршрути, вартість фрахту, валютні ризики, доступність сировини. НЕ цитуй заголовки. НЕ перераховуй новини по одній. Синтезуй їх у цілісний аналітичний текст.]
 
-Що сталося: [2-3 речення — перефразуй суть зі summary, не копіюй дослівно]
+**Ключові теми дня:** [3-5 коротких булетів — головні теми, які проходять через новини. Наприклад: "Ормузька протока залишається під ризиком", "Ціни на нафту виросли на X%", "Ізраїль оголосив про...". Кожен булет — одне речення без посилань.]
 
-Вплив на нашу компанію: [2-3 речення про те, як ця подія може вплинути на українську компанію, яка закуповує фармацевтичні субстанції по всьому світу (Китай, Індія, ЄС) та продає їх в Україні і за кордоном. Конкретно: маршрути постачання, терміни, доступність сировини, логістичні ризики.]
+**Вплив на нашу компанію:** [2-4 речення з конкретними рекомендаціями: які маршрути моніторити, які категорії закупівель під найбільшим ризиком, чи варто фіксувати ціни зараз, чи переглядати контракти.]
 
-[Читати повністю](URL з наданих даних)
+**Джерела:**
+[Список ВСІХ наданих новин. Кожен рядок СТРОГО у такому форматі:
+- [Заголовок новини — скопіюй з наданих даних](URL з наданих даних)
+
+Один рядок на одну новину. Копіюй заголовки та URL ДОСЛІВНО. НЕ додавай опис, НЕ додавай коментарі — тільки markdown-посилання з заголовком новини. Обов'язковий формат з дефісом на початку.]
 
 ---
 
-(Горизонтальна лінія "---" між новинами.)
-
-ВАЖЛИВО:
-- Посилання ОБОВ'ЯЗКОВО у форматі Markdown [Читати повністю](URL)
-- URL беремо ТІЛЬКИ з наданих даних
-- Якщо новин не надано — напиши "Свіжих новин про Близький Схід не знайдено"
+КРИТИЧНО ВАЖЛИВО ДЛЯ БЛОКУ 2:
+- "Огляд ситуації" — це ЦІЛІСНИЙ абзац, а не список подій
+- 7-10 речень, не більше і не менше
+- НЕ створюй окремі секції по кожній новині ("Що сталося", "Вплив")
+- Секція "Джерела" — ТІЛЬКИ список markdown-посилань, без додаткових описів
+- Якщо новин не надано — напиши в "Огляді ситуації" одне речення: "Свіжих новин про Близький Схід за день звіту не зафіксовано." і пропусти решту полів.
 
 === БЛОК 3: ТОВАРНІ РИНКИ ===
 
@@ -235,6 +245,8 @@ def get_topics_keyboard(current_subs_str, only_daily_mode=False):
 
     row = []
     for cat in RSS_FEEDS.keys():
+        if cat in INTERNAL_CATEGORIES:
+            continue  # service categories (e.g. middle_east) not shown to users
         if only_daily_mode:
             text = f"❌ {cat.upper()}"
         else:
@@ -1128,18 +1140,72 @@ def fetch_recent_news_for_report(report_date: datetime.date, days_back: int = 3)
                 )
             result["by_category"][cat] = rows or []
 
-        # Middle East — search across ALL categories by keywords (any recent)
-        like_patterns = " OR ".join(["LOWER(title) LIKE %s OR LOWER(COALESCE(summary_en,'')) LIKE %s"] * len(MIDDLE_EAST_KEYWORDS))
-        params = []
-        for kw in MIDDLE_EAST_KEYWORDS:
-            params.extend([f"%{kw}%", f"%{kw}%"])
-        me_query = (
-            f"SELECT title, link, summary_en, summary_ua FROM articles "
-            f"WHERE ({like_patterns}) "
-            f"ORDER BY id DESC LIMIT 8"
-        )
-        me_rows = db_fetchall(cursor, me_query, tuple(params))
-        result["middle_east"] = me_rows or []
+        # ── Middle East news ─────────────────────────────────────
+        # Strategy (priority order):
+        #   1) Articles from the dedicated `middle_east` RSS category for the report day.
+        #   2) Fallback: `middle_east` category from last `days_back` days.
+        #   3) Also supplement with keyword matches from other categories (same day window)
+        #      to catch relevant Hormuz/Iran logistics stories indexed under `logistics` etc.
+        # Results are deduplicated by link and capped at 12 items.
+        me_rows: list[dict] = []
+        seen_links: set[str] = set()
+
+        def add_me_rows(rows: list[dict]):
+            for r in rows or []:
+                lk = (r.get("link") or "").strip()
+                if not lk or lk in seen_links:
+                    continue
+                seen_links.add(lk)
+                me_rows.append(r)
+
+        # 1) Dedicated middle_east category — report day window
+        add_me_rows(db_fetchall(cursor,
+            "SELECT title, link, summary_en, summary_ua FROM articles "
+            "WHERE category = 'middle_east' AND published != '' "
+            "AND published >= %s AND published <= %s "
+            "ORDER BY published DESC",
+            (day_start, day_end)
+        ))
+
+        # 2) Fallback: middle_east category — last `days_back` days
+        if len(me_rows) < 4:
+            add_me_rows(db_fetchall(cursor,
+                "SELECT title, link, summary_en, summary_ua FROM articles "
+                "WHERE category = 'middle_east' AND (published = '' OR published >= %s) "
+                "ORDER BY published DESC NULLS LAST LIMIT 15",
+                (fallback_cutoff,)
+            ))
+
+        # 3) Supplement with keyword matches from any category (report day window)
+        if len(me_rows) < 12:
+            like_patterns = " OR ".join(
+                ["LOWER(title) LIKE %s OR LOWER(COALESCE(summary_en,'')) LIKE %s"] * len(MIDDLE_EAST_KEYWORDS)
+            )
+            params: list = []
+            for kw in MIDDLE_EAST_KEYWORDS:
+                params.extend([f"%{kw}%", f"%{kw}%"])
+            # Prefer report-day results; widen to fallback window if sparse
+            params_with_window = params + [day_start, day_end]
+            kw_query_day = (
+                f"SELECT title, link, summary_en, summary_ua FROM articles "
+                f"WHERE ({like_patterns}) "
+                f"AND published != '' AND published >= %s AND published <= %s "
+                f"ORDER BY published DESC LIMIT 15"
+            )
+            add_me_rows(db_fetchall(cursor, kw_query_day, tuple(params_with_window)))
+
+            if len(me_rows) < 4:
+                # Last-resort: keyword matches from last days_back days
+                params_fallback = params + [fallback_cutoff]
+                kw_query_fallback = (
+                    f"SELECT title, link, summary_en, summary_ua FROM articles "
+                    f"WHERE ({like_patterns}) "
+                    f"AND (published = '' OR published >= %s) "
+                    f"ORDER BY published DESC NULLS LAST LIMIT 15"
+                )
+                add_me_rows(db_fetchall(cursor, kw_query_fallback, tuple(params_fallback)))
+
+        result["middle_east"] = me_rows[:12]
 
         conn.close()
     except Exception as e:
@@ -1246,14 +1312,15 @@ async def generate_daily_pdf_report() -> str | None:
         f"Це повний список новин з нашої БД за категорією. Твоє завдання — СИНТЕЗУВАТИ їх у єдиний аналітичний абзац 'Огляд дня' (3-6 речень) для кожної категорії. НЕ переліковуй новини, НЕ цитуй заголовки, НЕ вставляй посилань.\n"
         f"{b1_news_text}\n\n"
         f"=== РЕАЛЬНІ НОВИНИ ДЛЯ БЛОКУ 2 (Близький Схід) ===\n"
-        f"Використовуй ЛИШЕ ці новини для Блоку 2. Копіюй URL дослівно у форматі [Читати повністю](URL). НЕ вигадуй нічого.\n"
+        f"Це повний список новин з нашої БД про Близький Схід за день звіту. Твоє завдання — СИНТЕЗУВАТИ їх в єдиний аналітичний Огляд ситуації (7-10 речень), потім 3-5 булетів Ключових тем дня, потім Вплив на нашу компанію, і наприкінці секція Джерела з усіма наданими новинами у вигляді markdown-посилань [Заголовок](URL).\n"
+        f"Копіюй заголовки та URL ДОСЛІВНО з даних нижче. НЕ вигадуй ані заголовків, ані посилань.\n"
         f"{b2_news_text}\n\n"
         f"=== ЗАВДАННЯ ===\n"
         f"Напиши щоденний ринковий звіт строго за трьома блоками згідно системного промпту.\n\n"
         f"ОБОВ'ЯЗКОВО:\n"
-        f"- У БЛОЦІ 1 — 9 категорій. Для кожної: Тренд (одна строка), Огляд дня (цілісний абзац 3-6 речень що синтезує ВСІ новини категорії), Геополітика та торгівля (1-2 речення), Специфіка для України (1-2 речення). БЕЗ нумерованих списків новин. БЕЗ посилань. БЕЗ цитування заголовків.\n"
-        f"- У БЛОЦІ 2 — усі надані новини про Близький Схід, кожна з клікабельним [Читати повністю](URL).\n"
-        f"- URL у Блоці 2 беремо ТІЛЬКИ з наданих вище даних.\n"
+        f"- У БЛОЦІ 1 — 9 категорій. Для кожної: Тренд, Огляд дня (3-6 речень синтезу), Геополітика та торгівля, Специфіка для України. БЕЗ списків новин, БЕЗ посилань.\n"
+        f"- У БЛОЦІ 2 — ЄДИНИЙ синтез: Огляд ситуації (7-10 речень), Ключові теми дня (булети), Вплив на нашу компанію, Джерела (список markdown-посилань). БЕЗ окремих карток по кожній новині.\n"
+        f"- У БЛОЦІ 2 секція 'Джерела' МУСИТЬ містити ВСІ надані новини у форматі '- [Заголовок](URL)', по одній на рядок. Копіюй заголовки та URL дослівно.\n"
         f"- У БЛОЦІ 3 — тільки назви товарів та посилання на графіки.\n"
         f"- НЕ додавай Блок 4, Блок 5, підсумки, валюти.\n"
         f"Після Блоку 3 звіт завершується."
@@ -1611,6 +1678,11 @@ async def fetch_and_store_news():
 
                     try:
                         async with httpx.AsyncClient() as http_client:
+                            # Internal categories (e.g. middle_east) are stored in DB
+                            # for the daily report only — do not push them to Telegram subscribers.
+                            if category in INTERNAL_CATEGORIES:
+                                continue
+
                             users = db_fetchall(cursor,
                                 "SELECT chat_id, language, subscriptions, only_daily_mode FROM telegram_users"
                             )
@@ -1767,10 +1839,21 @@ async def read_index():
 def get_all_news():
     conn   = get_db_connection()
     cursor = conn.cursor()
-    rows   = db_fetchall(cursor,
-        "SELECT title, link, published, category, summary_en, summary_ua, summary_ru, image_url "
-        "FROM articles ORDER BY published DESC LIMIT 1000"
-    )
+    # Exclude internal/service categories from the public feed
+    internal_list = list(INTERNAL_CATEGORIES)
+    if internal_list:
+        placeholders = ",".join(["%s"] * len(internal_list))
+        rows = db_fetchall(cursor,
+            f"SELECT title, link, published, category, summary_en, summary_ua, summary_ru, image_url "
+            f"FROM articles WHERE category NOT IN ({placeholders}) "
+            f"ORDER BY published DESC LIMIT 1000",
+            tuple(internal_list)
+        )
+    else:
+        rows = db_fetchall(cursor,
+            "SELECT title, link, published, category, summary_en, summary_ua, summary_ru, image_url "
+            "FROM articles ORDER BY published DESC LIMIT 1000"
+        )
     conn.close()
     return rows
 
@@ -1779,9 +1862,19 @@ def get_all_news():
 def get_latest_alerts():
     conn   = get_db_connection()
     cursor = conn.cursor()
-    rows   = db_fetchall(cursor,
-        "SELECT title, link, published FROM articles ORDER BY published DESC LIMIT 5"
-    )
+    internal_list = list(INTERNAL_CATEGORIES)
+    if internal_list:
+        placeholders = ",".join(["%s"] * len(internal_list))
+        rows = db_fetchall(cursor,
+            f"SELECT title, link, published FROM articles "
+            f"WHERE category NOT IN ({placeholders}) "
+            f"ORDER BY published DESC LIMIT 5",
+            tuple(internal_list)
+        )
+    else:
+        rows = db_fetchall(cursor,
+            "SELECT title, link, published FROM articles ORDER BY published DESC LIMIT 5"
+        )
     conn.close()
 
     try:
