@@ -14,3 +14,4 @@ pytz
 yfinance
 matplotlib
 trafilatura
+googlenewsdecoder

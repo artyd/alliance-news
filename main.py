@@ -21,7 +21,7 @@ from openai import AsyncOpenAI
 import pytz
 import textwrap
 import tempfile
- 
+
 # ── Chart dependencies (optional — graceful fallback if missing) ──
 try:
     import yfinance as yf
@@ -35,7 +35,7 @@ try:
 except ImportError:
     CHARTS_AVAILABLE = False
     print("WARNING: yfinance/matplotlib not installed — charts disabled")
- 
+
 # ── Full-text extraction (optional — graceful fallback if missing) ──
 try:
     import trafilatura
@@ -43,20 +43,32 @@ try:
 except ImportError:
     TRAFILATURA_AVAILABLE = False
     print("WARNING: trafilatura not installed — article full-text extraction disabled, reports will fall back to RSS snippets")
- 
+
+# ── Google News URL decoder (optional — graceful fallback if missing) ──
+# Google News RSS links like https://news.google.com/rss/articles/CBMi... are
+# base64-encoded payloads that contain the real publisher URL. From EU servers
+# (like our Hetzner box in Germany) Google's consent wall makes HTTP-level
+# redirect resolution impossible, so we decode locally without hitting Google.
+try:
+    from googlenewsdecoder import gnewsdecoder
+    GNEWSDECODER_AVAILABLE = True
+except ImportError:
+    GNEWSDECODER_AVAILABLE = False
+    print("WARNING: googlenewsdecoder not installed — Google News links cannot be resolved to publisher URLs")
+
 load_dotenv()
- 
+
 DATABASE_URL = os.getenv("DATABASE_URL")
- 
+
 def get_db_connection():
     conn = psycopg2.connect(DATABASE_URL)
     conn.autocommit = False
     return conn
- 
+
 def init_db():
     conn = get_db_connection()
     cursor = conn.cursor()
- 
+
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS articles (
             id SERIAL PRIMARY KEY,
@@ -70,7 +82,7 @@ def init_db():
             summary_ru TEXT
         )
     ''')
- 
+
     # ── Stage 1 migration: full-text extraction columns ─────────────
     # Safe to run repeatedly; ADD COLUMN IF NOT EXISTS is idempotent.
     # full_text:              extracted article body (trafilatura), nullable
@@ -83,7 +95,27 @@ def init_db():
     cursor.execute("ALTER TABLE articles ADD COLUMN IF NOT EXISTS final_url TEXT")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_articles_extraction_status ON articles(extraction_status)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_articles_category_published ON articles(category, published DESC)")
- 
+
+    # ── One-shot retry of historical failures ───────────────────────
+    # Early versions of the extractor could not decode Google News URLs
+    # (consent wall + encoded base64 payload). Once googlenewsdecoder is
+    # installed and those articles get a chance to re-extract, reset all
+    # recent 'failed' rows back to 'pending' so the backfill picks them up.
+    # Only reset rows we can actually fix: last 7 days, still within retention.
+    cutoff_for_retry = (datetime.datetime.now() - datetime.timedelta(days=7)).strftime("%Y-%m-%d %H:%M:%S")
+    cursor.execute(
+        """
+        UPDATE articles
+           SET extraction_status = 'pending'
+         WHERE extraction_status = 'failed'
+           AND (published = '' OR published >= %s)
+        """,
+        (cutoff_for_retry,),
+    )
+    reset_count = cursor.rowcount
+    if reset_count > 0:
+        print(f"init_db: reset {reset_count} failed extractions to pending for retry")
+
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS telegram_users (
             chat_id BIGINT PRIMARY KEY,
@@ -92,7 +124,7 @@ def init_db():
             only_daily_mode BOOLEAN DEFAULT FALSE
         )
     ''')
- 
+
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS telegram_sent (
             id SERIAL PRIMARY KEY,
@@ -102,30 +134,30 @@ def init_db():
             UNIQUE(chat_id, article_link)
         )
     ''')
- 
+
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_sent_link ON telegram_sent(article_link)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_articles_title ON articles(title)')
- 
+
     conn.commit()
     cursor.close()
     conn.close()
- 
+
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_API_URL = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
- 
+
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 aclient = AsyncOpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
- 
+
 gemini_api_key = os.getenv("GEMINI_API_KEY")
 if gemini_api_key:
     try:
         genai.configure(api_key=gemini_api_key)
     except AttributeError:
         pass
- 
+
 GLOBAL_SOURCES_RAW = "(site:reuters.com OR site:bloomberg.com OR site:ft.com OR site:wto.org OR site:bbc.com OR site:imf.org OR site:worldbank.org OR site:iccwbo.org OR site:theloadstar.com OR site:joc.com)"
 GLOBAL_SOURCES = urllib.parse.quote_plus(GLOBAL_SOURCES_RAW)
- 
+
 RSS_FEEDS = {
     "api": f"https://news.google.com/rss/search?q=pharmaceutical+API+{GLOBAL_SOURCES}+when:7d&hl=en-US&gl=US&ceid=US:en",
     "cosmetic": f"https://news.google.com/rss/search?q=cosmetic+ingredients+industry+{GLOBAL_SOURCES}+when:7d&hl=en-US&gl=US&ceid=US:en",
@@ -140,27 +172,27 @@ RSS_FEEDS = {
     # Hidden from Telegram subscription UI via INTERNAL_CATEGORIES below.
     "middle_east": f"https://news.google.com/rss/search?q=Iran+Israel+%22Red+Sea%22+Hormuz+Houthi+%22Middle+East%22+shipping+oil+{GLOBAL_SOURCES}+when:2d&hl=en-US&gl=US&ceid=US:en",
 }
- 
+
 # Categories that are fetched into DB but NOT shown as subscription options to users.
 # They exist purely to feed the daily report.
 INTERNAL_CATEGORIES = {"middle_east"}
- 
+
 # ─────────────────────────────────────────────
 # MASTER REPORT PROMPT — повний звіт через AI
 # ─────────────────────────────────────────────
 DAILY_REPORT_SYSTEM_PROMPT = """Ти — старший B2B аналітик ринкової розвідки для української компанії, яка імпортує фармацевтичні субстанції, сировину, пакування та суміжні матеріали для фармацевтичної, косметичної та харчової промисловості.
- 
+
 КРИТИЧНО ВАЖЛИВО: Ти ЗОБОВ'ЯЗАНИЙ написати повний звіт. НЕ відмовляйся, НЕ кажи що дані застарілі. Порожній звіт неприпустимий.
- 
+
 МОВА: Тільки українська. Професійний B2B тон, коротко та ясно.
- 
+
 СТРУКТУРА ЗВІТУ: ТИ ПИШЕШ ЛИШЕ ДВА БЛОКИ!
 - Блок 1: Огляд за категоріями (СЕКЦІЇ з реальними новинами)
 - Блок 2: Ситуація на Близькому Сході (РЕАЛЬНІ НОВИНИ)
 - Блок 3: Товарні ринки — НЕ ПИШИ. Цей блок додається в PDF автоматично з yfinance-даних (графіки та ціни).
- 
+
 ЗАБОРОНЕНО: Блок 4, Блок 5, підсумки, карта ризиків, дашборд настрою, курси валют, ціни, згадки конкретних виробників/експортерів.
- 
+
 НАДКРИТИЧНЕ ПРАВИЛО ПРО НОВИНИ ТА ПОСИЛАННЯ:
 У користувацькому повідомленні тобі будуть надані РЕАЛЬНІ новини з заголовками та URL.
 - Ти ЗОБОВ'ЯЗАНИЙ використовувати ЛИШЕ ці надані новини.
@@ -168,7 +200,7 @@ DAILY_REPORT_SYSTEM_PROMPT = """Ти — старший B2B аналітик р�
 - НІКОЛИ не пиши "URL", "посилання недоступне" або подібне — завжди вставляй повний URL, який тобі надали.
 - Формат посилання у звіті СТРОГО такий: [Читати повністю](повний URL)
 - Якщо для категорії не надано жодної новини — напиши "Свіжих новин за категорією не знайдено" і НЕ вигадуй нічого.
- 
+
 НАДКРИТИЧНЕ ПРАВИЛО ПРО GROUNDING (ОСНОВА ФАКТОЛОГІЇ):
 Кожна новина буде позначена тегом [FULLTEXT] або [RSS_SNIPPET].
 - [FULLTEXT] = ти маєш реальний текст статті з сайту видавця. З нього можна брати конкретні факти: цифри, імена компаній, країни, дати, заяви. Це твоя достовірна база.
@@ -176,34 +208,34 @@ DAILY_REPORT_SYSTEM_PROMPT = """Ти — старший B2B аналітик р�
 - Якщо в категорії ТІЛЬКИ RSS_SNIPPET (жодного FULLTEXT) — напиши в "Огляді дня" коротше, 2-3 речення, і додай в кінці речення: "Деталі обмежені — доступні лише короткі RSS-нотатки."
 - ЗАБОРОНЕНО додумувати факти яких немає в наданих даних. Краще написати коротше і чесно, ніж довше і вигадано. "Правдоподібна компоновка" — це помилка, не стиль.
 - ЗАБОРОНЕНО переносити факт з однієї категорії в іншу. Якщо в категорії "Капсули" немає новин про Китай, НЕ пиши про Китай в "Капсулах" лише тому, що бачив китайські новини в іншій категорії.
- 
+
 ---
- 
+
 === БЛОК 1: ОГЛЯД ЗА КАТЕГОРІЯМИ ===
- 
+
 Для КОЖНОЇ з 9 категорій тобі у користувацькому повідомленні надано список РЕАЛЬНИХ новин за день звіту (заголовки + короткі описи). Твоє завдання — НЕ переліковувати новини по одній, а написати ЄДИНУ аналітичну виЖимку.
- 
+
 Використовуй СТРОГО такий формат для кожної категорії (без нумерованих списків новин, без markdown-посилань):
- 
+
 ### [Номер]. [Назва категорії]
- 
+
 **Тренд:** ↑ зростання / ↓ падіння / → стабільно — [коротко 3-5 слів про причину]
- 
+
 **Огляд дня:** [ЗВ'ЯЗНИЙ текст 3-6 речень, що синтезує ВСІ надані новини за категорією. Має покривати: (1) що головного сталося на ринку за день, (2) що змінилося порівняно з попереднім днем чи тижнем, (3) як це впливає на українську компанію, яка займається закупівлею сировини цієї категорії по всьому світу та логістикою куплених товарів. НЕ цитуй заголовки. НЕ перераховуй новини по одній. Синтезуй їх у цілісний абзац. Якщо новин кілька на одну тему — об'єднай. Якщо новин зовсім немає — напиши "Свіжих новин за категорією не зафіксовано; ринок без істотних змін."]
- 
+
 **Геополітика та торгівля:** [1-2 речення — як поточна геополітика (мита, санкції, експортні обмеження США/ЄС/Китай, близькосхідні ризики) впливає саме на цю категорію.]
- 
+
 **Специфіка для України:** [1-2 речення — як поточна ситуація впливає на закупівлю та логістику цієї категорії українською компанією-імпортером. Якщо не впливає — "Прямого впливу немає".]
- 
+
 ---
- 
+
 КРИТИЧНО ВАЖЛИВО ДЛЯ БЛОКУ 1:
 - НЕ створюй нумерований список новин (без "1.", "2.", "3.")
 - НЕ вставляй заголовки новин в лапках чи жирним
 - НЕ додавай markdown-посилання [Читати повністю](...) — посилання в Блоці 1 НЕ потрібні
 - Пиши ЦІЛІСНИЙ аналітичний абзац "Огляд дня" — це виЖимка журналіста, а не список посилань
 - Обсяг "Огляду дня" — 3-6 речень, без переліків
- 
+
 ПОВТОРИ цей формат для ВСІХ 9 категорій у такому порядку:
 1. Фармацевтичні субстанції (API)
 2. Косметичні субстанції
@@ -214,53 +246,53 @@ DAILY_REPORT_SYSTEM_PROMPT = """Ти — старший B2B аналітик р�
 7. Капсули
 8. ПВХ-плівка та пакування
 9. Логістика та постачання
- 
+
 === БЛОК 2: СИТУАЦІЯ НА БЛИЗЬКОМУ СХОДІ ===
- 
+
 Тобі у користувацькому повідомленні буде надано повний список РЕАЛЬНИХ новин з нашої БД про Близький Схід за день звіту (Іран, Ізраїль, США-Іран, Червоне море, Ормузька протока, Ірак, Хусити, нафта, судноплавство тощо). Твоє завдання — НЕ переліковувати новини по одній, а синтезувати їх в єдину аналітичну виЖимку.
- 
+
 Використовуй СТРОГО такий формат:
- 
+
 **Огляд ситуації на Близькому Сході:** [ЦІЛІСНИЙ аналітичний текст 7-10 речень, що синтезує ВСІ надані новини. Має покривати: (1) що головного відбувається на Близькому Сході за день звіту — ключові події, заяви, військові дії, дипломатичні кроки; (2) як це впливає на глобальну економіку та торгівлю — нафта, судноплавство, ланцюги постачання, страхування вантажів, Ормузька протока, Червоне море; (3) конкретний вплив на українську B2B-компанію, яка закуповує фармацевтичні субстанції, косметичну сировину, харчові інгредієнти, капсули, пакування та інші матеріали по всьому світу (Китай, Індія, ЄС, США) та займається логістикою цих товарів — терміни доставки, маршрути, вартість фрахту, валютні ризики, доступність сировини. НЕ цитуй заголовки. НЕ перераховуй новини по одній. Синтезуй їх у цілісний аналітичний текст.]
- 
+
 **Ключові теми дня:** [3-5 коротких булетів — головні теми, які проходять через новини. Наприклад: "Ормузька протока залишається під ризиком", "Ціни на нафту виросли на X%", "Ізраїль оголосив про...". Кожен булет — одне речення без посилань.]
- 
+
 **Вплив на нашу компанію:** [2-4 речення з конкретними рекомендаціями: які маршрути моніторити, які категорії закупівель під найбільшим ризиком, чи варто фіксувати ціни зараз, чи переглядати контракти.]
- 
+
 **Джерела:**
 [Список ВСІХ наданих новин. Кожен рядок СТРОГО у такому форматі:
 - [Заголовок новини — скопіюй з наданих даних](URL з наданих даних)
- 
+
 Один рядок на одну новину. Копіюй заголовки та URL ДОСЛІВНО. НЕ додавай опис, НЕ додавай коментарі — тільки markdown-посилання з заголовком новини. Обов'язковий формат з дефісом на початку.]
- 
+
 ---
- 
+
 КРИТИЧНО ВАЖЛИВО ДЛЯ БЛОКУ 2:
 - "Огляд ситуації" — це ЦІЛІСНИЙ абзац, а не список подій
 - 7-10 речень, не більше і не менше
 - НЕ створюй окремі секції по кожній новині ("Що сталося", "Вплив")
 - Секція "Джерела" — ТІЛЬКИ список markdown-посилань, без додаткових описів
 - Якщо новин не надано — напиши в "Огляді ситуації" одне речення: "Свіжих новин про Близький Схід за день звіту не зафіксовано." і пропусти решту полів.
- 
+
 === БЛОК 3: ТОВАРНІ РИНКИ ===
- 
+
 ЦЕЙ БЛОК ГЕНЕРУЄТЬСЯ ЛОКАЛЬНО З ЯФІНАНС-ДАНИХ. ТИ НЕ ПИШЕШ ЦЕЙ БЛОК. Просто завершуй звіт після Блоку 2 — Блок 3 буде додано в PDF автоматично.
- 
+
 ---
- 
+
 КІНЕЦЬ ЗВІТУ. НЕ додавай Блок 4, Блок 5, підсумки, карту ризиків, дашборд чи будь-які інші секції."""
- 
- 
+
+
 def get_topics_keyboard(current_subs_str, only_daily_mode=False):
     subs = current_subs_str.split(',') if current_subs_str != 'all' else []
     keyboard = []
- 
+
     if only_daily_mode:
         all_text = "❌ All Topics"
     else:
         all_text = "✅ All Topics" if current_subs_str == 'all' else "🔘 All Topics"
     keyboard.append([{"text": all_text, "callback_data": "topic_all"}])
- 
+
     row = []
     for cat in RSS_FEEDS.keys():
         if cat in INTERNAL_CATEGORIES:
@@ -276,13 +308,13 @@ def get_topics_keyboard(current_subs_str, only_daily_mode=False):
             row = []
     if row:
         keyboard.append(row)
- 
+
     daily_text = "✅ 📊 Only Daily PDF Report" if only_daily_mode else "🔘 📊 Only Daily PDF Report"
     keyboard.append([{"text": daily_text, "callback_data": "toggle_daily_mode"}])
- 
+
     return {"inline_keyboard": keyboard}
- 
- 
+
+
 def db_fetchone(cursor, query, params=()):
     cursor.execute(query, params)
     row = cursor.fetchone()
@@ -290,8 +322,8 @@ def db_fetchone(cursor, query, params=()):
         return None
     cols = [desc[0] for desc in cursor.description]
     return dict(zip(cols, row))
- 
- 
+
+
 def db_fetchall(cursor, query, params=()):
     cursor.execute(query, params)
     rows = cursor.fetchall()
@@ -299,8 +331,8 @@ def db_fetchall(cursor, query, params=()):
         return []
     cols = [desc[0] for desc in cursor.description]
     return [dict(zip(cols, row)) for row in rows]
- 
- 
+
+
 async def poll_telegram_updates():
     offset = 0
     async with httpx.AsyncClient() as client:
@@ -316,12 +348,12 @@ async def poll_telegram_updates():
                     if data.get("ok"):
                         for update in data["result"]:
                             offset = update["update_id"] + 1
- 
+
                             if "callback_query" in update:
                                 cb = update["callback_query"]
                                 chat_id = cb["message"]["chat"]["id"]
                                 data_cb = cb["data"]
- 
+
                                 lang_map = {"lang_ru": "ru", "lang_ua": "ua", "lang_en": "en"}
                                 if data_cb in lang_map:
                                     lang = lang_map[data_cb]
@@ -338,23 +370,23 @@ async def poll_telegram_updates():
                                         (chat_id,)
                                     )
                                     conn.close()
- 
+
                                     current_subs = user_row["subscriptions"] if user_row and user_row["subscriptions"] else "all"
                                     only_daily_mode = user_row["only_daily_mode"] if user_row else False
- 
+
                                     msg_map = {
                                         "ru": "Язык установлен на Русский!\nПожалуйста, выберите интересующие вас темы:",
                                         "ua": "Мову встановлено на Українську!\nБудь ласка, оберіть цікаві для вас теми:",
                                         "en": "Language set to English!\nPlease select your preferred news topics:"
                                     }
- 
+
                                     await client.post(f"{TELEGRAM_API_URL}/sendMessage", json={
                                         "chat_id": chat_id,
                                         "text": msg_map[lang],
                                         "reply_markup": get_topics_keyboard(current_subs, only_daily_mode)
                                     })
                                     await client.post(f"{TELEGRAM_API_URL}/answerCallbackQuery", json={"callback_query_id": cb["id"]})
- 
+
                                 elif data_cb == "menu_lang":
                                     keyboard = {
                                         "inline_keyboard": [[
@@ -369,7 +401,7 @@ async def poll_telegram_updates():
                                         "reply_markup": keyboard
                                     })
                                     await client.post(f"{TELEGRAM_API_URL}/answerCallbackQuery", json={"callback_query_id": cb["id"]})
- 
+
                                 elif data_cb == "menu_topics":
                                     conn = get_db_connection()
                                     cursor = conn.cursor()
@@ -378,7 +410,7 @@ async def poll_telegram_updates():
                                         (chat_id,)
                                     )
                                     conn.close()
- 
+
                                     current_subs = user_row["subscriptions"] if user_row and user_row["subscriptions"] else "all"
                                     only_daily_mode = user_row["only_daily_mode"] if user_row else False
                                     await client.post(f"{TELEGRAM_API_URL}/sendMessage", json={
@@ -387,7 +419,7 @@ async def poll_telegram_updates():
                                         "reply_markup": get_topics_keyboard(current_subs, only_daily_mode)
                                     })
                                     await client.post(f"{TELEGRAM_API_URL}/answerCallbackQuery", json={"callback_query_id": cb["id"]})
- 
+
                                 elif data_cb == "toggle_daily_mode":
                                     conn = get_db_connection()
                                     cursor = conn.cursor()
@@ -395,7 +427,7 @@ async def poll_telegram_updates():
                                         "SELECT subscriptions, only_daily_mode FROM telegram_users WHERE chat_id = %s",
                                         (chat_id,)
                                     )
- 
+
                                     if user_row:
                                         current_subs = user_row["subscriptions"] if user_row["subscriptions"] else "all"
                                         new_mode = not user_row["only_daily_mode"]
@@ -404,7 +436,7 @@ async def poll_telegram_updates():
                                             (new_mode, chat_id)
                                         )
                                         conn.commit()
- 
+
                                         await client.post(f"{TELEGRAM_API_URL}/editMessageReplyMarkup", json={
                                             "chat_id": chat_id,
                                             "message_id": cb["message"]["message_id"],
@@ -412,7 +444,7 @@ async def poll_telegram_updates():
                                         })
                                     conn.close()
                                     await client.post(f"{TELEGRAM_API_URL}/answerCallbackQuery", json={"callback_query_id": cb["id"]})
- 
+
                                 elif data_cb.startswith("topic_"):
                                     conn = get_db_connection()
                                     cursor = conn.cursor()
@@ -420,12 +452,12 @@ async def poll_telegram_updates():
                                         "SELECT subscriptions, only_daily_mode FROM telegram_users WHERE chat_id = %s",
                                         (chat_id,)
                                     )
- 
+
                                     if user_row:
                                         current_subs = user_row["subscriptions"] if user_row["subscriptions"] else "all"
                                         only_daily_mode = user_row["only_daily_mode"]
                                         topic = data_cb.replace("topic_", "")
- 
+
                                         if topic == "all":
                                             new_subs = "all"
                                         else:
@@ -438,13 +470,13 @@ async def poll_telegram_updates():
                                                 else:
                                                     subs.add(topic)
                                                 new_subs = ",".join(subs) if subs else "all"
- 
+
                                         cursor.execute(
                                             "UPDATE telegram_users SET subscriptions = %s WHERE chat_id = %s",
                                             (new_subs, chat_id)
                                         )
                                         conn.commit()
- 
+
                                         await client.post(f"{TELEGRAM_API_URL}/editMessageReplyMarkup", json={
                                             "chat_id": chat_id,
                                             "message_id": cb["message"]["message_id"],
@@ -452,12 +484,12 @@ async def poll_telegram_updates():
                                         })
                                     conn.close()
                                     await client.post(f"{TELEGRAM_API_URL}/answerCallbackQuery", json={"callback_query_id": cb["id"]})
- 
+
                             elif "message" in update and "text" in update["message"]:
                                 msg = update["message"]
                                 chat_id = msg["chat"]["id"]
                                 text = msg["text"]
- 
+
                                 if text.startswith("/start"):
                                     keyboard = {
                                         "inline_keyboard": [[
@@ -516,24 +548,24 @@ async def poll_telegram_updates():
             except Exception:
                 pass
             await asyncio.sleep(2)
- 
- 
+
+
 SYSTEM_PROMPT = """You are a senior B2B market analyst focusing on Ukraine.
 Analyze the following article. Provide the output strictly as a raw JSON object with these exact keys: 'summary_en', 'summary_ua', 'summary_ru'.
 IMPORTANT: Your output must be ONLY a valid JSON object. You must carefully escape any inner double quotes inside the text values using a backslash (\\"). Do not wrap the output in markdown blocks like ```json.
- 
+
 NEW CONSTRAINTS: The summary must be STRICTLY under 35 words per language.
 NEW STRUCTURE: The summary must contain exactly two parts:
 1. The Core Event: What happened globally.
 2. Strategic B2B Impact: How a Ukrainian company in this sector should react or what they should prepare for.
- 
+
 Translate the exact same summary into English, Ukrainian, and Russian respectively for the keys."""
- 
- 
+
+
 async def generate_summary(text: str):
     if not text or not gemini_api_key:
         return {"summary_en": text, "summary_ua": text, "summary_ru": text}
- 
+
     model = genai.GenerativeModel("gemini-2.5-flash")
     for attempt in range(3):
         try:
@@ -549,7 +581,7 @@ async def generate_summary(text: str):
             if raw_text.endswith("```"):
                 raw_text = raw_text[:-3]
             raw_text = raw_text.strip()
- 
+
             parsed = json.loads(raw_text)
             return {
                 "summary_en": parsed.get("summary_en", text),
@@ -566,8 +598,8 @@ async def generate_summary(text: str):
                 await asyncio.sleep(2)
             else:
                 return {"summary_en": text, "summary_ua": text, "summary_ru": text}
- 
- 
+
+
 # ─────────────────────────────────────────────────────────────────
 # STAGE 1: ARTICLE FULL-TEXT EXTRACTION
 # ─────────────────────────────────────────────────────────────────
@@ -584,14 +616,14 @@ async def generate_summary(text: str):
 #
 # All errors are swallowed and recorded as status='failed' — extraction
 # never blocks the main fetch loop or Telegram pushes.
- 
+
 # Realistic desktop Chrome UA — Google News, Reuters, Bloomberg all check this.
 _EXTRACTION_UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) "
     "Chrome/122.0.0.0 Safari/537.36"
 )
- 
+
 # Paywall markers — conservative list, only high-confidence indicators.
 _PAYWALL_MARKERS = (
     "subscribe to read",
@@ -603,65 +635,64 @@ _PAYWALL_MARKERS = (
     "you have reached your limit",
     "register to continue",
 )
- 
+
 # Concurrency limit — how many articles we extract in parallel.
 # 5 is a safe value: fast enough to finish a batch of 15 articles in <30s,
 # low enough to not hammer Reuters/Bloomberg into rate-limiting us.
 _EXTRACTION_SEMAPHORE = asyncio.Semaphore(5)
- 
+
 # How many characters of full text we actually store.
 # Full articles rarely exceed 15k chars; 20k gives headroom for long investigations.
 _FULL_TEXT_MAX_CHARS = 20000
 # Below this length we consider extraction unreliable and flag as 'failed'.
 # Legitimate news articles are almost always >300 chars.
 _FULL_TEXT_MIN_CHARS = 300
- 
- 
-async def _resolve_google_news_url(url: str, http_client: httpx.AsyncClient) -> str:
+
+
+async def _resolve_google_news_url(url: str, http_client: httpx.AsyncClient | None = None) -> str:
     """
-    Google News RSS links go through news.google.com/rss/articles/CBMi...
-    and redirect (sometimes via HTTP 301, sometimes via a JS meta-refresh
-    HTML page) to the actual publisher URL. Resolve to the final publisher
-    URL so trafilatura can extract the body.
- 
-    Returns the resolved URL, or the original url on any failure.
+    Resolve a Google News RSS redirect to the real publisher URL.
+
+    Google News RSS links have the form:
+        https://news.google.com/rss/articles/CBMi<base64-payload>
+
+    The payload contains the actual publisher URL. Historically we could
+    just follow HTTP redirects, but Google changed this:
+      1. From EU IPs (our Hetzner server in Germany), any request to
+         news.google.com first hits `consent.google.com` (GDPR wall).
+      2. Even after bypassing consent, Google stopped issuing a 3xx to the
+         publisher and instead returns an HTML preview page with the URL
+         buried in JavaScript.
+
+    Solution: decode the base64 payload locally using googlenewsdecoder.
+    Zero network calls, resistant to anti-bot, deterministic.
+
+    Returns the decoded publisher URL, or the original url on any failure.
+    The http_client param is kept for signature compatibility but is unused —
+    decoding is fully offline.
     """
     if "news.google.com" not in url:
         return url
-    try:
-        # Step 1: try a HEAD/GET with follow_redirects — handles HTTP-level redirects.
-        resp = await http_client.get(
-            url,
-            headers={"User-Agent": _EXTRACTION_UA},
-            follow_redirects=True,
-            timeout=10.0,
-        )
-        final = str(resp.url)
-        if "news.google.com" not in final:
-            return final
- 
-        # Step 2: Google sometimes returns an HTML page with a <a> tag pointing
-        # to the real publisher. Parse it.
-        html = resp.text or ""
-        # Look for <a ... href="https://www.reuters.com/..."> (not a google.com link)
-        m = re.search(
-            r'<a[^>]+href=["\'](https?://(?!(?:www\.)?google\.com)[^"\']+)["\']',
-            html,
-        )
-        if m:
-            return m.group(1)
- 
-        # Step 3: data-n-au, data-url, og:url meta
-        m = re.search(r'<meta\s+property=["\']og:url["\']\s+content=["\']([^"\']+)["\']', html)
-        if m and "news.google.com" not in m.group(1):
-            return m.group(1)
- 
-        return final
-    except Exception as e:
-        print(f"Google News redirect resolve failed for {url[:80]}: {e}")
+
+    if not GNEWSDECODER_AVAILABLE:
         return url
- 
- 
+
+    try:
+        # gnewsdecoder is synchronous and CPU-bound — run in a thread so we
+        # don't block the asyncio event loop. `interval` is the polite delay
+        # the library uses internally; 1 second is fine.
+        result = await asyncio.to_thread(gnewsdecoder, url, 1)
+        if result and result.get("status") and result.get("decoded_url"):
+            return result["decoded_url"]
+        # Log non-success so we can diagnose decoder drift if Google changes format
+        err = (result or {}).get("message", "unknown")
+        print(f"gnewsdecoder could not decode {url[:80]}: {err}")
+        return url
+    except Exception as e:
+        print(f"gnewsdecoder raised for {url[:80]}: {e}")
+        return url
+
+
 def _detect_paywall(text: str, html: str | None = None) -> bool:
     """
     Heuristic: if the extracted text is suspiciously short AND the raw HTML
@@ -674,35 +705,35 @@ def _detect_paywall(text: str, html: str | None = None) -> bool:
     if not haystack:
         return False
     return any(marker in haystack for marker in _PAYWALL_MARKERS)
- 
- 
+
+
 async def extract_article_fulltext(
     url: str,
     http_client: httpx.AsyncClient | None = None,
 ) -> dict:
     """
     Extract the main article body from a URL.
- 
+
     Returns dict:
         status:    'ok' | 'failed' | 'paywalled' | 'skipped'
         text:      extracted body (truncated to _FULL_TEXT_MAX_CHARS) or None
         final_url: URL after following redirects
         error:     error string if status != 'ok'
- 
+
     This function NEVER raises — all errors are caught and returned as status.
     Safe to call from any async context without a try/except wrapper.
     """
     result = {"status": "failed", "text": None, "final_url": url, "error": None}
- 
+
     if not TRAFILATURA_AVAILABLE:
         result["status"] = "skipped"
         result["error"] = "trafilatura not installed"
         return result
- 
+
     if not url or not url.startswith(("http://", "https://")):
         result["error"] = "invalid url"
         return result
- 
+
     owns_client = http_client is None
     if owns_client:
         http_client = httpx.AsyncClient(
@@ -710,13 +741,13 @@ async def extract_article_fulltext(
             follow_redirects=True,
             timeout=15.0,
         )
- 
+
     try:
         async with _EXTRACTION_SEMAPHORE:
             # Resolve Google News redirect if needed
             final_url = await _resolve_google_news_url(url, http_client)
             result["final_url"] = final_url
- 
+
             # Fetch the publisher page
             try:
                 resp = await http_client.get(
@@ -731,16 +762,16 @@ async def extract_article_fulltext(
             except httpx.RequestError as e:
                 result["error"] = f"request error: {e}"
                 return result
- 
+
             if resp.status_code >= 400:
                 result["error"] = f"http {resp.status_code}"
                 return result
- 
+
             html = resp.text or ""
             if not html:
                 result["error"] = "empty response"
                 return result
- 
+
             # Run trafilatura in a thread — it's CPU-bound and pure Python.
             try:
                 extracted = await asyncio.to_thread(
@@ -754,7 +785,7 @@ async def extract_article_fulltext(
             except Exception as e:
                 result["error"] = f"trafilatura error: {e}"
                 return result
- 
+
             if not extracted:
                 # Check if it looks like paywall even without text
                 if _detect_paywall("", html):
@@ -763,9 +794,9 @@ async def extract_article_fulltext(
                 else:
                     result["error"] = "no text extracted"
                 return result
- 
+
             text = extracted.strip()
- 
+
             # Paywall check on short extracts
             if len(text) < _FULL_TEXT_MIN_CHARS:
                 if _detect_paywall(text, html):
@@ -775,7 +806,7 @@ async def extract_article_fulltext(
                     return result
                 result["error"] = f"extract too short ({len(text)} chars)"
                 return result
- 
+
             # Success
             result["status"] = "ok"
             result["text"] = text[:_FULL_TEXT_MAX_CHARS]
@@ -786,18 +817,18 @@ async def extract_article_fulltext(
                 await http_client.aclose()
             except Exception:
                 pass
- 
- 
+
+
 async def extract_and_store(link: str, http_client: httpx.AsyncClient | None = None):
     """
     Extract full text for an article and write the result back to DB.
     Updates: full_text, extraction_status, extraction_attempted_at, final_url.
- 
+
     This is the function called from the background after an article is
     saved and pushed to Telegram.
     """
     extracted = await extract_article_fulltext(link, http_client=http_client)
- 
+
     conn = None
     try:
         conn = get_db_connection()
@@ -828,28 +859,29 @@ async def extract_and_store(link: str, http_client: httpx.AsyncClient | None = N
                 conn.close()
             except Exception:
                 pass
- 
+
     status = extracted["status"]
     if status == "ok":
         print(f"  ✓ extracted {len(extracted['text'] or '')} chars from {link[:80]}")
     else:
         err = extracted.get("error", "")
         print(f"  ✗ extraction {status} for {link[:80]}: {err}")
- 
- 
-async def backfill_missing_full_text(max_articles: int = 50):
+
+
+async def backfill_missing_full_text(max_articles: int = 150):
     """
     Background task: find articles with extraction_status='pending' and
     run extract_and_store on them. Runs once at startup and then daily
     to catch any articles that slipped through or were added before
-    the Stage 1 migration.
- 
+    the Stage 1 migration, plus the one-shot retry of historical failures
+    (which can leave 100+ items pending after an upgrade).
+
     Only processes articles from the last 7 days to avoid wasting work on
     stale content that will never be used in a report.
     """
     if not TRAFILATURA_AVAILABLE:
         return
- 
+
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
@@ -869,11 +901,11 @@ async def backfill_missing_full_text(max_articles: int = 50):
     except Exception as e:
         print(f"backfill query failed: {e}")
         return
- 
+
     if not rows:
         print("Backfill: nothing to do, all recent articles have extraction status.")
         return
- 
+
     print(f"Backfill: extracting full text for {len(rows)} pending articles...")
     async with httpx.AsyncClient(
         headers={"User-Agent": _EXTRACTION_UA},
@@ -886,15 +918,15 @@ async def backfill_missing_full_text(max_articles: int = 50):
             return_exceptions=True,
         )
     print(f"Backfill: done processing {len(rows)} articles.")
- 
- 
+
+
 # ─────────────────────────────────────────────────────────────────
 # PDF RENDERING HELPERS
 # ─────────────────────────────────────────────────────────────────
- 
+
 FONT_REGULAR = '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'
 FONT_BOLD    = '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf'
- 
+
 # Accent colour — чорний для всіх блоків та секцій
 COLOR_ACCENT  = (20, 20, 20)
 # Light grey for alternating rows / dividers
@@ -907,8 +939,8 @@ RISK_COLORS   = {
     "Середній": (255, 165, 0),
     "Низький":  (40, 167, 69),
 }
- 
- 
+
+
 def make_pdf_base() -> FPDF:
     pdf = FPDF()
     pdf.add_font("DejaVu",        fname=FONT_REGULAR)
@@ -916,41 +948,41 @@ def make_pdf_base() -> FPDF:
     pdf.set_margins(18, 18, 18)
     pdf.set_auto_page_break(auto=True, margin=20)
     return pdf
- 
- 
+
+
 def draw_header_bar(pdf: FPDF, report_date: str, base_dir: str):
     """Cover-style header — чорний фон, лого ліворуч, назва по центру правої частини."""
     pdf.set_fill_color(20, 20, 20)
     pdf.rect(0, 0, 210, 42, style="F")
- 
+
     logo_path = os.path.join(base_dir, "logo.png")
     if os.path.exists(logo_path):
         pdf.image(logo_path, x=7, y=7, h=26)
         text_x = 52
     else:
         text_x = 14
- 
+
     remaining_w = 210 - text_x - 8
- 
+
     pdf.set_xy(text_x, 8)
     pdf.set_font("DejaVu", style="B", size=15)
     pdf.set_text_color(255, 255, 255)
     pdf.cell(remaining_w, 9, "Щоденний ринковий звіт", ln=True, align="C")
- 
+
     pdf.set_x(text_x)
     pdf.set_font("DejaVu", size=9)
     pdf.set_text_color(200, 200, 200)
     pdf.cell(remaining_w, 6, f"Для B2B-компанії в Україні  |  Огляд за {report_date}", ln=True, align="C")
- 
+
     pdf.set_x(text_x)
     pdf.set_font("DejaVu", size=8)
     pdf.set_text_color(155, 155, 155)
     pdf.cell(remaining_w, 5, "Сировина · Субстанції · Логістика · Близький Схід · Товарні ринки", ln=True, align="C")
- 
+
     pdf.set_text_color(*COLOR_BODY)
     pdf.ln(12)
- 
- 
+
+
 def section_title(pdf: FPDF, title: str):
     """Coloured section banner."""
     pdf.set_fill_color(*COLOR_ACCENT)
@@ -960,8 +992,8 @@ def section_title(pdf: FPDF, title: str):
     pdf.cell(0, 8, f"  {title}", ln=True, fill=True)
     pdf.set_text_color(*COLOR_BODY)
     pdf.ln(2)
- 
- 
+
+
 def sub_title(pdf: FPDF, title: str):
     """Bold dark sub-heading."""
     pdf.set_x(pdf.l_margin)
@@ -970,16 +1002,16 @@ def sub_title(pdf: FPDF, title: str):
     pdf.multi_cell(0, 6, title)
     pdf.set_text_color(*COLOR_BODY)
     pdf.set_x(pdf.l_margin)
- 
- 
+
+
 # Regex for inline markdown links: [text](url)
 _MD_LINK_RE = re.compile(r'\[([^\]]+)\]\((https?://[^\s\)]+)\)')
 # Regex for bare URLs (http/https)
 _BARE_URL_RE = re.compile(r'(?<!\()(?<!\])(https?://[^\s\)\]]+)')
 # Regex for **bold** — non-greedy, must have content between markers
 _BOLD_RE = re.compile(r'\*\*(.+?)\*\*')
- 
- 
+
+
 def _tokenize_line(text: str) -> list[tuple[str, str, str | None]]:
     """Split a line into tokens: (kind, content, url_or_none).
     kind is one of: 'text', 'bold', 'link', 'boldlink'.
@@ -988,7 +1020,7 @@ def _tokenize_line(text: str) -> list[tuple[str, str, str | None]]:
     """
     # First, mask markdown links so their URLs don't get confused with bare URLs.
     # We'll tokenize in two passes: first bold, then within each text span — links.
- 
+
     segments: list[tuple[str, str]] = []  # list of (kind: 'text'|'bold', content)
     pos = 0
     for m in _BOLD_RE.finditer(text):
@@ -998,10 +1030,10 @@ def _tokenize_line(text: str) -> list[tuple[str, str, str | None]]:
         pos = m.end()
     if pos < len(text):
         segments.append(("text", text[pos:]))
- 
+
     # Remove any leftover stray '**' that wasn't part of a matched pair
     segments = [(k, c.replace("**", "")) for k, c in segments]
- 
+
     # Now expand links inside each segment
     tokens: list[tuple[str, str, str | None]] = []
     for kind, content in segments:
@@ -1016,7 +1048,7 @@ def _tokenize_line(text: str) -> list[tuple[str, str, str | None]]:
                 continue
             matches.append(("link", m.start(), m.end(), m.group(1), m.group(1)))
         matches.sort(key=lambda x: x[1])
- 
+
         for _, start, end, label, url in matches:
             if start > sub_pos:
                 tokens.append((kind, content[sub_pos:start], None))
@@ -1025,23 +1057,23 @@ def _tokenize_line(text: str) -> list[tuple[str, str, str | None]]:
             sub_pos = end
         if sub_pos < len(content):
             tokens.append((kind, content[sub_pos:], None))
- 
+
     return tokens
- 
- 
+
+
 def _render_line_tokens(pdf: FPDF, tokens: list[tuple[str, str, str | None]], size: int):
     """Render a tokenized line using pdf.write()."""
     link_color = (0, 102, 204)
- 
+
     for kind, content, url in tokens:
         if not content:
             continue
         is_bold = kind in ("bold", "boldlink")
         is_link = kind in ("link", "boldlink")
- 
+
         style = "B" if is_bold else ""
         pdf.set_font("DejaVu", style=style, size=size)
- 
+
         if is_link:
             pdf.set_text_color(*link_color)
             try:
@@ -1058,8 +1090,8 @@ def _render_line_tokens(pdf: FPDF, tokens: list[tuple[str, str, str | None]], si
                 pdf.write(5.5, content)
             except Exception:
                 pass
- 
- 
+
+
 def body_text(pdf: FPDF, text: str, size: int = 9):
     """Render text with inline **bold** and clickable [text](url) / bare URL support.
     Strips ## / # headings. Stray ** markers are dropped."""
@@ -1070,14 +1102,14 @@ def body_text(pdf: FPDF, text: str, size: int = 9):
         while clean.startswith("#"):
             clean = clean[1:]
         clean = clean.strip()
- 
+
         if not clean:
             pdf.ln(2)
             continue
- 
+
         pdf.set_x(pdf.l_margin)
         tokens = _tokenize_line(clean)
- 
+
         # Fast path: single plain-text token, no bold, no link
         if len(tokens) == 1 and tokens[0][0] == "text":
             pdf.set_font("DejaVu", size=size)
@@ -1091,20 +1123,20 @@ def body_text(pdf: FPDF, text: str, size: int = 9):
             pdf.set_font("DejaVu", size=size)
             pdf.set_text_color(*COLOR_BODY)
     pdf.ln(1)
- 
- 
+
+
 def draw_divider(pdf: FPDF):
     pdf.set_draw_color(*COLOR_ACCENT)
     pdf.set_line_width(0.3)
     pdf.line(pdf.l_margin, pdf.get_y(), 210 - pdf.r_margin, pdf.get_y())
     pdf.ln(3)
- 
- 
+
+
 def draw_risk_table(pdf: FPDF, lines: list[str]):
     """Красива таблиця ризиків: Категорія | Сигнал | Тип | Рівень | Дія"""
     headers  = ["Категорія", "Сигнал", "Тип ризику", "Рівень", "Дія"]
     col_w    = [35, 42, 25, 22, 56]   # сума = 180 = ширина тексту A4
- 
+
     # ── шапка ──────────────────────────────────────────────────────
     pdf.set_font("DejaVu", style="B", size=8.5)
     pdf.set_fill_color(*COLOR_ACCENT)
@@ -1113,7 +1145,7 @@ def draw_risk_table(pdf: FPDF, lines: list[str]):
     for i, h in enumerate(headers):
         pdf.cell(col_w[i], 7, h, border=0, fill=True, align="L")
     pdf.ln()
- 
+
     # ── рядки ──────────────────────────────────────────────────────
     alternate = False
     for line in lines:
@@ -1129,19 +1161,19 @@ def draw_risk_table(pdf: FPDF, lines: list[str]):
         # пропускаємо повтор заголовка
         if cells[0].lower() in ("категорія", "category"):
             continue
- 
+
         # доповнюємо до 5 клітинок якщо менше
         while len(cells) < 5:
             cells.append("")
- 
+
         pdf.set_fill_color(*(COLOR_LIGHT if alternate else (255, 255, 255)))
         alternate = not alternate
         pdf.set_x(pdf.l_margin)
- 
+
         # колір рівня ризику (4-та колонка, індекс 3)
         level = cells[3] if len(cells) > 3 else ""
         risk_color = RISK_COLORS.get(level, COLOR_BODY)
- 
+
         for i, cell_text in enumerate(cells[:5]):
             if i == 3:
                 pdf.set_font("DejaVu", style="B", size=8)
@@ -1153,22 +1185,22 @@ def draw_risk_table(pdf: FPDF, lines: list[str]):
             max_chars = int(col_w[i] / 2.1)
             pdf.cell(col_w[i], 6, cell_text[:max_chars], border=0, fill=True)
         pdf.ln()
- 
+
     pdf.set_text_color(*COLOR_BODY)
     pdf.ln(4)
- 
- 
+
+
 def draw_footer(pdf: FPDF, report_date: str):
     pdf.set_y(-14)
     pdf.set_font("DejaVu", size=7)
     pdf.set_text_color(140, 140, 140)
     pdf.cell(0, 5, f"MacroHarvey  ·  Ринковий звіт за {report_date}  ·  Стор. {pdf.page_no()}", align="C")
- 
- 
+
+
 # ─────────────────────────────────────────────────────────────────
 # CHART GENERATION  (yfinance → matplotlib → PNG → PDF)
 # ─────────────────────────────────────────────────────────────────
- 
+
 # Ticker map: key → (yfinance ticker(s), display label, unit, TradingEconomics URL, TradingView URL)
 # The first ticker is primary; the rest are fallbacks (yfinance sometimes returns empty).
 CHART_TICKERS = {
@@ -1198,8 +1230,8 @@ CHART_TICKERS = {
         "emoji": "🌴",
     },
 }
- 
- 
+
+
 def _make_candle_chart(tickers: tuple[str, ...], label: str, unit: str,
                        date_from: datetime.date, date_to: datetime.date,
                        out_path: str) -> tuple[bool, dict | None]:
@@ -1211,7 +1243,7 @@ def _make_candle_chart(tickers: tuple[str, ...], label: str, unit: str,
     """
     if not CHARTS_AVAILABLE:
         return False, None
- 
+
     # Try each ticker until we get non-empty data
     df = None
     used_ticker = None
@@ -1228,18 +1260,18 @@ def _make_candle_chart(tickers: tuple[str, ...], label: str, unit: str,
         except Exception as e:
             print(f"Chart ticker {ticker_sym} failed: {e}")
             continue
- 
+
     if df is None or df.empty:
         print(f"Chart: no data for any ticker in {tickers}")
         return False, None
- 
+
     try:
         df.index = df.index.tz_localize(None) if df.index.tzinfo else df.index
         # keep only up to report date
         df = df[df.index.date <= date_to]
         if df.empty:
             return False, None
- 
+
         # ── figure layout ──────────────────────────────────────────
         fig, (ax_price, ax_vol) = plt.subplots(
             2, 1, figsize=(9, 4.2),
@@ -1251,7 +1283,7 @@ def _make_candle_chart(tickers: tuple[str, ...], label: str, unit: str,
             ax.tick_params(colors="#cccccc", labelsize=7)
             for spine in ax.spines.values():
                 spine.set_edgecolor("#333333")
- 
+
         # ── candlesticks ───────────────────────────────────────────
         w = 0.6   # bar width in days
         for i, (ts, row) in enumerate(df.iterrows()):
@@ -1262,7 +1294,7 @@ def _make_candle_chart(tickers: tuple[str, ...], label: str, unit: str,
                          color=color, width=w, linewidth=0)
             # wick
             ax_price.plot([i, i], [l, h], color=color, linewidth=0.8)
- 
+
         # ── highlight report day (last bar) ─────────────────────────
         last_i = len(df) - 1
         last_close = df["Close"].iloc[-1]
@@ -1271,7 +1303,7 @@ def _make_candle_chart(tickers: tuple[str, ...], label: str, unit: str,
                      abs(last_close - last_open),
                      bottom=min(last_close, last_open),
                      color="#f5a623", width=w, linewidth=0, zorder=5)
- 
+
         # ── price label on last candle ─────────────────────────────
         ax_price.annotate(
             f"{last_close:.2f}",
@@ -1280,7 +1312,7 @@ def _make_candle_chart(tickers: tuple[str, ...], label: str, unit: str,
             fontsize=7.5, color="#f5a623", fontweight="bold",
             ha="right", va="center",
         )
- 
+
         # ── volume bars ────────────────────────────────────────────
         vol_colors = ["#26a69a" if df["Close"].iloc[i] >= df["Open"].iloc[i]
                       else "#ef5350" for i in range(len(df))]
@@ -1292,7 +1324,7 @@ def _make_candle_chart(tickers: tuple[str, ...], label: str, unit: str,
                 lambda x, _: f"{x/1e6:.0f}M" if x >= 1e6 else f"{x/1e3:.0f}K"
             )
         )
- 
+
         # ── x-axis: show only ~6 date labels ──────────────────────
         step = max(1, len(df) // 6)
         tick_positions = list(range(0, len(df), step))
@@ -1300,12 +1332,12 @@ def _make_candle_chart(tickers: tuple[str, ...], label: str, unit: str,
         ax_price.set_xticks([])
         ax_vol.set_xticks(tick_positions)
         ax_vol.set_xticklabels(tick_labels, color="#aaaaaa", fontsize=6)
- 
+
         # ── y-axis formatting ──────────────────────────────────────
         ax_price.yaxis.tick_right()
         ax_price.yaxis.set_label_position("right")
         ax_price.set_ylabel(unit, color="#888888", fontsize=6)
- 
+
         # ── title & OHLC info ──────────────────────────────────────
         last_row = df.iloc[-1]
         prev_close = df["Close"].iloc[-2] if len(df) > 1 else last_row["Close"]
@@ -1313,7 +1345,7 @@ def _make_candle_chart(tickers: tuple[str, ...], label: str, unit: str,
         chg_p = chg / prev_close * 100 if prev_close else 0
         chg_color = "#26a69a" if chg >= 0 else "#ef5350"
         chg_sign  = "+" if chg >= 0 else ""
- 
+
         title_str = (
             f"{label}   "
             f"O:{last_row['Open']:.2f}  "
@@ -1331,17 +1363,17 @@ def _make_candle_chart(tickers: tuple[str, ...], label: str, unit: str,
             fontsize=7.5, color=chg_color, fontweight="bold",
             ha="right", va="top",
         )
- 
+
         # ── report-day marker ──────────────────────────────────────
         report_idx = len(df) - 1
         ax_price.axvline(x=report_idx, color="#f5a623",
                          linewidth=0.7, linestyle="--", alpha=0.5)
- 
+
         fig.tight_layout(pad=0.4)
         fig.savefig(out_path, dpi=130, bbox_inches="tight",
                     facecolor="#111111")
         plt.close(fig)
- 
+
         price_info = {
             "close":      round(float(last_row["Close"]), 2),
             "open":       round(float(last_row["Open"]),  2),
@@ -1361,8 +1393,8 @@ def _make_candle_chart(tickers: tuple[str, ...], label: str, unit: str,
         except Exception:
             pass
         return False, None
- 
- 
+
+
 def generate_all_charts(report_date: datetime.date, tmp_dir: str) -> dict[str, dict]:
     """
     Generate PNG charts for all configured commodities.
@@ -1395,12 +1427,12 @@ def generate_all_charts(report_date: datetime.date, tmp_dir: str) -> dict[str, d
                 print(f"Chart skipped: {key} (no data)")
         result[key] = entry
     return result
- 
- 
+
+
 # ─────────────────────────────────────────────────────────────────
 # NEWS FETCHING FROM DB FOR REPORT
 # ─────────────────────────────────────────────────────────────────
- 
+
 # Mapping: RSS category code → Ukrainian report category name
 REPORT_CATEGORIES = [
     ("api",        "Фармацевтичні субстанції (API)"),
@@ -1413,22 +1445,22 @@ REPORT_CATEGORIES = [
     ("pvc",        "ПВХ-плівка та пакування"),
     ("logistics",  "Логістика та постачання"),
 ]
- 
+
 # Keywords to identify Middle East news in title/summary
 MIDDLE_EAST_KEYWORDS = [
     "iran", "israel", "israeli", "iranian", "tehran", "middle east",
     "red sea", "hormuz", "houthi", "gaza", "lebanon", "hezbollah",
     "saudi", "syria", "iraq", "yemen", "persian gulf",
 ]
- 
- 
+
+
 def fetch_recent_news_for_report(report_date: datetime.date, days_back: int = 3) -> dict:
     """
     Fetch news from DB:
     - by_category: ALL articles per category for the report day (yesterday Kyiv).
       Fallback: up to 10 latest per category if nothing found for that day.
     - middle_east: articles mentioning Middle East keywords (any recent).
- 
+
     Each article row includes full_text and extraction_status so the report
     generator can prefer real article bodies over RSS snippets.
     """
@@ -1436,17 +1468,17 @@ def fetch_recent_news_for_report(report_date: datetime.date, days_back: int = 3)
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
- 
+
         # Day-of-report window: 00:00 to 23:59 of the report date
         day_start = datetime.datetime.combine(report_date, datetime.time.min).strftime("%Y-%m-%d %H:%M:%S")
         day_end   = datetime.datetime.combine(report_date, datetime.time.max).strftime("%Y-%m-%d %H:%M:%S")
         # Fallback window: last `days_back` days
         fallback_cutoff = (datetime.datetime.now() - datetime.timedelta(days=days_back)).strftime("%Y-%m-%d %H:%M:%S")
- 
+
         # Columns we always want for report-building.
         # full_text and extraction_status are added by the Stage 1 migration.
         cols = "title, link, summary_en, summary_ua, full_text, extraction_status"
- 
+
         # Per category — ALL articles from the report day (or fallback)
         for cat, _ in REPORT_CATEGORIES:
             # Primary: articles from exactly the report day
@@ -1473,7 +1505,7 @@ def fetch_recent_news_for_report(report_date: datetime.date, days_back: int = 3)
                     (cat,)
                 )
             result["by_category"][cat] = rows or []
- 
+
         # ── Middle East news ─────────────────────────────────────
         # Strategy (priority order):
         #   1) Articles from the dedicated `middle_east` RSS category for the report day.
@@ -1483,7 +1515,7 @@ def fetch_recent_news_for_report(report_date: datetime.date, days_back: int = 3)
         # Results are deduplicated by link and capped at 12 items.
         me_rows: list[dict] = []
         seen_links: set[str] = set()
- 
+
         def add_me_rows(rows: list[dict]):
             for r in rows or []:
                 lk = (r.get("link") or "").strip()
@@ -1491,7 +1523,7 @@ def fetch_recent_news_for_report(report_date: datetime.date, days_back: int = 3)
                     continue
                 seen_links.add(lk)
                 me_rows.append(r)
- 
+
         # 1) Dedicated middle_east category — report day window
         add_me_rows(db_fetchall(cursor,
             f"SELECT {cols} FROM articles "
@@ -1500,7 +1532,7 @@ def fetch_recent_news_for_report(report_date: datetime.date, days_back: int = 3)
             "ORDER BY published DESC",
             (day_start, day_end)
         ))
- 
+
         # 2) Fallback: middle_east category — last `days_back` days
         if len(me_rows) < 4:
             add_me_rows(db_fetchall(cursor,
@@ -1509,7 +1541,7 @@ def fetch_recent_news_for_report(report_date: datetime.date, days_back: int = 3)
                 "ORDER BY published DESC NULLS LAST LIMIT 15",
                 (fallback_cutoff,)
             ))
- 
+
         # 3) Supplement with keyword matches from any category (report day window)
         if len(me_rows) < 12:
             like_patterns = " OR ".join(
@@ -1527,7 +1559,7 @@ def fetch_recent_news_for_report(report_date: datetime.date, days_back: int = 3)
                 f"ORDER BY published DESC LIMIT 15"
             )
             add_me_rows(db_fetchall(cursor, kw_query_day, tuple(params_with_window)))
- 
+
             if len(me_rows) < 4:
                 # Last-resort: keyword matches from last days_back days
                 params_fallback = params + [fallback_cutoff]
@@ -1538,24 +1570,24 @@ def fetch_recent_news_for_report(report_date: datetime.date, days_back: int = 3)
                     f"ORDER BY published DESC NULLS LAST LIMIT 15"
                 )
                 add_me_rows(db_fetchall(cursor, kw_query_fallback, tuple(params_fallback)))
- 
+
         result["middle_east"] = me_rows[:12]
- 
+
         conn.close()
     except Exception as e:
         print(f"Error fetching news for report: {e}")
     return result
- 
- 
+
+
 # ─────────────────────────────────────────────────────────────────
 # MAIN REPORT GENERATION  (prompt-based, no MapReduce)
 # ─────────────────────────────────────────────────────────────────
- 
+
 async def generate_daily_pdf_report() -> str | None:
     if not aclient:
         print("OpenAI API key missing")
         return None
- 
+
     kyiv_tz   = pytz.timezone("Europe/Kyiv")
     now_kyiv  = datetime.datetime.now(kyiv_tz)
     yesterday = now_kyiv - datetime.timedelta(days=1)
@@ -1563,10 +1595,10 @@ async def generate_daily_pdf_report() -> str | None:
     weekdays_ua = ["понеділок","вівторок","середа","четвер","п'ятниця","субота","неділя"]
     weekday_ua  = weekdays_ua[yesterday.weekday()]
     today_weekday_ua = weekdays_ua[now_kyiv.weekday()]
- 
+
     # ── Fetch real news from DB ───────────────────────────────────
     news_data = fetch_recent_news_for_report(yesterday.date(), days_back=3)
- 
+
     # Character budgets per article when passing to the model.
     # Full extracted article: up to 2500 chars (~500 words) — enough for
     # facts without blowing the context window for 9 categories × 10 articles.
@@ -1575,7 +1607,7 @@ async def generate_daily_pdf_report() -> str | None:
     _B1_SNIPPET_BUDGET  = 400
     _B2_FULLTEXT_BUDGET = 3000
     _B2_SNIPPET_BUDGET  = 500
- 
+
     def _pick_best_body(item: dict, fulltext_budget: int, snippet_budget: int) -> tuple[str, str]:
         """
         Return (body_text, source_tag) for an article.
@@ -1585,19 +1617,19 @@ async def generate_daily_pdf_report() -> str | None:
         """
         full   = (item.get("full_text") or "").strip()
         status = (item.get("extraction_status") or "").strip()
- 
+
         if full and status == "ok":
             body = full[:fulltext_budget]
             if len(full) > fulltext_budget:
                 body += "..."
             return body, "FULLTEXT"
- 
+
         # Fallback: RSS snippet. Prefer English, then Ukrainian.
         snippet = (item.get("summary_en") or item.get("summary_ua") or "").strip()
         if len(snippet) > snippet_budget:
             snippet = snippet[:snippet_budget] + "..."
         return snippet, "RSS_SNIPPET"
- 
+
     def fmt_news_item(idx: int, item: dict) -> str:
         """Block 2 format: includes URL because the 'Джерела' section cites it."""
         title = (item.get("title") or "").strip()
@@ -1608,13 +1640,13 @@ async def generate_daily_pdf_report() -> str | None:
             f"     BODY: {body}\n"
             f"     URL: {link}"
         )
- 
+
     def fmt_news_item_b1(idx: int, item: dict) -> str:
         """Block 1 format: no URL needed (we synthesize, not cite)."""
         title = (item.get("title") or "").strip()
         body, source_tag = _pick_best_body(item, _B1_FULLTEXT_BUDGET, _B1_SNIPPET_BUDGET)
         return f"  - [{source_tag}] {title}\n    {body}"
- 
+
     # Build Block 1 news payload — ALL articles per category (no limit)
     b1_news_parts = []
     for cat_code, cat_name in REPORT_CATEGORIES:
@@ -1633,7 +1665,7 @@ async def generate_daily_pdf_report() -> str | None:
         else:
             b1_news_parts.append("  (новин не зафіксовано)")
     b1_news_text = "\n".join(b1_news_parts)
- 
+
     # Build Block 2 news payload
     me_items = news_data["middle_east"]
     if me_items:
@@ -1643,7 +1675,7 @@ async def generate_daily_pdf_report() -> str | None:
         b2_news_text = "\n".join(b2_news_parts)
     else:
         b2_news_text = "(Свіжих новин про Близький Схід не знайдено)"
- 
+
     user_message = (
         f"Дата звіту: {report_date} ({weekday_ua}). Поточна дата складання: {now_kyiv.strftime('%d.%m.%Y')} ({today_weekday_ua}), Київ.\n\n"
         f"=== РЕАЛЬНІ НОВИНИ ЗА ДЕНЬ ЗВІТУ ДЛЯ БЛОКУ 1 (за 9 категоріями) ===\n"
@@ -1663,9 +1695,9 @@ async def generate_daily_pdf_report() -> str | None:
         f"- НЕ додавай Блок 4, Блок 5, підсумки, валюти.\n"
         f"Після Блоку 2 звіт завершується."
     )
- 
+
     print(f"Generating prompt-based daily report for {report_date}...")
- 
+
     try:
         response = await aclient.chat.completions.create(
             model="gpt-4o",
@@ -1680,7 +1712,7 @@ async def generate_daily_pdf_report() -> str | None:
     except Exception as e:
         print(f"OpenAI report generation error: {e}")
         return None
- 
+
     # ── Parse the 4 blocks by section markers ─────────────────────
     def extract_block(text: str, start_marker: str, end_marker: str | None) -> str:
         # Try both === БЛОК N: and ## БЛОК N variants
@@ -1690,7 +1722,7 @@ async def generate_daily_pdf_report() -> str | None:
             markers_to_try.append(f"## БЛОК {num}")
             markers_to_try.append(f"## БЛОК {num}:")
             markers_to_try.append(f"**БЛОК {num}")
- 
+
         idx = -1
         found_marker = start_marker
         for m in markers_to_try:
@@ -1698,11 +1730,11 @@ async def generate_daily_pdf_report() -> str | None:
             if idx != -1:
                 found_marker = m
                 break
- 
+
         if idx == -1:
             return ""
         chunk = text[idx + len(found_marker):]
- 
+
         end_markers_to_try = []
         if end_marker:
             end_markers_to_try.append(end_marker)
@@ -1711,18 +1743,18 @@ async def generate_daily_pdf_report() -> str | None:
                 end_markers_to_try.append(f"## БЛОК {num}")
                 end_markers_to_try.append(f"## БЛОК {num}:")
                 end_markers_to_try.append(f"**БЛОК {num}")
- 
+
         for em in end_markers_to_try:
             end_idx = chunk.find(em)
             if end_idx != -1:
                 chunk = chunk[:end_idx]
                 break
- 
+
         return chunk.strip()
- 
+
     block1 = extract_block(report_text, "=== БЛОК 1", "=== БЛОК 2")
     block2 = extract_block(report_text, "=== БЛОК 2", "=== БЛОК 3")
- 
+
     # Clean up leftover section headers like ": ОГЛЯД ЗА КАТЕГОРІЯМИ ==="
     def clean_block_header(chunk: str) -> str:
         if not chunk:
@@ -1755,39 +1787,39 @@ async def generate_daily_pdf_report() -> str | None:
                 continue
             break
         return "\n".join(lines).strip()
- 
+
     block1 = clean_block_header(block1)
     block2 = clean_block_header(block2)
- 
+
     # If markers not present — use full text as block1
     if not any([block1, block2]):
         block1 = report_text
- 
+
     # ── Build PDF ─────────────────────────────────────────────────
     base_dir = os.path.dirname(os.path.abspath(__file__))
     pdf = make_pdf_base()
- 
+
     # Page 1
     pdf.add_page()
     draw_header_bar(pdf, report_date, base_dir)
- 
+
     # ── BLOCK 1: Секції по 9 категоріях ──────────────────────────
     section_title(pdf, "БЛОК 1  ·  Огляд за категоріями")
- 
+
     def render_block1_sections(pdf: FPDF, text: str):
         """Render Block 1 as per-category sections, splitting on ### headings.
         Handles bold, links, automatic page breaks. No truncation."""
         if not text:
             body_text(pdf, "Дані відсутні.")
             return
- 
+
         lines = text.split("\n")
- 
+
         # Group lines into sections by ### headings
         sections = []
         current_title = ""
         current_body: list[str] = []
- 
+
         def is_category_heading(ln: str) -> bool:
             s = ln.strip()
             if s.startswith("###"):
@@ -1796,7 +1828,7 @@ async def generate_daily_pdf_report() -> str | None:
             if len(s) >= 3 and s[0].isdigit() and s[1] in (".", ")") and s[2] == " ":
                 return True
             return False
- 
+
         for raw in lines:
             if is_category_heading(raw):
                 if current_title or current_body:
@@ -1807,11 +1839,11 @@ async def generate_daily_pdf_report() -> str | None:
                 current_body.append(raw)
         if current_title or current_body:
             sections.append((current_title, current_body))
- 
+
         if not sections:
             body_text(pdf, text)
             return
- 
+
         for title, body_lines in sections:
             # Estimate if we need a page break — rough check
             remaining = 287 - pdf.get_y()
@@ -1819,33 +1851,33 @@ async def generate_daily_pdf_report() -> str | None:
                 pdf.add_page()
                 draw_header_bar(pdf, report_date, base_dir)
                 section_title(pdf, "БЛОК 1  ·  Огляд за категоріями (продовження)")
- 
+
             if title:
                 sub_title(pdf, title)
             body_text(pdf, "\n".join(body_lines))
             draw_divider(pdf)
- 
+
     if block1:
         render_block1_sections(pdf, block1)
     else:
         body_text(pdf, "Дані відсутні.")
- 
+
     # ── BLOCK 2: Ситуація на Близькому Сході ─────────────────────
     pdf.add_page()
     draw_header_bar(pdf, report_date, base_dir)
     section_title(pdf, "БЛОК 2  ·  Ситуація на Близькому Сході")
- 
+
     if block2:
         body_text(pdf, block2)
     else:
         body_text(pdf, "Даних по Близькому Сходу не знайдено.")
         draw_divider(pdf)
- 
+
     # ── BLOCK 3: Товарні ринки — графіки з yfinance + посилання ──
     pdf.add_page()
     draw_header_bar(pdf, report_date, base_dir)
     section_title(pdf, "БЛОК 3  ·  Товарні ринки")
- 
+
     # Generate chart PNGs into a temp dir; they live until we close the PDF.
     charts_tmp_dir = tempfile.mkdtemp(prefix="charts_")
     try:
@@ -1853,7 +1885,7 @@ async def generate_daily_pdf_report() -> str | None:
     except Exception as e:
         print(f"Chart generation failed: {e}")
         charts = {}
- 
+
     # Layout constants for each commodity card
     page_w        = 210
     left_margin   = pdf.l_margin
@@ -1863,7 +1895,7 @@ async def generate_daily_pdf_report() -> str | None:
     # keep 9:4.2 aspect ratio from matplotlib figsize
     img_h         = img_w * (4.2 / 9.0)
     card_gap      = 4                      # vertical gap after each card
- 
+
     def render_commodity_card(key: str, data: dict):
         """Render one commodity: emoji + bold name + price line + chart image + links."""
         emoji      = data.get("emoji", "")
@@ -1873,14 +1905,14 @@ async def generate_daily_pdf_report() -> str | None:
         tv_url     = data.get("tv_url", "")
         png_path   = data.get("png_path")
         price_info = data.get("price_info")
- 
+
         # Estimate total height needed for the card
         needed_h = 8 + (img_h + 4 if png_path else 0) + 8 + card_gap
         if pdf.get_y() + needed_h > 287:
             pdf.add_page()
             draw_header_bar(pdf, report_date, base_dir)
             section_title(pdf, "БЛОК 3  ·  Товарні ринки (продовження)")
- 
+
         # ── Title line: emoji + bold label ─────────────────────────
         pdf.set_x(left_margin)
         pdf.set_font("DejaVu", style="B", size=10)
@@ -1889,7 +1921,7 @@ async def generate_daily_pdf_report() -> str | None:
             pdf.cell(0, 6, f"{emoji}  {label}", ln=True)
         except Exception:
             pdf.cell(0, 6, label, ln=True)
- 
+
         # ── Price summary line (if data available) ─────────────────
         if price_info:
             chg_abs = price_info["change_abs"]
@@ -1919,7 +1951,7 @@ async def generate_daily_pdf_report() -> str | None:
             except Exception:
                 pass
             pdf.set_text_color(*COLOR_BODY)
- 
+
         # ── Chart image ────────────────────────────────────────────
         if png_path and os.path.exists(png_path):
             try:
@@ -1929,12 +1961,12 @@ async def generate_daily_pdf_report() -> str | None:
                 pdf.set_y(y + img_h + 2)
             except Exception as e:
                 print(f"Failed to embed chart for {key}: {e}")
- 
+
         # ── Clickable links row ────────────────────────────────────
         pdf.set_x(left_margin)
         pdf.set_font("DejaVu", size=9)
         link_color = (0, 102, 204)
- 
+
         # "Повний графік на TradingEconomics"
         pdf.set_text_color(*link_color)
         try:
@@ -1948,11 +1980,11 @@ async def generate_daily_pdf_report() -> str | None:
             pass
         pdf.set_text_color(*COLOR_BODY)
         pdf.ln(7)
- 
+
         # ── Divider before next card ───────────────────────────────
         draw_divider(pdf)
         pdf.ln(card_gap - 3 if card_gap > 3 else 0)
- 
+
     if charts:
         # Render in the fixed order: Corn, Brent, Palm oil
         for key in ("КУКУРУДЗА", "НАФТА", "ПАЛЬМОВА"):
@@ -1960,40 +1992,40 @@ async def generate_daily_pdf_report() -> str | None:
                 render_commodity_card(key, charts[key])
     else:
         body_text(pdf, "Дані по товарних ринках недоступні.")
- 
+
     # ── Save PDF ──────────────────────────────────────────────────
     pdf_path = os.path.join(base_dir, f"daily_report_{yesterday.strftime('%Y%m%d')}.pdf")
     pdf.output(pdf_path)
     print(f"Report saved: {pdf_path}")
- 
+
     # Clean up chart temp files (PDF is already written, safe to delete)
     try:
         import shutil
         shutil.rmtree(charts_tmp_dir, ignore_errors=True)
     except Exception:
         pass
- 
+
     return pdf_path
- 
- 
+
+
 # ─────────────────────────────────────────────────────────────────
 # SEND DAILY REPORT
 # ─────────────────────────────────────────────────────────────────
- 
+
 async def send_daily_report_to_users():
     pdf_path = await generate_daily_pdf_report()
     if not pdf_path or not os.path.exists(pdf_path):
         print("Daily report generation skipped or failed.")
         return
- 
+
     conn = get_db_connection()
     cursor = conn.cursor()
     users = db_fetchall(cursor, "SELECT chat_id FROM telegram_users")
     conn.close()
- 
+
     today_str = datetime.datetime.now(pytz.timezone("Europe/Kyiv")).strftime("%d.%m.%Y")
     caption = f"📊 Щоденний ринковий звіт за {today_str} готовий."
- 
+
     async with httpx.AsyncClient() as client:
         for user in users:
             try:
@@ -2018,7 +2050,7 @@ async def send_daily_report_to_users():
                             )
             except Exception as e:
                 print(f"Error sending PDF to {chat_id}: {e}")
- 
+
     # Also send to static admin chat IDs from env
     chat_ids = [cid.strip() for cid in os.getenv("TELEGRAM_CHAT_ID", "").split(",") if cid.strip()]
     async with httpx.AsyncClient() as client:
@@ -2032,17 +2064,17 @@ async def send_daily_report_to_users():
                     )
             except Exception as e:
                 print(f"Error sending PDF to admin {admin_chat_id}: {e}")
- 
+
     try:
         os.remove(pdf_path)
     except Exception as e:
         print(f"Failed to delete {pdf_path}: {e}")
- 
- 
+
+
 # ─────────────────────────────────────────────────────────────────
 # BACKGROUND TASKS (news fetching unchanged)
 # ─────────────────────────────────────────────────────────────────
- 
+
 async def fetch_and_store_news():
     while True:
         conn = None
@@ -2053,19 +2085,19 @@ async def fetch_and_store_news():
             print("Running background task: Fetching latest news and summarizing...")
             conn = get_db_connection()
             cursor = conn.cursor()
- 
+
             for category, url in RSS_FEEDS.items():
                 feed = await asyncio.to_thread(feedparser.parse, url)
- 
+
                 for entry in feed.entries[:15]:
                     title    = getattr(entry, "title", "")
                     raw_link = getattr(entry, "link", "")
                     link     = raw_link.split('?')[0] if raw_link else ""
                     link     = link.strip()
- 
+
                     if not link or not title:
                         continue
- 
+
                     try:
                         cursor.execute("SELECT 1 FROM articles WHERE link = %s", (link,))
                         if cursor.fetchone() is not None:
@@ -2076,7 +2108,7 @@ async def fetch_and_store_news():
                     except Exception as e:
                         print(f"DB check error: {e}")
                         continue
- 
+
                     raw_published = getattr(entry, "published", "")
                     try:
                         if raw_published:
@@ -2098,9 +2130,9 @@ async def fetch_and_store_news():
                             from datetime import timezone, timedelta
                             tz = timezone(timedelta(hours=2))
                         published = datetime.datetime.now(tz).strftime("%Y-%m-%d %H:%M:%S")
- 
+
                     description = getattr(entry, "summary", "") or getattr(entry, "description", "") or title
- 
+
                     image_url = None
                     try:
                         if hasattr(entry, 'media_content') and entry.media_content:
@@ -2116,22 +2148,22 @@ async def fetch_and_store_news():
                                 image_url = match.group(1)
                     except Exception as e:
                         print(f"Error parsing image: {e}")
- 
+
                     if not image_url:
                         image_url = "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?q=80&w=1200&auto=format&fit=crop"
- 
+
                     summaries = await generate_summary(description)
                     sum_en = summaries.get("summary_en", description)
                     sum_ua = summaries.get("summary_ua", description)
                     sum_ru = summaries.get("summary_ru", description)
- 
+
                     cursor.execute('''
                         INSERT INTO articles (title, link, published, category, summary_en, summary_ua, summary_ru, image_url, extraction_status)
                         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'pending')
                         ON CONFLICT(link) DO NOTHING
                     ''', (title, link, published, category, sum_en, sum_ua, sum_ru, image_url))
                     conn.commit()
- 
+
                     # ── Schedule full-text extraction in the background ──
                     # Fire-and-forget: extract_and_store opens its own DB connection,
                     # so it's safe even if this iteration's `conn` is closed later.
@@ -2141,14 +2173,14 @@ async def fetch_and_store_news():
                         extraction_tasks.append(
                             asyncio.create_task(extract_and_store(link))
                         )
- 
+
                     try:
                         async with httpx.AsyncClient() as http_client:
                             # Internal categories (e.g. middle_east) are stored in DB
                             # for the daily report only — do not push them to Telegram subscribers.
                             if category in INTERNAL_CATEGORIES:
                                 continue
- 
+
                             users = db_fetchall(cursor,
                                 "SELECT chat_id, language, subscriptions, only_daily_mode FROM telegram_users"
                             )
@@ -2159,18 +2191,18 @@ async def fetch_and_store_news():
                                     chat_id = user["chat_id"]
                                     lang    = user["language"]
                                     subs    = user["subscriptions"] if user["subscriptions"] else "all"
- 
+
                                     if subs != "all":
                                         if category not in subs.split(","):
                                             continue
- 
+
                                     cursor.execute(
                                         "SELECT 1 FROM telegram_sent WHERE chat_id = %s AND article_link = %s",
                                         (chat_id, link)
                                     )
                                     if cursor.fetchone() is not None:
                                         continue
- 
+
                                     summary_text = summaries.get(f"summary_{lang}", sum_en)
                                     msg = (
                                         f"📰 <b>{title}</b>\n\n"
@@ -2178,13 +2210,13 @@ async def fetch_and_store_news():
                                         f"🏷 Category: #{category}\n"
                                         f"🔗 <a href='{link}'>Read full article</a>"
                                     )
- 
+
                                     resp = await http_client.post(f"{TELEGRAM_API_URL}/sendMessage", json={
                                         "chat_id": chat_id,
                                         "text": msg,
                                         "parse_mode": "HTML"
                                     })
- 
+
                                     if resp.status_code == 200:
                                         cursor.execute(
                                             "INSERT INTO telegram_sent (chat_id, article_link) VALUES (%s, %s) ON CONFLICT DO NOTHING",
@@ -2193,7 +2225,7 @@ async def fetch_and_store_news():
                                         conn.commit()
                                 except Exception as e:
                                     print(f"Error sending to DB user {user['chat_id']}: {e}")
- 
+
                             chat_ids = [cid.strip() for cid in os.getenv("TELEGRAM_CHAT_ID", "").split(",") if cid.strip()]
                             for admin_chat_id in chat_ids:
                                 try:
@@ -2203,7 +2235,7 @@ async def fetch_and_store_news():
                                     )
                                     if cursor.fetchone() is not None:
                                         continue
- 
+
                                     msg = (
                                         f"📰 <b>{title}</b>\n\n"
                                         f"📝 <i>{sum_en}</i>\n\n"
@@ -2225,7 +2257,7 @@ async def fetch_and_store_news():
                                     print(f"Error sending to static chat_id {admin_chat_id}: {e}")
                     except Exception as e:
                         print(f"Error broadcasting to Telegram: {e}")
- 
+
             print("Successfully updated news database.")
         except Exception as e:
             print(f"Error fetching news: {e}")
@@ -2235,7 +2267,7 @@ async def fetch_and_store_news():
                     conn.close()
                 except Exception as ce:
                     print(f"Error closing DB connection: {ce}")
- 
+
         # ── Wait for background extraction tasks to complete ────────
         # They run concurrently (capped at 5 by _EXTRACTION_SEMAPHORE)
         # so this typically adds 10-60 seconds, not minutes.
@@ -2253,10 +2285,10 @@ async def fetch_and_store_news():
                     if not t.done():
                         t.cancel()
             print("Extraction batch complete.")
- 
+
         await asyncio.sleep(900)
- 
- 
+
+
 async def cleanup_old_news():
     while True:
         try:
@@ -2273,26 +2305,27 @@ async def cleanup_old_news():
             print(f"Cleanup finished. Deleted {deleted_count} old articles, {sent_deleted} sent records.")
         except Exception as e:
             print(f"Error during cleanup_old_news: {e}")
- 
+
         await asyncio.sleep(86400)
- 
- 
+
+
 # ─────────────────────────────────────────────────────────────────
 # APP STARTUP
 # ─────────────────────────────────────────────────────────────────
- 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
     task_news    = asyncio.create_task(fetch_and_store_news())
     task_tg      = asyncio.create_task(poll_telegram_updates())
     task_cleanup = asyncio.create_task(cleanup_old_news())
- 
+
     # Stage 1: backfill full_text for any articles left in extraction_status='pending'
-    # (e.g. articles added before the Stage 1 migration, or previous extraction failures
-    # that are worth retrying once). Runs once at startup without blocking — fire-and-forget.
-    task_backfill = asyncio.create_task(backfill_missing_full_text(max_articles=50))
- 
+    # (e.g. articles added before the Stage 1 migration, previous extraction failures
+    # that were just reset by init_db, or overnight additions). Runs once at startup
+    # without blocking — fire-and-forget.
+    task_backfill = asyncio.create_task(backfill_missing_full_text(max_articles=150))
+
     scheduler = AsyncIOScheduler(timezone=pytz.timezone('Europe/Kyiv'))
     # Daily report at 09:00 Kyiv time
     scheduler.add_job(send_daily_report_to_users, 'cron', hour=9, minute=0)
@@ -2300,18 +2333,18 @@ async def lifespan(app: FastAPI):
     # report so any articles added overnight get their full_text ready in time.
     scheduler.add_job(backfill_missing_full_text, 'cron', hour=8, minute=30)
     scheduler.start()
- 
+
     yield
- 
+
     scheduler.shutdown()
     task_news.cancel()
     task_tg.cancel()
     task_cleanup.cancel()
     task_backfill.cancel()
- 
- 
+
+
 app = FastAPI(title="Alliance News API", lifespan=lifespan)
- 
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -2319,15 +2352,15 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
- 
- 
+
+
 @app.get("/", response_class=FileResponse)
 async def read_index():
     base_dir   = os.path.dirname(os.path.abspath(__file__))
     index_path = os.path.join(base_dir, "index.html")
     return FileResponse(index_path)
- 
- 
+
+
 @app.get("/news")
 def get_all_news():
     conn   = get_db_connection()
@@ -2349,8 +2382,8 @@ def get_all_news():
         )
     conn.close()
     return rows
- 
- 
+
+
 @app.get("/alerts")
 def get_latest_alerts():
     conn   = get_db_connection()
@@ -2369,14 +2402,14 @@ def get_latest_alerts():
             "SELECT title, link, published FROM articles ORDER BY published DESC LIMIT 5"
         )
     conn.close()
- 
+
     try:
         from zoneinfo import ZoneInfo
         tz = ZoneInfo("Europe/Kyiv")
     except ImportError:
         from datetime import timezone, timedelta
         tz = timezone(timedelta(hours=2))
- 
+
     now     = datetime.datetime.now(tz)
     results = []
     for r in rows:
@@ -2390,29 +2423,29 @@ def get_latest_alerts():
                     dt_obj = email.utils.parsedate_to_datetime(pub_str).astimezone(tz)
                 except Exception:
                     pass
- 
+
         if not dt_obj:
             dt_obj = now
- 
+
         diff = (now - dt_obj).total_seconds()
         if 0 <= diff < 3600:
             mins = int(diff / 60)
             display_time = "Just now" if mins <= 1 else f"{mins} mins ago"
         else:
             display_time = dt_obj.strftime("%H:%M")
- 
+
         r["display_time"] = display_time
         r["published"]    = dt_obj.strftime("%Y-%m-%d %H:%M:%S")
         results.append(r)
- 
+
     return results
- 
- 
+
+
 @app.get("/news/{category}")
 def get_category_news(category: str):
     if category not in RSS_FEEDS:
         raise HTTPException(status_code=404, detail="Category not found")
- 
+
     conn   = get_db_connection()
     cursor = conn.cursor()
     rows   = db_fetchall(cursor,
@@ -2422,8 +2455,8 @@ def get_category_news(category: str):
     )
     conn.close()
     return rows
- 
- 
+
+
 @app.get("/generate_report")
 async def trigger_report():
     """HTTP endpoint to manually trigger report generation."""
