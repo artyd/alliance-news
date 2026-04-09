@@ -13,3 +13,4 @@ apscheduler
 pytz
 yfinance
 matplotlib
+trafilatura
