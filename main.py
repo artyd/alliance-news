@@ -135,6 +135,41 @@ def init_db():
         )
     ''')
 
+    # ── Stage 2: structured facts extracted from articles ──────────
+    # Each row is one atomic fact pulled from one article by gpt-4o-mini.
+    # One article can produce 0..N facts (typically 1-3).
+    # The daily report is built by aggregating these facts per category,
+    # not by re-reading raw article text. This makes the pipeline:
+    #   article -> full_text -> [fact1, fact2, ...] -> per-category synthesis
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS article_facts (
+            id SERIAL PRIMARY KEY,
+            article_id INTEGER NOT NULL REFERENCES articles(id) ON DELETE CASCADE,
+            event_type TEXT,
+            what_happened TEXT NOT NULL,
+            who TEXT,
+            where_loc TEXT,
+            magnitude TEXT,
+            affected_sectors TEXT,
+            supply_chain_impact TEXT,
+            ukraine_relevance TEXT,
+            confidence TEXT,
+            source_url TEXT,
+            source_publisher TEXT,
+            created_at TIMESTAMP NOT NULL DEFAULT NOW()
+        )
+    ''')
+
+    # Track extraction state per article, independent of the full_text extraction.
+    # pending | ok | failed | skipped  (skipped = article had no full_text to extract from)
+    cursor.execute("ALTER TABLE articles ADD COLUMN IF NOT EXISTS facts_status TEXT DEFAULT 'pending'")
+    cursor.execute("ALTER TABLE articles ADD COLUMN IF NOT EXISTS facts_attempted_at TIMESTAMP")
+
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_facts_article_id ON article_facts(article_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_facts_sectors ON article_facts(affected_sectors)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_facts_created ON article_facts(created_at DESC)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_articles_facts_status ON articles(facts_status)')
+
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_sent_link ON telegram_sent(article_link)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_articles_title ON articles(title)')
 
@@ -824,11 +859,16 @@ async def extract_and_store(link: str, http_client: httpx.AsyncClient | None = N
     Extract full text for an article and write the result back to DB.
     Updates: full_text, extraction_status, extraction_attempted_at, final_url.
 
+    On successful full_text extraction, fires a background task to run
+    Stage 2 (facts extraction) on the same article. This keeps the pipeline
+    fully async and off the 9:00 report critical path.
+
     This is the function called from the background after an article is
     saved and pushed to Telegram.
     """
     extracted = await extract_article_fulltext(link, http_client=http_client)
 
+    article_id_for_facts: int | None = None
     conn = None
     try:
         conn = get_db_connection()
@@ -841,6 +881,7 @@ async def extract_and_store(link: str, http_client: httpx.AsyncClient | None = N
                    extraction_attempted_at = NOW(),
                    final_url               = %s
              WHERE link = %s
+            RETURNING id
             """,
             (
                 extracted["text"],
@@ -849,6 +890,11 @@ async def extract_and_store(link: str, http_client: httpx.AsyncClient | None = N
                 link,
             ),
         )
+        returned = cursor.fetchone()
+        if returned is not None:
+            article_id_for_facts = (
+                returned["id"] if isinstance(returned, dict) else returned[0]
+            )
         conn.commit()
         cursor.close()
     except Exception as e:
@@ -863,6 +909,11 @@ async def extract_and_store(link: str, http_client: httpx.AsyncClient | None = N
     status = extracted["status"]
     if status == "ok":
         print(f"  ✓ extracted {len(extracted['text'] or '')} chars from {link[:80]}")
+        # Stage 2: fire-and-forget facts extraction on the same article.
+        # This runs concurrently with the rest of the fetch loop and is
+        # capped by _FACTS_SEMAPHORE (3 parallel OpenAI calls).
+        if article_id_for_facts and aclient:
+            asyncio.create_task(extract_facts_and_store(article_id_for_facts))
     else:
         err = extracted.get("error", "")
         print(f"  ✗ extraction {status} for {link[:80]}: {err}")
@@ -918,6 +969,329 @@ async def backfill_missing_full_text(max_articles: int = 150):
             return_exceptions=True,
         )
     print(f"Backfill: done processing {len(rows)} articles.")
+
+
+# ─────────────────────────────────────────────────────────────────
+# STAGE 2: STRUCTURED FACTS EXTRACTION
+# ─────────────────────────────────────────────────────────────────
+# Goal: replace the "feed full article text to gpt-4o and hope it
+# summarizes correctly" pipeline with a two-stage architecture:
+#
+#   Stage A: per article, gpt-4o-mini reads the full_text and emits a
+#   list of atomic JSON facts (event_type, who, where, magnitude,
+#   affected_sectors, ukraine_relevance, ...).
+#
+#   Stage B: per report day, gpt-4o reads all facts for the day,
+#   groups them by affected_sector, and writes the "Огляд дня"
+#   paragraph for each category based ONLY on those facts.
+#
+# This eliminates cross-category fact bleeding (a defense story about
+# underwater drones cannot appear in "veterinary" because the extractor
+# would never tag it with affected_sectors=["veterinary"]), and gives us
+# deterministic grounding: the synthesizer can only talk about facts
+# that actually exist as rows in article_facts.
+
+# Model used for fact extraction. gpt-4o-mini is ~20x cheaper than gpt-4o
+# and for structured JSON output the quality difference is negligible.
+_FACTS_EXTRACTION_MODEL = "gpt-4o-mini"
+
+# Concurrency for fact extraction (lower than full_text because each call
+# is already a ~2-5s OpenAI API request).
+_FACTS_SEMAPHORE = asyncio.Semaphore(3)
+
+# The 9 sector codes the fact extractor is allowed to use for affected_sectors.
+# Must match REPORT_CATEGORIES exactly. Any "other" / off-topic fact is tagged
+# with [] and dropped from the daily report.
+_FACT_SECTOR_CODES = ["api", "cosmetic", "herbal", "veterinary", "food",
+                      "feed", "capsules", "pvc", "logistics"]
+
+_FACTS_SYSTEM_PROMPT = """You are a B2B market intelligence analyst extracting atomic facts from a news article.
+
+Your output MUST be a JSON object with a single key "facts" whose value is an array of fact objects. Return ONLY the JSON, no prose, no markdown fences.
+
+Each fact object MUST have exactly these fields:
+- event_type: one of ["regulation", "sanction", "tariff", "price_move", "supply_disruption", "corporate", "geopolitical", "market_trend", "investment", "other"]
+- what_happened: ONE sentence, subject-verb-object, what concretely happened. No adjectives, no speculation.
+- who: short string listing the key actors (companies, countries, organizations) separated by commas. Max 100 chars.
+- where: country or region where the event occurred, or "global" if worldwide. Max 50 chars.
+- magnitude: concrete numeric value with unit if mentioned in the article ("+15%", "$2.3B", "500k tons", "10pp"). Use null if no numeric value is in the article. NEVER fabricate numbers.
+- affected_sectors: array of sector codes from this CLOSED list, pick ALL that apply:
+    ["api", "cosmetic", "herbal", "veterinary", "food", "feed", "capsules", "pvc", "logistics"]
+  Sector meanings for a Ukrainian B2B importer:
+    api         - pharmaceutical active ingredients, generics, APIs, drugmakers
+    cosmetic    - cosmetic ingredients, personal care raw materials, skincare
+    herbal      - herbal extracts, botanical raw materials, plant medicines
+    veterinary  - veterinary drugs and their ingredients, animal pharma
+    food        - food ingredients, food additives, commodities as food raw material
+    feed        - feed additives, amino acids, protein sources for animal feed
+    capsules    - pharmaceutical capsules, hard/soft gel capsules, dosage forms
+    pvc         - PVC film, blister packaging, plastic packaging materials
+    logistics   - shipping, freight, ports, trade routes, customs, supply chains
+  If the article is NOT about any of these sectors (e.g. crypto, consumer electronics, sports), return an empty array [].
+- supply_chain_impact: ONE sentence describing the concrete effect on imports/logistics/raw material availability for a Ukrainian company buying globally. Use null if not applicable.
+- ukraine_relevance: one of ["high", "medium", "low", "none"]
+    high   - direct impact on sourcing, pricing, or delivery for a Ukrainian importer (new tariff on their category, supplier outage, logistics route closure)
+    medium - indirect but relevant (new supplier country opening, alternative sources, upstream raw material movement)
+    low    - general industry news with unclear short-term impact
+    none   - not relevant to a Ukrainian B2B importer (domestic political news of another country, consumer-only story)
+- confidence: one of ["high", "medium", "low"]
+    high   - article states the fact directly with specifics (who, when, how much)
+    medium - article implies the fact or attributes it to unnamed sources
+    low    - analyst speculation, forecasts, opinion pieces
+
+STRICT RULES:
+1. Extract 1 to 4 facts per article. Prefer fewer high-quality facts over many weak ones.
+2. If the article has no concrete B2B-relevant facts, return {"facts": []}.
+3. NEVER invent numbers, names, or dates that are not in the source text.
+4. NEVER tag a sector that is not explicitly mentioned or clearly implied (e.g. don't tag "veterinary" just because the article mentions "pharma").
+5. The same fact can tag multiple sectors if it genuinely affects all of them (e.g. a shipping disruption affects both "logistics" and any cargo type mentioned).
+6. Output MUST be valid JSON. Escape inner quotes as \\".
+"""
+
+
+async def extract_facts_from_article(
+    article_id: int,
+    full_text: str,
+    title: str,
+    source_url: str,
+    source_publisher: str,
+) -> list[dict]:
+    """
+    Call gpt-4o-mini with the facts extraction prompt. Returns a list of
+    fact dicts ready to be inserted into article_facts, or [] on any failure.
+
+    Never raises — all errors are logged and swallowed.
+    """
+    if not aclient or not full_text or len(full_text) < 200:
+        return []
+
+    # Truncate very long articles — gpt-4o-mini has 128k context but we don't
+    # need more than ~6k chars of body to extract facts, and shorter = cheaper.
+    body = full_text[:6000]
+    user_content = (
+        f"TITLE: {title}\n"
+        f"PUBLISHER: {source_publisher}\n"
+        f"URL: {source_url}\n\n"
+        f"ARTICLE BODY:\n{body}"
+    )
+
+    async with _FACTS_SEMAPHORE:
+        try:
+            response = await aclient.chat.completions.create(
+                model=_FACTS_EXTRACTION_MODEL,
+                temperature=0.0,  # deterministic for structured extraction
+                max_tokens=1500,
+                response_format={"type": "json_object"},
+                messages=[
+                    {"role": "system", "content": _FACTS_SYSTEM_PROMPT},
+                    {"role": "user",   "content": user_content},
+                ],
+            )
+            raw = response.choices[0].message.content.strip()
+        except Exception as e:
+            print(f"  facts extraction API error for article {article_id}: {e}")
+            return []
+
+    # Parse JSON
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as e:
+        print(f"  facts JSON parse error for article {article_id}: {e}")
+        return []
+
+    facts = parsed.get("facts", [])
+    if not isinstance(facts, list):
+        return []
+
+    # Normalize and validate each fact
+    clean_facts = []
+    for f in facts:
+        if not isinstance(f, dict):
+            continue
+        what = (f.get("what_happened") or "").strip()
+        if not what:
+            continue  # required field
+        sectors = f.get("affected_sectors") or []
+        if not isinstance(sectors, list):
+            sectors = []
+        # Filter sectors to our allowed list only — model can't smuggle in "defense"
+        sectors = [s for s in sectors if s in _FACT_SECTOR_CODES]
+
+        clean_facts.append({
+            "event_type":          (f.get("event_type") or "other")[:50],
+            "what_happened":       what[:500],
+            "who":                 (f.get("who") or "")[:200],
+            "where_loc":           (f.get("where") or "")[:100],
+            "magnitude":           (f.get("magnitude") or "")[:100] if f.get("magnitude") else None,
+            "affected_sectors":    ",".join(sectors),  # stored as CSV for simplicity
+            "supply_chain_impact": (f.get("supply_chain_impact") or "")[:500] if f.get("supply_chain_impact") else None,
+            "ukraine_relevance":   (f.get("ukraine_relevance") or "low")[:10],
+            "confidence":          (f.get("confidence") or "medium")[:10],
+            "source_url":          source_url[:500],
+            "source_publisher":    source_publisher[:100],
+        })
+
+    return clean_facts
+
+
+async def extract_facts_and_store(article_id: int):
+    """
+    Load an article's full_text, extract facts via gpt-4o-mini, insert rows
+    into article_facts, update articles.facts_status. Never raises.
+    """
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT id, title, link, full_text, extraction_status, final_url
+              FROM articles WHERE id = %s
+            """,
+            (article_id,),
+        )
+        row = cursor.fetchone()
+        if row is None:
+            return
+
+        # psycopg2 with RealDictCursor returns dict; without — tuple. Handle both.
+        if isinstance(row, dict):
+            art_id    = row["id"]
+            title     = row.get("title") or ""
+            link      = row.get("link") or ""
+            full_text = row.get("full_text") or ""
+            ex_status = row.get("extraction_status") or ""
+            final_url = row.get("final_url") or link
+        else:
+            art_id, title, link, full_text, ex_status, final_url = row
+            title = title or ""
+            link = link or ""
+            full_text = full_text or ""
+            ex_status = ex_status or ""
+            final_url = final_url or link
+
+        # Skip if no usable full_text
+        if ex_status != "ok" or not full_text or len(full_text) < 200:
+            cursor.execute(
+                "UPDATE articles SET facts_status='skipped', facts_attempted_at=NOW() WHERE id=%s",
+                (art_id,),
+            )
+            conn.commit()
+            return
+
+        # Infer publisher from final_url domain
+        publisher = "unknown"
+        try:
+            from urllib.parse import urlparse
+            host = urlparse(final_url).netloc or ""
+            publisher = host.replace("www.", "").split(".")[0].title() if host else "unknown"
+        except Exception:
+            pass
+
+        facts = await extract_facts_from_article(
+            art_id, full_text, title, final_url, publisher
+        )
+
+        if not facts:
+            cursor.execute(
+                "UPDATE articles SET facts_status='ok', facts_attempted_at=NOW() WHERE id=%s",
+                (art_id,),
+            )
+            conn.commit()
+            print(f"  ℹ no facts extracted for article {art_id} ({title[:60]})")
+            return
+
+        # Insert all facts
+        for f in facts:
+            cursor.execute(
+                """
+                INSERT INTO article_facts
+                    (article_id, event_type, what_happened, who, where_loc,
+                     magnitude, affected_sectors, supply_chain_impact,
+                     ukraine_relevance, confidence, source_url, source_publisher)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                """,
+                (
+                    art_id,
+                    f["event_type"], f["what_happened"], f["who"], f["where_loc"],
+                    f["magnitude"], f["affected_sectors"], f["supply_chain_impact"],
+                    f["ukraine_relevance"], f["confidence"],
+                    f["source_url"], f["source_publisher"],
+                ),
+            )
+        cursor.execute(
+            "UPDATE articles SET facts_status='ok', facts_attempted_at=NOW() WHERE id=%s",
+            (art_id,),
+        )
+        conn.commit()
+
+        sectors_summary = set()
+        for f in facts:
+            if f["affected_sectors"]:
+                sectors_summary.update(f["affected_sectors"].split(","))
+        print(f"  ✓ {len(facts)} facts from article {art_id} → sectors: {sorted(sectors_summary) or 'none'}")
+
+    except Exception as e:
+        print(f"extract_facts_and_store error for article {article_id}: {e}")
+        try:
+            if conn:
+                conn.rollback()
+                cursor = conn.cursor()
+                cursor.execute(
+                    "UPDATE articles SET facts_status='failed', facts_attempted_at=NOW() WHERE id=%s",
+                    (article_id,),
+                )
+                conn.commit()
+        except Exception:
+            pass
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
+async def backfill_missing_facts(max_articles: int = 100):
+    """
+    Find articles with extraction_status='ok' (have full_text) but
+    facts_status='pending' (facts not yet extracted), and run extraction.
+
+    Runs at startup + every 2.5 hours + at 08:45 before daily report.
+    """
+    if not aclient:
+        return
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cutoff = (datetime.datetime.now() - datetime.timedelta(days=7)).strftime("%Y-%m-%d %H:%M:%S")
+        rows = db_fetchall(
+            cursor,
+            """
+            SELECT id FROM articles
+            WHERE extraction_status = 'ok'
+              AND (facts_status IS NULL OR facts_status = 'pending')
+              AND (published = '' OR published >= %s)
+            ORDER BY published DESC NULLS LAST
+            LIMIT %s
+            """,
+            (cutoff, max_articles),
+        )
+        conn.close()
+    except Exception as e:
+        print(f"facts backfill query failed: {e}")
+        return
+
+    if not rows:
+        print("Facts backfill: nothing to do.")
+        return
+
+    print(f"Facts backfill: extracting facts for {len(rows)} articles...")
+    await asyncio.gather(
+        *[extract_facts_and_store(r["id"] if isinstance(r, dict) else r[0]) for r in rows],
+        return_exceptions=True,
+    )
+    print(f"Facts backfill: done processing {len(rows)} articles.")
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -1454,7 +1828,180 @@ MIDDLE_EAST_KEYWORDS = [
 ]
 
 
-def fetch_recent_news_for_report(report_date: datetime.date, days_back: int = 3) -> dict:
+def fetch_facts_for_report(report_date: datetime.date, days_back: int = 3,
+                           end_time: datetime.datetime | None = None) -> dict:
+    """
+    Stage 2: fetch structured facts grouped by affected sector for the report day.
+
+    Returns:
+      {
+        "by_category": { "api": [fact_dict, ...], "cosmetic": [...], ... },
+        "middle_east": [fact_dict, ...],
+        "stats": { "total": N, "by_relevance": {...}, "by_category_counts": {...} }
+      }
+
+    Each fact_dict has all the fields from article_facts plus the parent article's
+    title and link (for "Джерела" section in Block 2).
+
+    Filtering rules:
+      - Primary window: articles published on the report day
+        ([report_date 00:00 .. report_date 23:59] Kyiv).
+        When `end_time` is provided (midday report mode), the upper bound
+        becomes `end_time` instead of end-of-day — so the window is
+        [report_date 00:00 .. end_time], i.e. "today from midnight to now".
+      - If the primary window is sparse, widen to `days_back` days as fallback,
+        but the fallback upper bound is also clamped to `end_time` when set.
+      - Drop facts with ukraine_relevance='none' — they are noise.
+      - A fact tagged with multiple sectors appears in each of them (that's the point).
+    """
+    result = {
+        "by_category": {cat: [] for cat, _ in REPORT_CATEGORIES},
+        "middle_east": [],
+        "stats": {"total": 0, "by_relevance": {}, "by_category_counts": {}},
+    }
+
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        day_start = datetime.datetime.combine(report_date, datetime.time.min).strftime("%Y-%m-%d %H:%M:%S")
+        if end_time is not None:
+            # Midday mode: clamp upper bound to "now" instead of 23:59
+            day_end = end_time.strftime("%Y-%m-%d %H:%M:%S")
+        else:
+            day_end = datetime.datetime.combine(report_date, datetime.time.max).strftime("%Y-%m-%d %H:%M:%S")
+        fallback_cutoff = (datetime.datetime.now() - datetime.timedelta(days=days_back)).strftime("%Y-%m-%d %H:%M:%S")
+
+        # Columns we need from both article_facts and articles
+        select_cols = (
+            "f.id, f.article_id, f.event_type, f.what_happened, f.who, f.where_loc, "
+            "f.magnitude, f.affected_sectors, f.supply_chain_impact, "
+            "f.ukraine_relevance, f.confidence, f.source_url, f.source_publisher, "
+            "a.title, a.link, a.category AS article_category"
+        )
+
+        def run_facts_query(where_clause: str, params: tuple) -> list[dict]:
+            q = (
+                f"SELECT {select_cols} "
+                f"FROM article_facts f "
+                f"JOIN articles a ON a.id = f.article_id "
+                f"WHERE {where_clause} "
+                f"  AND f.ukraine_relevance != 'none' "
+                f"  AND f.affected_sectors IS NOT NULL "
+                f"  AND f.affected_sectors != '' "
+                f"ORDER BY "
+                f"  CASE f.ukraine_relevance "
+                f"    WHEN 'high' THEN 1 WHEN 'medium' THEN 2 WHEN 'low' THEN 3 ELSE 4 END, "
+                f"  CASE f.confidence "
+                f"    WHEN 'high' THEN 1 WHEN 'medium' THEN 2 WHEN 'low' THEN 3 ELSE 4 END, "
+                f"  f.created_at DESC "
+            )
+            return db_fetchall(cursor, q, params) or []
+
+        # Primary query: facts from articles published on the report day
+        primary = run_facts_query(
+            "a.published != '' AND a.published >= %s AND a.published <= %s",
+            (day_start, day_end),
+        )
+
+        # If the report day is sparse, fall back to last `days_back` days.
+        # In midday mode the user explicitly wants "today 00:00 .. now" only,
+        # so no multi-day fallback — if today is quiet, the report says so.
+        if end_time is None and len(primary) < 15:
+            fallback = run_facts_query(
+                "(a.published = '' OR a.published >= %s)",
+                (fallback_cutoff,),
+            )
+            # Merge: primary first (priority), then fallback items not already present
+            seen_ids = {f["id"] for f in primary}
+            for f in fallback:
+                if f["id"] not in seen_ids:
+                    primary.append(f)
+                    seen_ids.add(f["id"])
+
+        # Bucket each fact into every sector it tags. A fact tagged "api,logistics"
+        # appears once in "api" and once in "logistics" — that's correct: it does
+        # affect both categories and the synthesizer needs to see it in both.
+        seen_per_cat: dict[str, set] = {cat: set() for cat, _ in REPORT_CATEGORIES}
+        for f in primary:
+            sectors_str = (f.get("affected_sectors") or "").strip()
+            if not sectors_str:
+                continue
+            sectors = [s.strip() for s in sectors_str.split(",") if s.strip()]
+            for sector in sectors:
+                if sector in result["by_category"]:
+                    if f["id"] not in seen_per_cat[sector]:
+                        result["by_category"][sector].append(f)
+                        seen_per_cat[sector].add(f["id"])
+
+        # ── Middle East facts ─────────────────────────────────────
+        # Facts are collected from TWO sources:
+        #   1) Facts from articles in the dedicated 'middle_east' RSS category
+        #   2) Facts whose what_happened/who/where_loc mention ME keywords
+        # Deduplicated by fact id, ordered by relevance+confidence+recency.
+        me_facts: list[dict] = []
+        me_seen: set = set()
+
+        def add_me(rows: list[dict]):
+            for r in rows:
+                if r["id"] in me_seen:
+                    continue
+                me_seen.add(r["id"])
+                me_facts.append(r)
+
+        # 1) From dedicated middle_east category, report day
+        add_me(run_facts_query(
+            "a.category = 'middle_east' AND a.published != '' "
+            "AND a.published >= %s AND a.published <= %s",
+            (day_start, day_end),
+        ))
+
+        # 2) Same category, fallback window (daily mode only — midday wants
+        # strictly "today 00:00 .. now", no multi-day widening)
+        if end_time is None and len(me_facts) < 5:
+            add_me(run_facts_query(
+                "a.category = 'middle_east' AND (a.published = '' OR a.published >= %s)",
+                (fallback_cutoff,),
+            ))
+
+        # 3) Keyword matches in fact text, report day window
+        if len(me_facts) < 12:
+            like_conds = []
+            like_params = []
+            for kw in MIDDLE_EAST_KEYWORDS:
+                like_conds.append(
+                    "(LOWER(f.what_happened) LIKE %s OR LOWER(COALESCE(f.who,'')) LIKE %s "
+                    "OR LOWER(COALESCE(f.where_loc,'')) LIKE %s)"
+                )
+                like_params.extend([f"%{kw}%", f"%{kw}%", f"%{kw}%"])
+            kw_clause = "(" + " OR ".join(like_conds) + ") "
+            kw_clause += "AND a.published != '' AND a.published >= %s AND a.published <= %s"
+            like_params.extend([day_start, day_end])
+            add_me(run_facts_query(kw_clause, tuple(like_params)))
+
+        result["middle_east"] = me_facts[:15]
+
+        # Stats for the prompt
+        total = sum(len(v) for v in result["by_category"].values())
+        result["stats"]["total"] = total
+        result["stats"]["by_category_counts"] = {
+            cat: len(result["by_category"][cat]) for cat, _ in REPORT_CATEGORIES
+        }
+        by_rel: dict[str, int] = {}
+        for facts in result["by_category"].values():
+            for f in facts:
+                rel = f.get("ukraine_relevance") or "low"
+                by_rel[rel] = by_rel.get(rel, 0) + 1
+        result["stats"]["by_relevance"] = by_rel
+
+        conn.close()
+    except Exception as e:
+        print(f"fetch_facts_for_report error: {e}")
+    return result
+
+
+def fetch_recent_news_for_report(report_date: datetime.date, days_back: int = 3,
+                                 end_time: datetime.datetime | None = None) -> dict:
     """
     Fetch news from DB:
     - by_category: ALL articles per category for the report day (yesterday Kyiv).
@@ -1463,6 +2010,10 @@ def fetch_recent_news_for_report(report_date: datetime.date, days_back: int = 3)
 
     Each article row includes full_text and extraction_status so the report
     generator can prefer real article bodies over RSS snippets.
+
+    When `end_time` is provided (midday report mode), the primary window becomes
+    [report_date 00:00 .. end_time] instead of full-day, and the per-category
+    fallbacks are disabled so the report strictly reflects "today until now".
     """
     result = {"by_category": {cat: [] for cat, _ in REPORT_CATEGORIES}, "middle_east": []}
     try:
@@ -1470,8 +2021,12 @@ def fetch_recent_news_for_report(report_date: datetime.date, days_back: int = 3)
         cursor = conn.cursor()
 
         # Day-of-report window: 00:00 to 23:59 of the report date
+        # (or 00:00 to end_time in midday mode)
         day_start = datetime.datetime.combine(report_date, datetime.time.min).strftime("%Y-%m-%d %H:%M:%S")
-        day_end   = datetime.datetime.combine(report_date, datetime.time.max).strftime("%Y-%m-%d %H:%M:%S")
+        if end_time is not None:
+            day_end = end_time.strftime("%Y-%m-%d %H:%M:%S")
+        else:
+            day_end = datetime.datetime.combine(report_date, datetime.time.max).strftime("%Y-%m-%d %H:%M:%S")
         # Fallback window: last `days_back` days
         fallback_cutoff = (datetime.datetime.now() - datetime.timedelta(days=days_back)).strftime("%Y-%m-%d %H:%M:%S")
 
@@ -1489,7 +2044,10 @@ def fetch_recent_news_for_report(report_date: datetime.date, days_back: int = 3)
                 "ORDER BY published DESC",
                 (cat, day_start, day_end)
             )
-            if not rows:
+            # Fallbacks are DAILY-ONLY. Midday mode explicitly wants "today 00:00 .. now";
+            # if today is quiet, the category comes back empty and the synthesizer
+            # will write "no new events" — which is the correct behavior.
+            if not rows and end_time is None:
                 # Fallback 1: last `days_back` days
                 rows = db_fetchall(cursor,
                     f"SELECT {cols} FROM articles "
@@ -1497,7 +2055,7 @@ def fetch_recent_news_for_report(report_date: datetime.date, days_back: int = 3)
                     "ORDER BY published DESC NULLS LAST LIMIT 10",
                     (cat, fallback_cutoff)
                 )
-            if not rows:
+            if not rows and end_time is None:
                 # Fallback 2: 10 latest regardless of date
                 rows = db_fetchall(cursor,
                     f"SELECT {cols} FROM articles "
@@ -1533,8 +2091,8 @@ def fetch_recent_news_for_report(report_date: datetime.date, days_back: int = 3)
             (day_start, day_end)
         ))
 
-        # 2) Fallback: middle_east category — last `days_back` days
-        if len(me_rows) < 4:
+        # 2) Fallback: middle_east category — last `days_back` days (daily mode only)
+        if len(me_rows) < 4 and end_time is None:
             add_me_rows(db_fetchall(cursor,
                 f"SELECT {cols} FROM articles "
                 "WHERE category = 'middle_east' AND (published = '' OR published >= %s) "
@@ -1560,8 +2118,8 @@ def fetch_recent_news_for_report(report_date: datetime.date, days_back: int = 3)
             )
             add_me_rows(db_fetchall(cursor, kw_query_day, tuple(params_with_window)))
 
-            if len(me_rows) < 4:
-                # Last-resort: keyword matches from last days_back days
+            if len(me_rows) < 4 and end_time is None:
+                # Last-resort: keyword matches from last days_back days (daily only)
                 params_fallback = params + [fallback_cutoff]
                 kw_query_fallback = (
                     f"SELECT {cols} FROM articles "
@@ -1583,7 +2141,27 @@ def fetch_recent_news_for_report(report_date: datetime.date, days_back: int = 3)
 # MAIN REPORT GENERATION  (prompt-based, no MapReduce)
 # ─────────────────────────────────────────────────────────────────
 
-async def generate_daily_pdf_report() -> str | None:
+async def generate_daily_pdf_report(mode: str = "daily") -> str | None:
+    """
+    Generate the market intelligence PDF report.
+
+    mode="daily"  (default, 09:00 Kyiv)
+        Full report (Block 1 + Block 2 + Block 3) covering *yesterday*
+        from 00:00 to 23:59 Kyiv. Uses multi-day fallbacks if today is sparse.
+
+    mode="midday" (14:00 Kyiv)
+        Short report (Block 2 + Block 3 only, no Block 1) covering *today*
+        from 00:00 to the current moment. No multi-day fallback — if today
+        is quiet, Block 2 explicitly says so. Block 3 shows the last available
+        yfinance candle for each commodity (Brent/Palm may be today's, Corn
+        typically yesterday's since CBOT opens at 15:00 Kyiv); the date of the
+        actual candle is printed on each card, so the user sees what window
+        they're looking at.
+    """
+    if mode not in ("daily", "midday"):
+        print(f"generate_daily_pdf_report: invalid mode={mode!r}, defaulting to 'daily'")
+        mode = "daily"
+
     if not aclient:
         print("OpenAI API key missing")
         return None
@@ -1591,110 +2169,315 @@ async def generate_daily_pdf_report() -> str | None:
     kyiv_tz   = pytz.timezone("Europe/Kyiv")
     now_kyiv  = datetime.datetime.now(kyiv_tz)
     yesterday = now_kyiv - datetime.timedelta(days=1)
-    report_date = yesterday.strftime("%d.%m.%Y")
     weekdays_ua = ["понеділок","вівторок","середа","четвер","п'ятниця","субота","неділя"]
-    weekday_ua  = weekdays_ua[yesterday.weekday()]
     today_weekday_ua = weekdays_ua[now_kyiv.weekday()]
 
-    # ── Fetch real news from DB ───────────────────────────────────
-    news_data = fetch_recent_news_for_report(yesterday.date(), days_back=3)
+    # ── Mode-aware window parameters ──────────────────────────────
+    # daily:  subject = yesterday,  window = [yesterday 00:00 .. 23:59]   (end_time=None)
+    # midday: subject = today,      window = [today     00:00 .. now]    (end_time=now_naive)
+    if mode == "daily":
+        report_subject_date = yesterday                       # datetime with tz
+        report_date = yesterday.strftime("%d.%m.%Y")          # displayed in PDF header
+        weekday_ua  = weekdays_ua[yesterday.weekday()]
+        fetch_end_time: datetime.datetime | None = None
+    else:  # midday
+        report_subject_date = now_kyiv
+        report_date = now_kyiv.strftime("%d.%m.%Y")
+        weekday_ua  = weekdays_ua[now_kyiv.weekday()]
+        # fetch_* functions run naive SQL comparisons against `articles.published`
+        # which is stored as naive "YYYY-MM-DD HH:MM:SS" in Kyiv time
+        fetch_end_time = now_kyiv.replace(tzinfo=None)
 
-    # Character budgets per article when passing to the model.
-    # Full extracted article: up to 2500 chars (~500 words) — enough for
-    # facts without blowing the context window for 9 categories × 10 articles.
-    # RSS fallback: up to 400 chars — stays small because it's low-signal anyway.
-    _B1_FULLTEXT_BUDGET = 2500
-    _B1_SNIPPET_BUDGET  = 400
-    _B2_FULLTEXT_BUDGET = 3000
-    _B2_SNIPPET_BUDGET  = 500
-
-    def _pick_best_body(item: dict, fulltext_budget: int, snippet_budget: int) -> tuple[str, str]:
-        """
-        Return (body_text, source_tag) for an article.
-        Prefers extracted full_text when available, falls back to RSS summary.
-        source_tag is 'FULLTEXT' | 'RSS_SNIPPET' — passed to the model so it
-        knows which facts to trust for detail vs which to treat as thin signal.
-        """
-        full   = (item.get("full_text") or "").strip()
-        status = (item.get("extraction_status") or "").strip()
-
-        if full and status == "ok":
-            body = full[:fulltext_budget]
-            if len(full) > fulltext_budget:
-                body += "..."
-            return body, "FULLTEXT"
-
-        # Fallback: RSS snippet. Prefer English, then Ukrainian.
-        snippet = (item.get("summary_en") or item.get("summary_ua") or "").strip()
-        if len(snippet) > snippet_budget:
-            snippet = snippet[:snippet_budget] + "..."
-        return snippet, "RSS_SNIPPET"
-
-    def fmt_news_item(idx: int, item: dict) -> str:
-        """Block 2 format: includes URL because the 'Джерела' section cites it."""
-        title = (item.get("title") or "").strip()
-        link  = (item.get("link")  or "").strip()
-        body, source_tag = _pick_best_body(item, _B2_FULLTEXT_BUDGET, _B2_SNIPPET_BUDGET)
-        return (
-            f"  {idx}. [{source_tag}] TITLE: {title}\n"
-            f"     BODY: {body}\n"
-            f"     URL: {link}"
-        )
-
-    def fmt_news_item_b1(idx: int, item: dict) -> str:
-        """Block 1 format: no URL needed (we synthesize, not cite)."""
-        title = (item.get("title") or "").strip()
-        body, source_tag = _pick_best_body(item, _B1_FULLTEXT_BUDGET, _B1_SNIPPET_BUDGET)
-        return f"  - [{source_tag}] {title}\n    {body}"
-
-    # Build Block 1 news payload — ALL articles per category (no limit)
-    b1_news_parts = []
-    for cat_code, cat_name in REPORT_CATEGORIES:
-        items = news_data["by_category"].get(cat_code, [])
-        # Count how many articles have real full text vs just RSS snippets —
-        # helps the model calibrate how much detail it can claim for this category.
-        n_full = sum(1 for it in items if (it.get("extraction_status") == "ok" and it.get("full_text")))
-        n_snip = len(items) - n_full
-        b1_news_parts.append(
-            f"\n[КАТЕГОРІЯ: {cat_name}] — {len(items)} новин "
-            f"({n_full} з повним текстом, {n_snip} лише RSS):"
-        )
-        if items:
-            for i, it in enumerate(items, 1):
-                b1_news_parts.append(fmt_news_item_b1(i, it))
-        else:
-            b1_news_parts.append("  (новин не зафіксовано)")
-    b1_news_text = "\n".join(b1_news_parts)
-
-    # Build Block 2 news payload
-    me_items = news_data["middle_east"]
-    if me_items:
-        b2_news_parts = []
-        for i, it in enumerate(me_items, 1):
-            b2_news_parts.append(fmt_news_item(i, it))
-        b2_news_text = "\n".join(b2_news_parts)
-    else:
-        b2_news_text = "(Свіжих новин про Близький Схід не знайдено)"
-
-    user_message = (
-        f"Дата звіту: {report_date} ({weekday_ua}). Поточна дата складання: {now_kyiv.strftime('%d.%m.%Y')} ({today_weekday_ua}), Київ.\n\n"
-        f"=== РЕАЛЬНІ НОВИНИ ЗА ДЕНЬ ЗВІТУ ДЛЯ БЛОКУ 1 (за 9 категоріями) ===\n"
-        f"Це повний список новин з нашої БД за категорією. Твоє завдання — СИНТЕЗУВАТИ їх у єдиний аналітичний абзац 'Огляд дня' (3-6 речень) для кожної категорії. НЕ переліковуй новини, НЕ цитуй заголовки, НЕ вставляй посилань.\n"
-        f"{b1_news_text}\n\n"
-        f"=== РЕАЛЬНІ НОВИНИ ДЛЯ БЛОКУ 2 (Близький Схід) ===\n"
-        f"Це повний список новин з нашої БД про Близький Схід за день звіту. Твоє завдання — СИНТЕЗУВАТИ їх в єдиний аналітичний Огляд ситуації (7-10 речень), потім 3-5 булетів Ключових тем дня, потім Вплив на нашу компанію, і наприкінці секція Джерела з усіма наданими новинами у вигляді markdown-посилань [Заголовок](URL).\n"
-        f"Копіюй заголовки та URL ДОСЛІВНО з даних нижче. НЕ вигадуй ані заголовків, ані посилань.\n"
-        f"{b2_news_text}\n\n"
-        f"=== ЗАВДАННЯ ===\n"
-        f"Напиши щоденний ринковий звіт строго за трьома блоками згідно системного промпту.\n\n"
-        f"ОБОВ'ЯЗКОВО:\n"
-        f"- У БЛОЦІ 1 — 9 категорій. Для кожної: Тренд, Огляд дня (3-6 речень синтезу), Геополітика та торгівля, Специфіка для України. БЕЗ списків новин, БЕЗ посилань.\n"
-        f"- У БЛОЦІ 2 — ЄДИНИЙ синтез: Огляд ситуації (7-10 речень), Ключові теми дня (булети), Вплив на нашу компанію, Джерела (список markdown-посилань). БЕЗ окремих карток по кожній новині.\n"
-        f"- У БЛОЦІ 2 секція 'Джерела' МУСИТЬ містити ВСІ надані новини у форматі '- [Заголовок](URL)', по одній на рядок. Копіюй заголовки та URL дослівно.\n"
-        f"- Блок 3 НЕ ПИШИ — він додається в PDF автоматично з yfinance-даних.\n"
-        f"- НЕ додавай Блок 4, Блок 5, підсумки, валюти.\n"
-        f"Після Блоку 2 звіт завершується."
+    # ── Fetch structured facts from DB (Stage 2) ──────────────────
+    # Instead of feeding raw article text to gpt-4o and hoping it summarizes
+    # without inventing, we pass a list of pre-extracted atomic facts
+    # (already tagged with affected_sectors by gpt-4o-mini) and ask the model
+    # only to aggregate them into the familiar "Огляд дня" paragraph format.
+    # The PDF output stays identical to before — same structure, same style.
+    # Only the grounding underneath changes.
+    facts_data = fetch_facts_for_report(
+        report_subject_date.date(), days_back=3, end_time=fetch_end_time
     )
+
+    # Safety net: if the facts table is empty (first days after deploy, or
+    # pipeline broken), fall back to the old full_text pipeline so the
+    # report never comes out blank.
+    news_data = None
+    use_facts_path = facts_data["stats"]["total"] > 0
+    if not use_facts_path:
+        print("Stage 2: facts table empty for report day — falling back to Stage 1 (full_text) pipeline")
+        news_data = fetch_recent_news_for_report(
+            report_subject_date.date(), days_back=3, end_time=fetch_end_time
+        )
+
+    # ─── Format helpers ──────────────────────────────────────────
+
+    def fmt_fact(idx: int, f: dict) -> str:
+        """
+        Format one fact for the LLM prompt. Compact vertical layout —
+        easy for the model to parse, cheap in tokens.
+        """
+        et    = (f.get("event_type") or "other").strip()
+        rel   = (f.get("ukraine_relevance") or "low").strip()
+        conf  = (f.get("confidence") or "medium").strip()
+        what  = (f.get("what_happened") or "").strip()
+        who   = (f.get("who") or "").strip()
+        where = (f.get("where_loc") or "").strip()
+        mag   = (f.get("magnitude") or "").strip() if f.get("magnitude") else ""
+        impact = (f.get("supply_chain_impact") or "").strip() if f.get("supply_chain_impact") else ""
+        publisher = (f.get("source_publisher") or "").strip()
+
+        lines = [f"  FACT {idx} [type={et} | relevance={rel} | confidence={conf} | source={publisher}]"]
+        lines.append(f"    what:   {what}")
+        if who:
+            lines.append(f"    who:    {who}")
+        if where:
+            lines.append(f"    where:  {where}")
+        if mag:
+            lines.append(f"    magnitude: {mag}")
+        if impact:
+            lines.append(f"    impact: {impact}")
+        return "\n".join(lines)
+
+    # ─── Build payload: facts path (primary) or full_text path (fallback) ──
+
+    if use_facts_path:
+        # ── Block 1: facts grouped by category (DAILY MODE ONLY) ──
+        # In midday mode Block 1 is suppressed entirely — the model is instructed
+        # to output only Block 2, and the PDF renderer skips the Block 1 section.
+        b1_news_text = ""
+        if mode == "daily":
+            b1_parts = []
+            for cat_code, cat_name in REPORT_CATEGORIES:
+                facts = facts_data["by_category"].get(cat_code, [])
+                n_high   = sum(1 for f in facts if f.get("ukraine_relevance") == "high")
+                n_medium = sum(1 for f in facts if f.get("ukraine_relevance") == "medium")
+                n_low    = sum(1 for f in facts if f.get("ukraine_relevance") == "low")
+                b1_parts.append(
+                    f"\n[КАТЕГОРІЯ: {cat_name}] — {len(facts)} фактів "
+                    f"(high:{n_high}, medium:{n_medium}, low:{n_low}):"
+                )
+                if facts:
+                    for i, f in enumerate(facts, 1):
+                        b1_parts.append(fmt_fact(i, f))
+                else:
+                    b1_parts.append("  (фактів не зафіксовано)")
+            b1_news_text = "\n".join(b1_parts)
+
+        # ── Block 2: middle east facts + sources ───────────────────
+        me_facts = facts_data["middle_east"]
+        if me_facts:
+            b2_parts = [fmt_fact(i, f) for i, f in enumerate(me_facts, 1)]
+            b2_news_text = "\n".join(b2_parts)
+
+            # Deduplicate sources by parent article link
+            seen_links: set = set()
+            sources_lines = []
+            for f in me_facts:
+                link = (f.get("link") or "").strip()
+                title = (f.get("title") or "").strip()
+                if not link or link in seen_links:
+                    continue
+                seen_links.add(link)
+                sources_lines.append(f"- [{title}]({link})")
+            b2_sources_text = "\n".join(sources_lines) if sources_lines else "(немає джерел)"
+        else:
+            b2_news_text = "(Свіжих фактів про Близький Схід не знайдено)"
+            b2_sources_text = "(немає джерел)"
+
+        stats = facts_data["stats"]
+        stats_line = (
+            f"Всього фактів за день звіту: {stats['total']}. "
+            f"По релевантності: {stats.get('by_relevance', {})}. "
+            f"По категоріях: {stats.get('by_category_counts', {})}"
+        )
+
+        if mode == "daily":
+            user_message = (
+                f"Дата звіту: {report_date} ({weekday_ua}). Поточна дата складання: {now_kyiv.strftime('%d.%m.%Y')} ({today_weekday_ua}), Київ.\n\n"
+                f"=== СТАТИСТИКА ПО ФАКТАХ ===\n"
+                f"{stats_line}\n\n"
+                f"=== СТРУКТУРОВАНІ ФАКТИ ДЛЯ БЛОКУ 1 (за 9 категоріями) ===\n"
+                f"Нижче — список АТОМАРНИХ ФАКТІВ, витягнутих з реальних статей через gpt-4o-mini. Кожен факт вже містить: що сталося, хто учасники, де, величина ефекту, вплив на ланцюги постачання, релевантність для українського імпортера, впевненість.\n"
+                f"Твоє завдання — для кожної з 9 категорій написати 'Огляд дня' (3-6 речень) у ТОМУ Ж стилі що й раніше — природним аналітичним текстом українською мовою, як ніби ти журналіст B2B-видання. НЕ виводь факти списком у фінальному звіті, НЕ згадуй слова 'FACT', 'relevance', 'confidence' — це службові мітки лише для твого розуміння.\n"
+                f"\nКРИТИЧНО:\n"
+                f"  • Використовуй ТІЛЬКИ факти з цієї категорії. НЕ переноси факти між категоріями.\n"
+                f"  • НЕ додумуй деталей яких немає в фактах. Якщо факт каже 'tariffs on Chinese APIs', НЕ пиши 'tariffs of 25% from May 1' — цифри і дати беруться тільки з поля magnitude.\n"
+                f"  • Пріоритет фактам з relevance=high > medium > low. Факти з low подавай обережно.\n"
+                f"  • Факти з confidence=low подавай з оговоркою ('за даними аналітиків', 'очікується').\n"
+                f"  • Якщо для категорії 0 фактів — пиши в 'Огляді дня': 'Свіжих новин за категорією не зафіксовано; ринок без істотних змін.' і далі 'Прямого впливу немає.'\n"
+                f"  • Якщо фактів мало (1-2) — Огляд дня буде коротшим (2-3 речення), це нормально.\n"
+                f"  • Стиль — природний зв'язний абзац українською, як у попередніх звітах. Не перераховуй факти, агрегуй у цілісний текст.\n"
+                f"\n{b1_news_text}\n\n"
+                f"=== СТРУКТУРОВАНІ ФАКТИ ДЛЯ БЛОКУ 2 (Близький Схід) ===\n"
+                f"Агрегуй ці факти в 'Огляд ситуації' (7-10 речень природним текстом), потім 3-5 булетів 'Ключові теми дня', потім 'Вплив на нашу компанію' (2-4 речення з конкретними рекомендаціями).\n"
+                f"\n{b2_news_text}\n\n"
+                f"--- СПИСОК ДЖЕРЕЛ ДЛЯ СЕКЦІЇ 'Джерела' В БЛОЦІ 2 ---\n"
+                f"Скопіюй цей список ДОСЛІВНО в секцію 'Джерела:' Блоку 2 (кожен рядок — один markdown-посилання):\n"
+                f"{b2_sources_text}\n\n"
+                f"=== ЗАВДАННЯ ===\n"
+                f"Напиши щоденний ринковий звіт строго за двома блоками згідно системного промпту.\n\n"
+                f"ОБОВ'ЯЗКОВО:\n"
+                f"- У БЛОЦІ 1 — 9 категорій. Для кожної: Тренд (одна строка), Огляд дня (3-6 речень природного тексту), Геополітика та торгівля (1-2 речення), Специфіка для України (1-2 речення). БЕЗ списків фактів, БЕЗ посилань у Блоці 1.\n"
+                f"- У БЛОЦІ 2 — ЄДИНИЙ синтез: Огляд ситуації (7-10 речень природного тексту), Ключові теми дня (3-5 булетів), Вплив на нашу компанію (2-4 речення), Джерела (скопіюй список вище ДОСЛІВНО).\n"
+                f"- Блок 3 НЕ ПИШИ — додається в PDF автоматично з yfinance-даних.\n"
+                f"- НЕ додавай Блок 4, Блок 5, підсумки, валюти.\n"
+                f"- НЕ пиши в звіті слова 'FACT', 'relevance', 'confidence', 'magnitude' — це службові мітки, не частина фінального тексту.\n"
+                f"Після Блоку 2 звіт завершується."
+            )
+        else:
+            # ── MIDDAY PROMPT — only Block 2 (Middle East) ─────────
+            # No Block 1, no "end-of-day" framing. The window is
+            # "today 00:00 Kyiv .. right now", so we tell the model to
+            # treat this as an intraday update on top of the morning report.
+            time_str = now_kyiv.strftime("%H:%M")
+            user_message = (
+                f"Дата звіту: {report_date} ({today_weekday_ua}), станом на {time_str} Київ.\n"
+                f"Це ПОЛУДЕННЕ ОНОВЛЕННЯ — короткий звіт, що покриває СЬОГОДНІ з 00:00 до поточного моменту, "
+                f"як інтрадей-апдейт поверх ранкового звіту о 9:00.\n\n"
+                f"=== СТАТИСТИКА ПО ФАКТАХ ===\n"
+                f"{stats_line}\n\n"
+                f"=== СТРУКТУРОВАНІ ФАКТИ ДЛЯ БЛОКУ 2 (Близький Схід) — вікно 'сьогодні з 00:00 до {time_str}' ===\n"
+                f"Нижче — список АТОМАРНИХ ФАКТІВ за сьогоднішнє вікно, витягнутих з реальних статей. Якщо фактів 0 — це НОРМАЛЬНО для тихого полудня, і звіт повинен це ЧЕСНО відобразити.\n\n"
+                f"Твоє завдання — написати ТІЛЬКИ Блок 2 (Ситуація на Близькому Сході) у звичайному форматі:\n"
+                f"  • Огляд ситуації (5-8 речень природного тексту — коротше ніж у ранковому звіті, бо вікно менше)\n"
+                f"  • Ключові теми дня (2-4 булети)\n"
+                f"  • Вплив на нашу компанію (2-3 речення з конкретними рекомендаціями)\n"
+                f"  • Джерела (скопіюй список нижче ДОСЛІВНО)\n\n"
+                f"КРИТИЧНО:\n"
+                f"  • Якщо фактів 0 — пиши в 'Огляді ситуації' ОДНЕ речення: "
+                f"'Станом на полудень істотних нових подій на Близькому Сході з моменту ранкового звіту не зафіксовано.' "
+                f"Тоді в 'Ключових темах' напиши одним булетом '— без змін'. В 'Впливі на компанію' — 'Жодних нових дій не потрібно, ситуація стабільна.' В 'Джерелах' — '(немає джерел)'.\n"
+                f"  • НЕ вигадуй події яких немає у фактах. НЕ повторюй ранковий звіт.\n"
+                f"  • НЕ пиши Блок 1 — у полуденному звіті його немає.\n"
+                f"  • НЕ пиши Блок 3 — додається автоматично з yfinance.\n"
+                f"  • НЕ виводь факти списком, НЕ згадуй слова 'FACT', 'relevance', 'confidence'.\n\n"
+                f"{b2_news_text}\n\n"
+                f"--- СПИСОК ДЖЕРЕЛ ДЛЯ СЕКЦІЇ 'Джерела' ---\n"
+                f"Скопіюй ДОСЛІВНО:\n"
+                f"{b2_sources_text}\n\n"
+                f"=== ЗАВДАННЯ ===\n"
+                f"Виведи ТІЛЬКИ Блок 2 у форматі:\n"
+                f"=== БЛОК 2: СИТУАЦІЯ НА БЛИЗЬКОМУ СХОДІ ===\n"
+                f"<Огляд ситуації>\n"
+                f"<Ключові теми дня>\n"
+                f"<Вплив на нашу компанію>\n"
+                f"<Джерела>\n\n"
+                f"Після Блоку 2 звіт завершується. НЕ додавай жодних інших блоків."
+            )
+
+    else:
+        # ── FALLBACK: old full_text path (used only when facts table is empty) ──
+        _B1_FULLTEXT_BUDGET = 2500
+        _B1_SNIPPET_BUDGET  = 400
+        _B2_FULLTEXT_BUDGET = 3000
+        _B2_SNIPPET_BUDGET  = 500
+
+        def _pick_best_body(item: dict, fulltext_budget: int, snippet_budget: int) -> tuple[str, str]:
+            full   = (item.get("full_text") or "").strip()
+            status = (item.get("extraction_status") or "").strip()
+            if full and status == "ok":
+                body = full[:fulltext_budget]
+                if len(full) > fulltext_budget:
+                    body += "..."
+                return body, "FULLTEXT"
+            snippet = (item.get("summary_en") or item.get("summary_ua") or "").strip()
+            if len(snippet) > snippet_budget:
+                snippet = snippet[:snippet_budget] + "..."
+            return snippet, "RSS_SNIPPET"
+
+        def fmt_news_item(idx: int, item: dict) -> str:
+            title = (item.get("title") or "").strip()
+            link  = (item.get("link")  or "").strip()
+            body, source_tag = _pick_best_body(item, _B2_FULLTEXT_BUDGET, _B2_SNIPPET_BUDGET)
+            return (
+                f"  {idx}. [{source_tag}] TITLE: {title}\n"
+                f"     BODY: {body}\n"
+                f"     URL: {link}"
+            )
+
+        def fmt_news_item_b1(idx: int, item: dict) -> str:
+            title = (item.get("title") or "").strip()
+            body, source_tag = _pick_best_body(item, _B1_FULLTEXT_BUDGET, _B1_SNIPPET_BUDGET)
+            return f"  - [{source_tag}] {title}\n    {body}"
+
+        b1_news_text = ""
+        if mode == "daily":
+            b1_news_parts = []
+            for cat_code, cat_name in REPORT_CATEGORIES:
+                items = news_data["by_category"].get(cat_code, [])
+                n_full = sum(1 for it in items if (it.get("extraction_status") == "ok" and it.get("full_text")))
+                n_snip = len(items) - n_full
+                b1_news_parts.append(
+                    f"\n[КАТЕГОРІЯ: {cat_name}] — {len(items)} новин "
+                    f"({n_full} з повним текстом, {n_snip} лише RSS):"
+                )
+                if items:
+                    for i, it in enumerate(items, 1):
+                        b1_news_parts.append(fmt_news_item_b1(i, it))
+                else:
+                    b1_news_parts.append("  (новин не зафіксовано)")
+            b1_news_text = "\n".join(b1_news_parts)
+
+        me_items = news_data["middle_east"]
+        if me_items:
+            b2_news_parts = [fmt_news_item(i, it) for i, it in enumerate(me_items, 1)]
+            b2_news_text = "\n".join(b2_news_parts)
+        else:
+            b2_news_text = "(Свіжих новин про Близький Схід не знайдено)"
+
+        if mode == "daily":
+            user_message = (
+                f"Дата звіту: {report_date} ({weekday_ua}). Поточна дата складання: {now_kyiv.strftime('%d.%m.%Y')} ({today_weekday_ua}), Київ.\n\n"
+                f"[FALLBACK MODE: facts table empty, using raw full_text pipeline]\n\n"
+                f"=== РЕАЛЬНІ НОВИНИ ЗА ДЕНЬ ЗВІТУ ДЛЯ БЛОКУ 1 (за 9 категоріями) ===\n"
+                f"Це повний список новин з нашої БД за категорією. Твоє завдання — СИНТЕЗУВАТИ їх у єдиний аналітичний абзац 'Огляд дня' (3-6 речень) для кожної категорії. НЕ переліковуй новини, НЕ цитуй заголовки, НЕ вставляй посилань.\n"
+                f"{b1_news_text}\n\n"
+                f"=== РЕАЛЬНІ НОВИНИ ДЛЯ БЛОКУ 2 (Близький Схід) ===\n"
+                f"Це повний список новин з нашої БД про Близький Схід за день звіту. Твоє завдання — СИНТЕЗУВАТИ їх в єдиний аналітичний Огляд ситуації (7-10 речень), потім 3-5 булетів Ключових тем дня, потім Вплив на нашу компанію, і наприкінці секція Джерела з усіма наданими новинами у вигляді markdown-посилань [Заголовок](URL).\n"
+                f"Копіюй заголовки та URL ДОСЛІВНО з даних нижче. НЕ вигадуй ані заголовків, ані посилань.\n"
+                f"{b2_news_text}\n\n"
+                f"=== ЗАВДАННЯ ===\n"
+                f"Напиши щоденний ринковий звіт строго за трьома блоками згідно системного промпту.\n\n"
+                f"ОБОВ'ЯЗКОВО:\n"
+                f"- У БЛОЦІ 1 — 9 категорій. Для кожної: Тренд, Огляд дня (3-6 речень синтезу), Геополітика та торгівля, Специфіка для України. БЕЗ списків новин, БЕЗ посилань.\n"
+                f"- У БЛОЦІ 2 — ЄДИНИЙ синтез: Огляд ситуації (7-10 речень), Ключові теми дня (булети), Вплив на нашу компанію, Джерела (список markdown-посилань). БЕЗ окремих карток по кожній новині.\n"
+                f"- У БЛОЦІ 2 секція 'Джерела' МУСИТЬ містити ВСІ надані новини у форматі '- [Заголовок](URL)', по одній на рядок. Копіюй заголовки та URL дослівно.\n"
+                f"- Блок 3 НЕ ПИШИ — він додається в PDF автоматично з yfinance-даних.\n"
+                f"- НЕ додавай Блок 4, Блок 5, підсумки, валюти.\n"
+                f"Після Блоку 2 звіт завершується."
+            )
+        else:
+            # ── MIDDAY FALLBACK PROMPT — only Block 2 ──────────────
+            time_str = now_kyiv.strftime("%H:%M")
+            user_message = (
+                f"Дата звіту: {report_date} ({today_weekday_ua}), станом на {time_str} Київ.\n"
+                f"[FALLBACK MODE: facts table empty, using raw full_text pipeline]\n"
+                f"Це ПОЛУДЕННЕ ОНОВЛЕННЯ — короткий звіт, що покриває СЬОГОДНІ з 00:00 до поточного моменту, "
+                f"як інтрадей-апдейт поверх ранкового звіту о 9:00.\n\n"
+                f"=== РЕАЛЬНІ НОВИНИ ДЛЯ БЛОКУ 2 (Близький Схід) — вікно 'сьогодні з 00:00 до {time_str}' ===\n"
+                f"Це список новин з нашої БД про Близький Схід за сьогоднішнє вікно. Якщо новин 0 — це НОРМАЛЬНО для тихого полудня.\n\n"
+                f"Твоє завдання — написати ТІЛЬКИ Блок 2 у звичайному форматі:\n"
+                f"  • Огляд ситуації (5-8 речень — коротше ніж ранковий звіт)\n"
+                f"  • Ключові теми дня (2-4 булети)\n"
+                f"  • Вплив на нашу компанію (2-3 речення)\n"
+                f"  • Джерела (всі надані новини у форматі '- [Заголовок](URL)')\n\n"
+                f"КРИТИЧНО:\n"
+                f"  • Якщо новин 0 — пиши ОДНЕ речення в 'Огляді': "
+                f"'Станом на полудень істотних нових подій на Близькому Сході з моменту ранкового звіту не зафіксовано.' "
+                f"В 'Ключових темах' — '— без змін'. В 'Впливі' — 'Жодних нових дій не потрібно, ситуація стабільна.' В 'Джерелах' — '(немає джерел)'.\n"
+                f"  • Копіюй заголовки та URL ДОСЛІВНО. НЕ вигадуй.\n"
+                f"  • НЕ пиши Блок 1, Блок 3, підсумки, валюти.\n\n"
+                f"{b2_news_text}\n\n"
+                f"=== ЗАВДАННЯ ===\n"
+                f"Виведи ТІЛЬКИ Блок 2 у форматі:\n"
+                f"=== БЛОК 2: СИТУАЦІЯ НА БЛИЗЬКОМУ СХОДІ ===\n"
+                f"<Огляд ситуації>\n"
+                f"<Ключові теми дня>\n"
+                f"<Вплив на нашу компанію>\n"
+                f"<Джерела>\n\n"
+                f"Після Блоку 2 звіт завершується."
+            )
 
     print(f"Generating prompt-based daily report for {report_date}...")
 
@@ -1713,7 +2496,11 @@ async def generate_daily_pdf_report() -> str | None:
         print(f"OpenAI report generation error: {e}")
         return None
 
-    # ── Parse the 4 blocks by section markers ─────────────────────
+    # ── Parse the blocks from model output ───────────────────────
+    # In daily mode the model writes both Block 1 and Block 2; extract_block finds each.
+    # In midday mode the model was explicitly told to write ONLY Block 2, so after
+    # the regular extraction we override: block1 = "", block2 = full text (minus
+    # any stray "=== БЛОК 2:" header the model may have prepended).
     def extract_block(text: str, start_marker: str, end_marker: str | None) -> str:
         # Try both === БЛОК N: and ## БЛОК N variants
         markers_to_try = [start_marker]
@@ -1752,8 +2539,19 @@ async def generate_daily_pdf_report() -> str | None:
 
         return chunk.strip()
 
-    block1 = extract_block(report_text, "=== БЛОК 1", "=== БЛОК 2")
-    block2 = extract_block(report_text, "=== БЛОК 2", "=== БЛОК 3")
+    if mode == "midday":
+        block1 = ""
+        # Strip the optional "=== БЛОК 2: ..." header the model may still prepend
+        stripped_text = report_text.lstrip()
+        for prefix in ("=== БЛОК 2:", "=== БЛОК 2", "## БЛОК 2:", "## БЛОК 2", "**БЛОК 2"):
+            if stripped_text.startswith(prefix):
+                nl = stripped_text.find("\n")
+                stripped_text = stripped_text[nl + 1:] if nl != -1 else ""
+                break
+        block2 = stripped_text.strip()
+    else:
+        block1 = extract_block(report_text, "=== БЛОК 1", "=== БЛОК 2")
+        block2 = extract_block(report_text, "=== БЛОК 2", "=== БЛОК 3")
 
     # Clean up leftover section headers like ": ОГЛЯД ЗА КАТЕГОРІЯМИ ==="
     def clean_block_header(chunk: str) -> str:
@@ -1791,9 +2589,12 @@ async def generate_daily_pdf_report() -> str | None:
     block1 = clean_block_header(block1)
     block2 = clean_block_header(block2)
 
-    # If markers not present — use full text as block1
+    # If markers not present — use full text as fallback content
     if not any([block1, block2]):
-        block1 = report_text
+        if mode == "midday":
+            block2 = report_text
+        else:
+            block1 = report_text
 
     # ── Build PDF ─────────────────────────────────────────────────
     base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -1803,8 +2604,11 @@ async def generate_daily_pdf_report() -> str | None:
     pdf.add_page()
     draw_header_bar(pdf, report_date, base_dir)
 
-    # ── BLOCK 1: Секції по 9 категоріях ──────────────────────────
-    section_title(pdf, "БЛОК 1  ·  Огляд за категоріями")
+    # ── BLOCK 1: Секції по 9 категоріях (DAILY MODE ONLY) ────────
+    # In midday mode Block 1 is suppressed — the first page starts directly
+    # with Block 2 (Middle East). Block 3 (commodity charts) follows as usual.
+    if mode == "daily":
+        section_title(pdf, "БЛОК 1  ·  Огляд за категоріями")
 
     def render_block1_sections(pdf: FPDF, text: str):
         """Render Block 1 as per-category sections, splitting on ### headings.
@@ -1857,14 +2661,16 @@ async def generate_daily_pdf_report() -> str | None:
             body_text(pdf, "\n".join(body_lines))
             draw_divider(pdf)
 
-    if block1:
-        render_block1_sections(pdf, block1)
-    else:
-        body_text(pdf, "Дані відсутні.")
+    if mode == "daily":
+        if block1:
+            render_block1_sections(pdf, block1)
+        else:
+            body_text(pdf, "Дані відсутні.")
 
-    # ── BLOCK 2: Ситуація на Близькому Сході ─────────────────────
-    pdf.add_page()
-    draw_header_bar(pdf, report_date, base_dir)
+        # ── BLOCK 2: Ситуація на Близькому Сході (new page in daily) ─
+        pdf.add_page()
+        draw_header_bar(pdf, report_date, base_dir)
+    # In midday mode Block 2 starts on the same first page (no add_page above).
     section_title(pdf, "БЛОК 2  ·  Ситуація на Близькому Сході")
 
     if block2:
@@ -1879,9 +2685,14 @@ async def generate_daily_pdf_report() -> str | None:
     section_title(pdf, "БЛОК 3  ·  Товарні ринки")
 
     # Generate chart PNGs into a temp dir; they live until we close the PDF.
+    # In midday mode we pass "today" so _make_candle_chart's upper bound is today,
+    # which means Brent/Palm oil can show today's candle (if already available),
+    # while CBOT Corn — which opens at 15:00 Kyiv — will still show yesterday's
+    # as its last available candle. The card's price line prints the actual
+    # candle date (from price_info['date']) so the user sees the real window.
     charts_tmp_dir = tempfile.mkdtemp(prefix="charts_")
     try:
-        charts = generate_all_charts(yesterday.date(), charts_tmp_dir)
+        charts = generate_all_charts(report_subject_date.date(), charts_tmp_dir)
     except Exception as e:
         print(f"Chart generation failed: {e}")
         charts = {}
@@ -1994,9 +2805,15 @@ async def generate_daily_pdf_report() -> str | None:
         body_text(pdf, "Дані по товарних ринках недоступні.")
 
     # ── Save PDF ──────────────────────────────────────────────────
-    pdf_path = os.path.join(base_dir, f"daily_report_{yesterday.strftime('%Y%m%d')}.pdf")
+    # daily:  daily_report_YYYYMMDD.pdf        (subject = yesterday)
+    # midday: daily_report_YYYYMMDD_midday.pdf (subject = today)
+    filename_suffix = "_midday" if mode == "midday" else ""
+    pdf_path = os.path.join(
+        base_dir,
+        f"daily_report_{report_subject_date.strftime('%Y%m%d')}{filename_suffix}.pdf"
+    )
     pdf.output(pdf_path)
-    print(f"Report saved: {pdf_path}")
+    print(f"Report saved ({mode}): {pdf_path}")
 
     # Clean up chart temp files (PDF is already written, safe to delete)
     try:
@@ -2013,7 +2830,7 @@ async def generate_daily_pdf_report() -> str | None:
 # ─────────────────────────────────────────────────────────────────
 
 async def send_daily_report_to_users():
-    pdf_path = await generate_daily_pdf_report()
+    pdf_path = await generate_daily_pdf_report(mode="daily")
     if not pdf_path or not os.path.exists(pdf_path):
         print("Daily report generation skipped or failed.")
         return
@@ -2064,6 +2881,59 @@ async def send_daily_report_to_users():
                     )
             except Exception as e:
                 print(f"Error sending PDF to admin {admin_chat_id}: {e}")
+
+    try:
+        os.remove(pdf_path)
+    except Exception as e:
+        print(f"Failed to delete {pdf_path}: {e}")
+
+
+async def send_midday_report_to_users():
+    """
+    14:00 Kyiv intraday update. Generates a short Block2+Block3 report
+    covering "today from 00:00 to now", sends it to the same user list as
+    the morning 9:00 daily report. Does NOT pin the message (unlike morning),
+    since the morning report is already pinned and stays the "anchor" of the day.
+    """
+    pdf_path = await generate_daily_pdf_report(mode="midday")
+    if not pdf_path or not os.path.exists(pdf_path):
+        print("Midday report generation skipped or failed.")
+        return
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    users = db_fetchall(cursor, "SELECT chat_id FROM telegram_users")
+    conn.close()
+
+    now_kyiv = datetime.datetime.now(pytz.timezone("Europe/Kyiv"))
+    caption = f"🕑 Полуденне оновлення станом на {now_kyiv.strftime('%H:%M')} (Блок 2 + Блок 3)."
+
+    async with httpx.AsyncClient() as client:
+        for user in users:
+            try:
+                chat_id = user["chat_id"]
+                with open(pdf_path, 'rb') as f:
+                    await client.post(
+                        f"{TELEGRAM_API_URL}/sendDocument",
+                        data={"chat_id": chat_id, "caption": caption},
+                        files={"document": ("Midday_Report.pdf", f)}
+                    )
+            except Exception as e:
+                print(f"Error sending midday PDF to {chat_id}: {e}")
+
+    # Also send to static admin chat IDs from env
+    chat_ids = [cid.strip() for cid in os.getenv("TELEGRAM_CHAT_ID", "").split(",") if cid.strip()]
+    async with httpx.AsyncClient() as client:
+        for admin_chat_id in chat_ids:
+            try:
+                with open(pdf_path, 'rb') as f:
+                    await client.post(
+                        f"{TELEGRAM_API_URL}/sendDocument",
+                        data={"chat_id": admin_chat_id, "caption": caption},
+                        files={"document": ("Midday_Report.pdf", f)}
+                    )
+            except Exception as e:
+                print(f"Error sending midday PDF to admin {admin_chat_id}: {e}")
 
     try:
         os.remove(pdf_path)
@@ -2326,12 +3196,31 @@ async def lifespan(app: FastAPI):
     # without blocking — fire-and-forget.
     task_backfill = asyncio.create_task(backfill_missing_full_text(max_articles=150))
 
+    # Stage 2: backfill facts extraction for any articles with full_text but no facts yet.
+    # Same fire-and-forget pattern.
+    task_backfill_facts = asyncio.create_task(backfill_missing_facts(max_articles=100))
+
     scheduler = AsyncIOScheduler(timezone=pytz.timezone('Europe/Kyiv'))
     # Daily report at 09:00 Kyiv time
     scheduler.add_job(send_daily_report_to_users, 'cron', hour=9, minute=0)
-    # Daily full-text backfill at 08:30 Kyiv time — runs 30 minutes before the
-    # report so any articles added overnight get their full_text ready in time.
-    scheduler.add_job(backfill_missing_full_text, 'cron', hour=8, minute=30)
+    # Midday intraday update at 14:00 Kyiv time (Block 2 + Block 3 only,
+    # window = today 00:00 .. now). Same recipients as the morning report.
+    scheduler.add_job(send_midday_report_to_users, 'cron', hour=14, minute=0, id='midday_report')
+    # Full-text backfill runs every 2 hours so a fresh batch of 150 articles
+    # gets processed continuously. At 8:30 specifically we still want it to
+    # run right before the report, regardless of the 2h cadence.
+    scheduler.add_job(backfill_missing_full_text, 'interval', hours=2, id='backfill_full_text')
+    scheduler.add_job(backfill_missing_full_text, 'cron', hour=8, minute=30, id='backfill_full_text_morning')
+    # Same pre-report backfill before the midday report: 13:30 gives
+    # extraction 30 minutes to catch up before facts-extraction at 13:45.
+    scheduler.add_job(backfill_missing_full_text, 'cron', hour=13, minute=30, id='backfill_full_text_midday')
+    # Stage 2: facts extraction backfill — runs every 2 hours offset by 1h from
+    # the full_text backfill, and at 8:45 (15 min before report) to catch any
+    # facts for articles whose full_text just landed.
+    scheduler.add_job(backfill_missing_facts, 'interval', hours=2, minutes=30, id='backfill_facts')
+    scheduler.add_job(backfill_missing_facts, 'cron', hour=8, minute=45, id='backfill_facts_morning')
+    # Same pattern before the midday report: 13:45 = 15 min before 14:00.
+    scheduler.add_job(backfill_missing_facts, 'cron', hour=13, minute=45, id='backfill_facts_midday')
     scheduler.start()
 
     yield
@@ -2341,6 +3230,7 @@ async def lifespan(app: FastAPI):
     task_tg.cancel()
     task_cleanup.cancel()
     task_backfill.cancel()
+    task_backfill_facts.cancel()
 
 
 app = FastAPI(title="Alliance News API", lifespan=lifespan)
@@ -2459,8 +3349,20 @@ def get_category_news(category: str):
 
 @app.get("/generate_report")
 async def trigger_report():
-    """HTTP endpoint to manually trigger report generation."""
-    pdf_path = await generate_daily_pdf_report()
+    """HTTP endpoint to manually trigger daily (09:00) report generation."""
+    pdf_path = await generate_daily_pdf_report(mode="daily")
     if pdf_path and os.path.exists(pdf_path):
         return FileResponse(pdf_path, media_type="application/pdf", filename="Daily_Report.pdf")
     raise HTTPException(status_code=500, detail="Report generation failed")
+
+
+@app.get("/generate_midday")
+async def trigger_midday_report():
+    """
+    HTTP endpoint to manually trigger the 14:00 midday report.
+    Generates a Block2+Block3 PDF covering today 00:00 .. now.
+    """
+    pdf_path = await generate_daily_pdf_report(mode="midday")
+    if pdf_path and os.path.exists(pdf_path):
+        return FileResponse(pdf_path, media_type="application/pdf", filename="Midday_Report.pdf")
+    raise HTTPException(status_code=500, detail="Midday report generation failed")
