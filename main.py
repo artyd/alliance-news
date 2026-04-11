@@ -190,26 +190,43 @@ if gemini_api_key:
     except AttributeError:
         pass
 
+# Tier-1 international sources — used ONLY by the `global_sources` category
+# below to collect wide-angle economy / trade / sanctions stories from top
+# newsrooms. NOT applied to thematic categories anymore (they were getting
+# starved by the site: filter — the B2B jargon queries + site restriction
+# returned mostly evergreen results from 2014-2019, leaving the DB empty).
 GLOBAL_SOURCES_RAW = "(site:reuters.com OR site:bloomberg.com OR site:ft.com OR site:wto.org OR site:bbc.com OR site:imf.org OR site:worldbank.org OR site:iccwbo.org OR site:theloadstar.com OR site:joc.com)"
 GLOBAL_SOURCES = urllib.parse.quote_plus(GLOBAL_SOURCES_RAW)
 
+# Thematic category queries. Broadened with OR-unions of synonyms and
+# stripped of site: filter — they now capture the full Google News universe
+# (trade publications, industry sites, regional outlets), which is what
+# actually covers B2B topics like "capsule manufacturing" or "amino acids".
 RSS_FEEDS = {
-    "api": f"https://news.google.com/rss/search?q=pharmaceutical+API+{GLOBAL_SOURCES}+when:7d&hl=en-US&gl=US&ceid=US:en",
-    "cosmetic": f"https://news.google.com/rss/search?q=cosmetic+ingredients+industry+{GLOBAL_SOURCES}+when:7d&hl=en-US&gl=US&ceid=US:en",
-    "herbal": f"https://news.google.com/rss/search?q=herbal+extracts+pharma+{GLOBAL_SOURCES}+when:7d&hl=en-US&gl=US&ceid=US:en",
-    "veterinary": f"https://news.google.com/rss/search?q=veterinary+medicine+production+{GLOBAL_SOURCES}+when:7d&hl=en-US&gl=US&ceid=US:en",
-    "food": f"https://news.google.com/rss/search?q=food+ingredients+supply+{GLOBAL_SOURCES}+when:7d&hl=en-US&gl=US&ceid=US:en",
-    "feed": f"https://news.google.com/rss/search?q=amino+acids+feed+industry+{GLOBAL_SOURCES}+when:7d&hl=en-US&gl=US&ceid=US:en",
-    "capsules": f"https://news.google.com/rss/search?q=capsule+manufacturing+pharma+{GLOBAL_SOURCES}+when:7d&hl=en-US&gl=US&ceid=US:en",
-    "pvc": f"https://news.google.com/rss/search?q=pvc+film+packaging+{GLOBAL_SOURCES}+when:7d&hl=en-US&gl=US&ceid=US:en",
-    "logistics": f"https://news.google.com/rss/search?q=global+logistics+shipping+{GLOBAL_SOURCES}+when:7d&hl=en-US&gl=US&ceid=US:en",
+    "api":        "https://news.google.com/rss/search?q=pharmaceutical+ingredients+OR+%22API+manufacturing%22+OR+%22generic+drugs%22+OR+%22active+pharmaceutical+ingredient%22+when:7d&hl=en-US&gl=US&ceid=US:en",
+    "cosmetic":   "https://news.google.com/rss/search?q=%22cosmetic+ingredients%22+OR+%22beauty+industry%22+OR+%22personal+care+market%22+OR+%22skincare+ingredients%22+when:7d&hl=en-US&gl=US&ceid=US:en",
+    "herbal":     "https://news.google.com/rss/search?q=%22botanical+extracts%22+OR+%22herbal+supplements%22+OR+%22medicinal+plants%22+OR+%22plant-based+ingredients%22+when:7d&hl=en-US&gl=US&ceid=US:en",
+    "veterinary": "https://news.google.com/rss/search?q=%22veterinary+pharmaceuticals%22+OR+%22animal+health%22+OR+%22livestock+medicine%22+OR+%22veterinary+drugs%22+when:7d&hl=en-US&gl=US&ceid=US:en",
+    "food":       "https://news.google.com/rss/search?q=%22food+ingredients%22+OR+%22food+supply+chain%22+OR+%22commodity+prices%22+OR+%22food+industry%22+when:7d&hl=en-US&gl=US&ceid=US:en",
+    "feed":       "https://news.google.com/rss/search?q=%22animal+feed%22+OR+lysine+OR+methionine+OR+%22soybean+meal%22+OR+%22feed+additives%22+when:7d&hl=en-US&gl=US&ceid=US:en",
+    "capsules":   "https://news.google.com/rss/search?q=%22gelatin+capsules%22+OR+%22capsule+manufacturing%22+OR+%22drug+delivery%22+OR+%22pharmaceutical+excipients%22+when:7d&hl=en-US&gl=US&ceid=US:en",
+    "pvc":        "https://news.google.com/rss/search?q=%22PVC+market%22+OR+%22plastic+packaging%22+OR+%22polymer+prices%22+OR+%22PVC+film%22+when:7d&hl=en-US&gl=US&ceid=US:en",
+    "logistics":  "https://news.google.com/rss/search?q=%22container+freight%22+OR+%22global+shipping%22+OR+%22supply+chain%22+OR+%22ocean+freight+rates%22+when:7d&hl=en-US&gl=US&ceid=US:en",
+    # Tier-1 wire service / institutional feed. Wide-topic capture on global
+    # economy, trade, sanctions — restricted to top publishers via the
+    # GLOBAL_SOURCES site: filter. Shown as Block 1 category #10 in the daily
+    # report AND visible to Telegram subscribers (not in INTERNAL_CATEGORIES).
+    "global_sources": f"https://news.google.com/rss/search?q=%22global+economy%22+OR+trade+OR+sanctions+OR+%22supply+chain%22+{GLOBAL_SOURCES}+when:7d&hl=en-US&gl=US&ceid=US:en",
     # Service category — used only for the daily report's Block 2 (Middle East).
     # Hidden from Telegram subscription UI via INTERNAL_CATEGORIES below.
-    "middle_east": f"https://news.google.com/rss/search?q=Iran+Israel+%22Red+Sea%22+Hormuz+Houthi+%22Middle+East%22+shipping+oil+{GLOBAL_SOURCES}+when:2d&hl=en-US&gl=US&ceid=US:en",
+    # Simplified to broad OR-union without site: filter so it actually returns
+    # results on quiet days.
+    "middle_east":    "https://news.google.com/rss/search?q=Iran+OR+Israel+OR+%22Red+Sea%22+OR+Hormuz+OR+Houthi+OR+Gaza+OR+Lebanon+OR+%22Persian+Gulf%22+when:7d&hl=en-US&gl=US&ceid=US:en",
 }
 
 # Categories that are fetched into DB but NOT shown as subscription options to users.
 # They exist purely to feed the daily report.
+# `global_sources` is a 10th Block-1 category — it IS user-visible in Telegram.
 INTERNAL_CATEGORIES = {"middle_east"}
 
 # ─────────────────────────────────────────────
@@ -248,7 +265,7 @@ DAILY_REPORT_SYSTEM_PROMPT = """Ти — старший B2B аналітик р�
 
 === БЛОК 1: ОГЛЯД ЗА КАТЕГОРІЯМИ ===
 
-Для КОЖНОЇ з 9 категорій тобі у користувацькому повідомленні надано список РЕАЛЬНИХ новин за день звіту (заголовки + короткі описи). Твоє завдання — НЕ переліковувати новини по одній, а написати ЄДИНУ аналітичну виЖимку.
+Для КОЖНОЇ з 10 категорій тобі у користувацькому повідомленні надано список РЕАЛЬНИХ новин за день звіту (заголовки + короткі описи). Твоє завдання — НЕ переліковувати новини по одній, а написати ЄДИНУ аналітичну виЖимку.
 
 Використовуй СТРОГО такий формат для кожної категорії (без нумерованих списків новин, без markdown-посилань):
 
@@ -271,7 +288,7 @@ DAILY_REPORT_SYSTEM_PROMPT = """Ти — старший B2B аналітик р�
 - Пиши ЦІЛІСНИЙ аналітичний абзац "Огляд дня" — це виЖимка журналіста, а не список посилань
 - Обсяг "Огляду дня" — 3-6 речень, без переліків
 
-ПОВТОРИ цей формат для ВСІХ 9 категорій у такому порядку:
+ПОВТОРИ цей формат для ВСІХ 10 категорій у такому порядку:
 1. Фармацевтичні субстанції (API)
 2. Косметичні субстанції
 3. Трави та рослинна сировина
@@ -281,6 +298,7 @@ DAILY_REPORT_SYSTEM_PROMPT = """Ти — старший B2B аналітик р�
 7. Капсули
 8. ПВХ-плівка та пакування
 9. Логістика та постачання
+10. Глобальна економіка та торгівля
 
 === БЛОК 2: СИТУАЦІЯ НА БЛИЗЬКОМУ СХОДІ ===
 
@@ -332,11 +350,17 @@ def get_topics_keyboard(current_subs_str, only_daily_mode=False):
     for cat in RSS_FEEDS.keys():
         if cat in INTERNAL_CATEGORIES:
             continue  # service categories (e.g. middle_east) not shown to users
+        # Friendly display labels — defaults to cat.upper() but we rename a few
+        # with underscores to look nicer as Telegram buttons.
+        display_map = {
+            "global_sources": "GLOBAL ECONOMY",
+        }
+        display_name = display_map.get(cat, cat.upper())
         if only_daily_mode:
-            text = f"❌ {cat.upper()}"
+            text = f"❌ {display_name}"
         else:
             is_subbed = current_subs_str == 'all' or cat in subs
-            text = f"✅ {cat.upper()}" if is_subbed else f"❌ {cat.upper()}"
+            text = f"✅ {display_name}" if is_subbed else f"❌ {display_name}"
         row.append({"text": text, "callback_data": f"topic_{cat}"})
         if len(row) == 2:
             keyboard.append(row)
@@ -999,11 +1023,11 @@ _FACTS_EXTRACTION_MODEL = "gpt-4o-mini"
 # is already a ~2-5s OpenAI API request).
 _FACTS_SEMAPHORE = asyncio.Semaphore(3)
 
-# The 9 sector codes the fact extractor is allowed to use for affected_sectors.
+# The 10 sector codes the fact extractor is allowed to use for affected_sectors.
 # Must match REPORT_CATEGORIES exactly. Any "other" / off-topic fact is tagged
 # with [] and dropped from the daily report.
 _FACT_SECTOR_CODES = ["api", "cosmetic", "herbal", "veterinary", "food",
-                      "feed", "capsules", "pvc", "logistics"]
+                      "feed", "capsules", "pvc", "logistics", "global_sources"]
 
 _FACTS_SYSTEM_PROMPT = """You are a B2B market intelligence analyst extracting atomic facts from a news article.
 
@@ -1016,17 +1040,21 @@ Each fact object MUST have exactly these fields:
 - where: country or region where the event occurred, or "global" if worldwide. Max 50 chars.
 - magnitude: concrete numeric value with unit if mentioned in the article ("+15%", "$2.3B", "500k tons", "10pp"). Use null if no numeric value is in the article. NEVER fabricate numbers.
 - affected_sectors: array of sector codes from this CLOSED list, pick ALL that apply:
-    ["api", "cosmetic", "herbal", "veterinary", "food", "feed", "capsules", "pvc", "logistics"]
+    ["api", "cosmetic", "herbal", "veterinary", "food", "feed", "capsules", "pvc", "logistics", "global_sources"]
   Sector meanings for a Ukrainian B2B importer:
-    api         - pharmaceutical active ingredients, generics, APIs, drugmakers
-    cosmetic    - cosmetic ingredients, personal care raw materials, skincare
-    herbal      - herbal extracts, botanical raw materials, plant medicines
-    veterinary  - veterinary drugs and their ingredients, animal pharma
-    food        - food ingredients, food additives, commodities as food raw material
-    feed        - feed additives, amino acids, protein sources for animal feed
-    capsules    - pharmaceutical capsules, hard/soft gel capsules, dosage forms
-    pvc         - PVC film, blister packaging, plastic packaging materials
-    logistics   - shipping, freight, ports, trade routes, customs, supply chains
+    api             - pharmaceutical active ingredients, generics, APIs, drugmakers
+    cosmetic        - cosmetic ingredients, personal care raw materials, skincare
+    herbal          - herbal extracts, botanical raw materials, plant medicines
+    veterinary      - veterinary drugs and their ingredients, animal pharma
+    food            - food ingredients, food additives, commodities as food raw material
+    feed            - feed additives, amino acids, protein sources for animal feed
+    capsules        - pharmaceutical capsules, hard/soft gel capsules, dosage forms
+    pvc             - PVC film, blister packaging, plastic packaging materials
+    logistics       - shipping, freight, ports, trade routes, customs, supply chains
+    global_sources  - wide-angle global economy / trade / sanctions stories from tier-1 outlets
+                      (Reuters, Bloomberg, FT, BBC, WTO, IMF, World Bank). Use for macro news
+                      that doesn't fit a specific sector but still matters for a B2B importer.
+                      Tag this IN ADDITION TO the specific sector when both apply.
   If the article is NOT about any of these sectors (e.g. crypto, consumer electronics, sports), return an empty array [].
 - supply_chain_impact: ONE sentence describing the concrete effect on imports/logistics/raw material availability for a Ukrainian company buying globally. Use null if not applicable.
 - ukraine_relevance: one of ["high", "medium", "low", "none"]
@@ -1809,15 +1837,16 @@ def generate_all_charts(report_date: datetime.date, tmp_dir: str) -> dict[str, d
 
 # Mapping: RSS category code → Ukrainian report category name
 REPORT_CATEGORIES = [
-    ("api",        "Фармацевтичні субстанції (API)"),
-    ("cosmetic",   "Косметичні субстанції"),
-    ("herbal",     "Трави та рослинна сировина"),
-    ("veterinary", "Ветеринарні субстанції"),
-    ("food",       "Харчова сировина"),
-    ("feed",       "Кормові амінокислоти"),
-    ("capsules",   "Капсули"),
-    ("pvc",        "ПВХ-плівка та пакування"),
-    ("logistics",  "Логістика та постачання"),
+    ("api",            "Фармацевтичні субстанції (API)"),
+    ("cosmetic",       "Косметичні субстанції"),
+    ("herbal",         "Трави та рослинна сировина"),
+    ("veterinary",     "Ветеринарні субстанції"),
+    ("food",           "Харчова сировина"),
+    ("feed",           "Кормові амінокислоти"),
+    ("capsules",       "Капсули"),
+    ("pvc",            "ПВХ-плівка та пакування"),
+    ("logistics",      "Логістика та постачання"),
+    ("global_sources", "Глобальна економіка та торгівля"),
 ]
 
 # Keywords to identify Middle East news in title/summary
@@ -2297,9 +2326,9 @@ async def generate_daily_pdf_report(mode: str = "daily") -> str | None:
                 f"Дата звіту: {report_date} ({weekday_ua}). Поточна дата складання: {now_kyiv.strftime('%d.%m.%Y')} ({today_weekday_ua}), Київ.\n\n"
                 f"=== СТАТИСТИКА ПО ФАКТАХ ===\n"
                 f"{stats_line}\n\n"
-                f"=== СТРУКТУРОВАНІ ФАКТИ ДЛЯ БЛОКУ 1 (за 9 категоріями) ===\n"
+                f"=== СТРУКТУРОВАНІ ФАКТИ ДЛЯ БЛОКУ 1 (за 10 категоріями) ===\n"
                 f"Нижче — список АТОМАРНИХ ФАКТІВ, витягнутих з реальних статей через gpt-4o-mini. Кожен факт вже містить: що сталося, хто учасники, де, величина ефекту, вплив на ланцюги постачання, релевантність для українського імпортера, впевненість.\n"
-                f"Твоє завдання — для кожної з 9 категорій написати 'Огляд дня' (3-6 речень) у ТОМУ Ж стилі що й раніше — природним аналітичним текстом українською мовою, як ніби ти журналіст B2B-видання. НЕ виводь факти списком у фінальному звіті, НЕ згадуй слова 'FACT', 'relevance', 'confidence' — це службові мітки лише для твого розуміння.\n"
+                f"Твоє завдання — для кожної з 10 категорій написати 'Огляд дня' (3-6 речень) у ТОМУ Ж стилі що й раніше — природним аналітичним текстом українською мовою, як ніби ти журналіст B2B-видання. НЕ виводь факти списком у фінальному звіті, НЕ згадуй слова 'FACT', 'relevance', 'confidence' — це службові мітки лише для твого розуміння.\n"
                 f"\nКРИТИЧНО:\n"
                 f"  • Використовуй ТІЛЬКИ факти з цієї категорії. НЕ переноси факти між категоріями.\n"
                 f"  • НЕ додумуй деталей яких немає в фактах. Якщо факт каже 'tariffs on Chinese APIs', НЕ пиши 'tariffs of 25% from May 1' — цифри і дати беруться тільки з поля magnitude.\n"
@@ -2318,7 +2347,7 @@ async def generate_daily_pdf_report(mode: str = "daily") -> str | None:
                 f"=== ЗАВДАННЯ ===\n"
                 f"Напиши щоденний ринковий звіт строго за двома блоками згідно системного промпту.\n\n"
                 f"ОБОВ'ЯЗКОВО:\n"
-                f"- У БЛОЦІ 1 — 9 категорій. Для кожної: Тренд (одна строка), Огляд дня (3-6 речень природного тексту), Геополітика та торгівля (1-2 речення), Специфіка для України (1-2 речення). БЕЗ списків фактів, БЕЗ посилань у Блоці 1.\n"
+                f"- У БЛОЦІ 1 — 10 категорій. Для кожної: Тренд (одна строка), Огляд дня (3-6 речень природного тексту), Геополітика та торгівля (1-2 речення), Специфіка для України (1-2 речення). БЕЗ списків фактів, БЕЗ посилань у Блоці 1.\n"
                 f"- У БЛОЦІ 2 — ЄДИНИЙ синтез: Огляд ситуації (7-10 речень природного тексту), Ключові теми дня (3-5 булетів), Вплив на нашу компанію (2-4 речення), Джерела (скопіюй список вище ДОСЛІВНО).\n"
                 f"- Блок 3 НЕ ПИШИ — додається в PDF автоматично з yfinance-даних.\n"
                 f"- НЕ додавай Блок 4, Блок 5, підсумки, валюти.\n"
@@ -2430,7 +2459,7 @@ async def generate_daily_pdf_report(mode: str = "daily") -> str | None:
             user_message = (
                 f"Дата звіту: {report_date} ({weekday_ua}). Поточна дата складання: {now_kyiv.strftime('%d.%m.%Y')} ({today_weekday_ua}), Київ.\n\n"
                 f"[FALLBACK MODE: facts table empty, using raw full_text pipeline]\n\n"
-                f"=== РЕАЛЬНІ НОВИНИ ЗА ДЕНЬ ЗВІТУ ДЛЯ БЛОКУ 1 (за 9 категоріями) ===\n"
+                f"=== РЕАЛЬНІ НОВИНИ ЗА ДЕНЬ ЗВІТУ ДЛЯ БЛОКУ 1 (за 10 категоріями) ===\n"
                 f"Це повний список новин з нашої БД за категорією. Твоє завдання — СИНТЕЗУВАТИ їх у єдиний аналітичний абзац 'Огляд дня' (3-6 речень) для кожної категорії. НЕ переліковуй новини, НЕ цитуй заголовки, НЕ вставляй посилань.\n"
                 f"{b1_news_text}\n\n"
                 f"=== РЕАЛЬНІ НОВИНИ ДЛЯ БЛОКУ 2 (Близький Схід) ===\n"
@@ -2440,7 +2469,7 @@ async def generate_daily_pdf_report(mode: str = "daily") -> str | None:
                 f"=== ЗАВДАННЯ ===\n"
                 f"Напиши щоденний ринковий звіт строго за трьома блоками згідно системного промпту.\n\n"
                 f"ОБОВ'ЯЗКОВО:\n"
-                f"- У БЛОЦІ 1 — 9 категорій. Для кожної: Тренд, Огляд дня (3-6 речень синтезу), Геополітика та торгівля, Специфіка для України. БЕЗ списків новин, БЕЗ посилань.\n"
+                f"- У БЛОЦІ 1 — 10 категорій. Для кожної: Тренд, Огляд дня (3-6 речень синтезу), Геополітика та торгівля, Специфіка для України. БЕЗ списків новин, БЕЗ посилань.\n"
                 f"- У БЛОЦІ 2 — ЄДИНИЙ синтез: Огляд ситуації (7-10 речень), Ключові теми дня (булети), Вплив на нашу компанію, Джерела (список markdown-посилань). БЕЗ окремих карток по кожній новині.\n"
                 f"- У БЛОЦІ 2 секція 'Джерела' МУСИТЬ містити ВСІ надані новини у форматі '- [Заголовок](URL)', по одній на рядок. Копіюй заголовки та URL дослівно.\n"
                 f"- Блок 3 НЕ ПИШИ — він додається в PDF автоматично з yfinance-даних.\n"
@@ -2604,7 +2633,7 @@ async def generate_daily_pdf_report(mode: str = "daily") -> str | None:
     pdf.add_page()
     draw_header_bar(pdf, report_date, base_dir)
 
-    # ── BLOCK 1: Секції по 9 категоріях (DAILY MODE ONLY) ────────
+    # ── BLOCK 1: Секції по 10 категоріях (DAILY MODE ONLY) ────────
     # In midday mode Block 1 is suppressed — the first page starts directly
     # with Block 2 (Middle East). Block 3 (commodity charts) follows as usual.
     if mode == "daily":
@@ -2959,7 +2988,42 @@ async def fetch_and_store_news():
             for category, url in RSS_FEEDS.items():
                 feed = await asyncio.to_thread(feedparser.parse, url)
 
-                for entry in feed.entries[:15]:
+                # ── Freshness filter ────────────────────────────────────
+                # Google News frequently ignores the `when:7d` URL param for
+                # narrow queries and returns evergreen matches from 2014-2019.
+                # We filter those out HERE, before dedup/insert, so stale stuff
+                # never pollutes the DB and we don't waste extraction/facts quota.
+                # Widened slice from 15 → 50 because the fresh stuff may be
+                # buried in the middle of the feed after topical-relevance sort.
+                _MAX_ARTICLE_AGE_DAYS = 7
+                _now_utc = datetime.datetime.now(datetime.timezone.utc)
+                _fresh_entries = []
+                _stale_count = 0
+                _unparseable_count = 0
+                for _entry in feed.entries[:50]:
+                    _pub_raw = getattr(_entry, "published", "")
+                    if not _pub_raw:
+                        _unparseable_count += 1
+                        continue
+                    try:
+                        _pub_dt = email.utils.parsedate_to_datetime(_pub_raw)
+                        if _pub_dt.tzinfo is None:
+                            _pub_dt = _pub_dt.replace(tzinfo=datetime.timezone.utc)
+                        _age_days = (_now_utc - _pub_dt).days
+                    except Exception:
+                        _unparseable_count += 1
+                        continue
+                    if _age_days > _MAX_ARTICLE_AGE_DAYS:
+                        _stale_count += 1
+                        continue
+                    _fresh_entries.append(_entry)
+
+                print(
+                    f"  {category}: feed={len(feed.entries)} fresh={len(_fresh_entries)} "
+                    f"stale={_stale_count} no_date={_unparseable_count}"
+                )
+
+                for entry in _fresh_entries:
                     title    = getattr(entry, "title", "")
                     raw_link = getattr(entry, "link", "")
                     link     = raw_link.split('?')[0] if raw_link else ""
