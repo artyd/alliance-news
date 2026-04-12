@@ -1927,7 +1927,8 @@ MIDDLE_EAST_KEYWORDS = [
 
 
 def fetch_facts_for_report(report_date: datetime.date, days_back: int = 3,
-                           end_time: datetime.datetime | None = None) -> dict:
+                           end_time: datetime.datetime | None = None,
+                           window_start: datetime.date | None = None) -> dict:
     """
     Stage 2: fetch structured facts grouped by affected sector for the report day.
 
@@ -1945,10 +1946,11 @@ def fetch_facts_for_report(report_date: datetime.date, days_back: int = 3,
       - Primary window: articles published on the report day
         ([report_date 00:00 .. report_date 23:59] Kyiv).
         When `end_time` is provided (midday report mode), the upper bound
-        becomes `end_time` instead of end-of-day — so the window is
-        [report_date 00:00 .. end_time], i.e. "today from midnight to now".
-      - If the primary window is sparse, widen to `days_back` days as fallback,
-        but the fallback upper bound is also clamped to `end_time` when set.
+        becomes `end_time` instead of end-of-day.
+        When `window_start` is provided (weekly mode), the lower bound is
+        [window_start 00:00] instead of report_date 00:00, giving a 7-day window.
+      - Multi-day fallback is disabled when end_time or window_start is set
+        (the caller already defines an explicit window).
       - Drop facts with ukraine_relevance='none' — they are noise.
       - A fact tagged with multiple sectors appears in each of them (that's the point).
     """
@@ -1962,13 +1964,19 @@ def fetch_facts_for_report(report_date: datetime.date, days_back: int = 3,
         conn = get_db_connection()
         cursor = conn.cursor()
 
-        day_start = datetime.datetime.combine(report_date, datetime.time.min).strftime("%Y-%m-%d %H:%M:%S")
+        # window_start overrides day_start for weekly mode (7-day window)
+        if window_start is not None:
+            day_start = datetime.datetime.combine(window_start, datetime.time.min).strftime("%Y-%m-%d %H:%M:%S")
+        else:
+            day_start = datetime.datetime.combine(report_date, datetime.time.min).strftime("%Y-%m-%d %H:%M:%S")
         if end_time is not None:
             # Midday mode: clamp upper bound to "now" instead of 23:59
             day_end = end_time.strftime("%Y-%m-%d %H:%M:%S")
         else:
             day_end = datetime.datetime.combine(report_date, datetime.time.max).strftime("%Y-%m-%d %H:%M:%S")
         fallback_cutoff = (datetime.datetime.now() - datetime.timedelta(days=days_back)).strftime("%Y-%m-%d %H:%M:%S")
+        # Disable multi-day fallback when caller provides an explicit window
+        _use_multi_day_fallback = end_time is None and window_start is None
 
         # Columns we need from both article_facts and articles
         select_cols = (
@@ -2004,8 +2012,8 @@ def fetch_facts_for_report(report_date: datetime.date, days_back: int = 3,
 
         # If the report day is sparse, fall back to last `days_back` days.
         # In midday mode the user explicitly wants "today 00:00 .. now" only,
-        # so no multi-day fallback — if today is quiet, the report says so.
-        if end_time is None and len(primary) < 15:
+        # and in weekly mode the window is already 7 days — no fallback needed.
+        if _use_multi_day_fallback and len(primary) < 15:
             fallback = run_facts_query(
                 "(a.published = '' OR a.published >= %s)",
                 (fallback_cutoff,),
@@ -2054,9 +2062,9 @@ def fetch_facts_for_report(report_date: datetime.date, days_back: int = 3,
             (day_start, day_end),
         ))
 
-        # 2) Same category, fallback window (daily mode only — midday wants
-        # strictly "today 00:00 .. now", no multi-day widening)
-        if end_time is None and len(me_facts) < 5:
+        # 2) Same category, fallback window (daily_brief mode only — midday/weekly
+        # want strictly their explicit window, no multi-day widening)
+        if _use_multi_day_fallback and len(me_facts) < 5:
             add_me(run_facts_query(
                 "a.category = 'middle_east' AND (a.published = '' OR a.published >= %s)",
                 (fallback_cutoff,),
@@ -2099,7 +2107,8 @@ def fetch_facts_for_report(report_date: datetime.date, days_back: int = 3,
 
 
 def fetch_recent_news_for_report(report_date: datetime.date, days_back: int = 3,
-                                 end_time: datetime.datetime | None = None) -> dict:
+                                 end_time: datetime.datetime | None = None,
+                                 window_start: datetime.date | None = None) -> dict:
     """
     Fetch news from DB:
     - by_category: ALL articles per category for the report day (yesterday Kyiv).
@@ -2119,14 +2128,19 @@ def fetch_recent_news_for_report(report_date: datetime.date, days_back: int = 3,
         cursor = conn.cursor()
 
         # Day-of-report window: 00:00 to 23:59 of the report date
-        # (or 00:00 to end_time in midday mode)
-        day_start = datetime.datetime.combine(report_date, datetime.time.min).strftime("%Y-%m-%d %H:%M:%S")
+        # (or 00:00 to end_time in midday mode, or window_start..report_date for weekly)
+        if window_start is not None:
+            day_start = datetime.datetime.combine(window_start, datetime.time.min).strftime("%Y-%m-%d %H:%M:%S")
+        else:
+            day_start = datetime.datetime.combine(report_date, datetime.time.min).strftime("%Y-%m-%d %H:%M:%S")
         if end_time is not None:
             day_end = end_time.strftime("%Y-%m-%d %H:%M:%S")
         else:
             day_end = datetime.datetime.combine(report_date, datetime.time.max).strftime("%Y-%m-%d %H:%M:%S")
         # Fallback window: last `days_back` days
         fallback_cutoff = (datetime.datetime.now() - datetime.timedelta(days=days_back)).strftime("%Y-%m-%d %H:%M:%S")
+        # When caller provides an explicit window (midday or weekly), disable fallbacks
+        _fixed_window = end_time is not None or window_start is not None
 
         # Columns we always want for report-building.
         # full_text and extraction_status are added by the Stage 1 migration.
@@ -2145,7 +2159,7 @@ def fetch_recent_news_for_report(report_date: datetime.date, days_back: int = 3,
             # Fallbacks are DAILY-ONLY. Midday mode explicitly wants "today 00:00 .. now";
             # if today is quiet, the category comes back empty and the synthesizer
             # will write "no new events" — which is the correct behavior.
-            if not rows and end_time is None:
+            if not rows and not _fixed_window:
                 # Fallback 1: last `days_back` days
                 rows = db_fetchall(cursor,
                     f"SELECT {cols} FROM articles "
@@ -2153,7 +2167,7 @@ def fetch_recent_news_for_report(report_date: datetime.date, days_back: int = 3,
                     "ORDER BY published DESC NULLS LAST LIMIT 10",
                     (cat, fallback_cutoff)
                 )
-            if not rows and end_time is None:
+            if not rows and not _fixed_window:
                 # Fallback 2: 10 latest regardless of date
                 rows = db_fetchall(cursor,
                     f"SELECT {cols} FROM articles "
@@ -2189,8 +2203,8 @@ def fetch_recent_news_for_report(report_date: datetime.date, days_back: int = 3,
             (day_start, day_end)
         ))
 
-        # 2) Fallback: middle_east category — last `days_back` days (daily mode only)
-        if len(me_rows) < 4 and end_time is None:
+        # 2) Fallback: middle_east category — last `days_back` days (daily_brief mode only)
+        if len(me_rows) < 4 and not _fixed_window:
             add_me_rows(db_fetchall(cursor,
                 f"SELECT {cols} FROM articles "
                 "WHERE category = 'middle_east' AND (published = '' OR published >= %s) "
@@ -2216,8 +2230,8 @@ def fetch_recent_news_for_report(report_date: datetime.date, days_back: int = 3,
             )
             add_me_rows(db_fetchall(cursor, kw_query_day, tuple(params_with_window)))
 
-            if len(me_rows) < 4 and end_time is None:
-                # Last-resort: keyword matches from last days_back days (daily only)
+            if len(me_rows) < 4 and not _fixed_window:
+                # Last-resort: keyword matches from last days_back days (daily_brief only)
                 params_fallback = params + [fallback_cutoff]
                 kw_query_fallback = (
                     f"SELECT {cols} FROM articles "
@@ -2239,26 +2253,33 @@ def fetch_recent_news_for_report(report_date: datetime.date, days_back: int = 3,
 # MAIN REPORT GENERATION  (prompt-based, no MapReduce)
 # ─────────────────────────────────────────────────────────────────
 
-async def generate_daily_pdf_report(mode: str = "daily") -> str | None:
+async def generate_daily_pdf_report(mode: str = "daily_brief") -> str | None:
     """
     Generate the market intelligence PDF report.
 
-    mode="daily"  (default, 09:00 Kyiv)
-        Full report (Block 1 + Block 2 + Block 3) covering *yesterday*
-        from 00:00 to 23:59 Kyiv. Uses multi-day fallbacks if today is sparse.
+    mode="daily_brief"  (default, 09:00 Kyiv Mon-Thu)
+        Short report (Block 2 + Block 3 only, no Block 1) covering *yesterday*
+        from 00:00 to 23:59 Kyiv. Uses multi-day fallbacks if yesterday is sparse.
+        Uses full memo format for Block 2 (400-600 words).
 
-    mode="midday" (14:00 Kyiv)
+    mode="midday" (14:00 Kyiv Mon-Fri)
         Short report (Block 2 + Block 3 only, no Block 1) covering *today*
         from 00:00 to the current moment. No multi-day fallback — if today
-        is quiet, Block 2 explicitly says so. Block 3 shows the last available
-        yfinance candle for each commodity (Brent/Palm may be today's, Corn
-        typically yesterday's since CBOT opens at 15:00 Kyiv); the date of the
-        actual candle is printed on each card, so the user sees what window
-        they're looking at.
+        is quiet, Block 2 explicitly says so. Uses full memo format for Block 2.
+
+    mode="weekly" (09:00 Kyiv Fridays)
+        Full report (Block 1 + Block 2 + Block 3) covering the past 7 days
+        (last Friday 00:00 .. yesterday Thursday 23:59 Kyiv).
+        Block 1 covers all 10 categories over the week. Block 2 is a weekly memo.
+
+    Legacy: mode="daily" is silently aliased to "daily_brief".
     """
-    if mode not in ("daily", "midday"):
-        print(f"generate_daily_pdf_report: invalid mode={mode!r}, defaulting to 'daily'")
-        mode = "daily"
+    if mode == "daily":
+        print("generate_daily_pdf_report: legacy mode='daily' aliased to 'daily_brief'")
+        mode = "daily_brief"
+    if mode not in ("daily_brief", "midday", "weekly"):
+        print(f"generate_daily_pdf_report: invalid mode={mode!r}, defaulting to 'daily_brief'")
+        mode = "daily_brief"
 
     if not aclient:
         print("OpenAI API key missing")
@@ -2271,30 +2292,37 @@ async def generate_daily_pdf_report(mode: str = "daily") -> str | None:
     today_weekday_ua = weekdays_ua[now_kyiv.weekday()]
 
     # ── Mode-aware window parameters ──────────────────────────────
-    # daily:  subject = yesterday,  window = [yesterday 00:00 .. 23:59]   (end_time=None)
-    # midday: subject = today,      window = [today     00:00 .. now]    (end_time=now_naive)
-    if mode == "daily":
-        report_subject_date = yesterday                       # datetime with tz
-        report_date = yesterday.strftime("%d.%m.%Y")          # displayed in PDF header
+    # daily_brief: subject=yesterday, window=[yesterday 00:00..23:59], no end_time
+    # midday:      subject=today,     window=[today 00:00..now],       end_time=now_naive
+    # weekly:      subject=thursday,  window=[last_friday 00:00..thursday 23:59], window_start set
+    fetch_end_time: datetime.datetime | None = None
+    fetch_window_start: datetime.date | None = None
+
+    if mode == "daily_brief":
+        report_subject_date = yesterday
+        report_date = yesterday.strftime("%d.%m.%Y")
         weekday_ua  = weekdays_ua[yesterday.weekday()]
-        fetch_end_time: datetime.datetime | None = None
-    else:  # midday
+        # fetch_end_time=None, fetch_window_start=None → normal single-day with fallback
+
+    elif mode == "midday":
         report_subject_date = now_kyiv
         report_date = now_kyiv.strftime("%d.%m.%Y")
         weekday_ua  = weekdays_ua[now_kyiv.weekday()]
-        # fetch_* functions run naive SQL comparisons against `articles.published`
-        # which is stored as naive "YYYY-MM-DD HH:MM:SS" in Kyiv time
         fetch_end_time = now_kyiv.replace(tzinfo=None)
 
+    else:  # weekly — runs on Friday, covers last Friday..Thursday
+        # "Yesterday" on Friday = Thursday. Window: last Friday (7 days ago) → Thursday 23:59
+        report_subject_date = yesterday  # = Thursday (last day of the week)
+        last_friday = (yesterday - datetime.timedelta(days=6)).date()  # 7 days back from Thursday
+        fetch_window_start = last_friday
+        weekday_ua = weekdays_ua[yesterday.weekday()]
+        # Display date range in header: "dd.mm – dd.mm.yyyy"
+        report_date = f"{last_friday.strftime('%d.%m')} – {yesterday.strftime('%d.%m.%Y')}"
+
     # ── Fetch structured facts from DB (Stage 2) ──────────────────
-    # Instead of feeding raw article text to gpt-4o and hoping it summarizes
-    # without inventing, we pass a list of pre-extracted atomic facts
-    # (already tagged with affected_sectors by gpt-4o-mini) and ask the model
-    # only to aggregate them into the familiar "Огляд дня" paragraph format.
-    # The PDF output stays identical to before — same structure, same style.
-    # Only the grounding underneath changes.
     facts_data = fetch_facts_for_report(
-        report_subject_date.date(), days_back=3, end_time=fetch_end_time
+        report_subject_date.date(), days_back=3,
+        end_time=fetch_end_time, window_start=fetch_window_start
     )
 
     # Safety net: if the facts table is empty (first days after deploy, or
@@ -2305,7 +2333,8 @@ async def generate_daily_pdf_report(mode: str = "daily") -> str | None:
     if not use_facts_path:
         print("Stage 2: facts table empty for report day — falling back to Stage 1 (full_text) pipeline")
         news_data = fetch_recent_news_for_report(
-            report_subject_date.date(), days_back=3, end_time=fetch_end_time
+            report_subject_date.date(), days_back=3,
+            end_time=fetch_end_time, window_start=fetch_window_start
         )
 
     # ─── Format helpers ──────────────────────────────────────────
@@ -2340,11 +2369,10 @@ async def generate_daily_pdf_report(mode: str = "daily") -> str | None:
     # ─── Build payload: facts path (primary) or full_text path (fallback) ──
 
     if use_facts_path:
-        # ── Block 1: facts grouped by category (DAILY MODE ONLY) ──
-        # In midday mode Block 1 is suppressed entirely — the model is instructed
-        # to output only Block 2, and the PDF renderer skips the Block 1 section.
+        # ── Block 1: facts grouped by category (WEEKLY MODE ONLY) ──
+        # In daily_brief and midday modes Block 1 is suppressed entirely.
         b1_news_text = ""
-        if mode == "daily":
+        if mode == "weekly":
             b1_parts = []
             for cat_code, cat_name in REPORT_CATEGORIES:
                 facts = facts_data["by_category"].get(cat_code, [])
@@ -2385,98 +2413,116 @@ async def generate_daily_pdf_report(mode: str = "daily") -> str | None:
 
         stats = facts_data["stats"]
         stats_line = (
-            f"Всього фактів за день звіту: {stats['total']}. "
+            f"Всього фактів за вказаний період: {stats['total']}. "
             f"По релевантності: {stats.get('by_relevance', {})}. "
             f"По категоріях: {stats.get('by_category_counts', {})}"
         )
 
-        if mode == "daily":
+        # ── Common memo structure instructions ──────────────────────
+        _memo_b2_structure = (
+            "Блок 2 має бути написаний у форматі ONE-PAGE EXECUTIVE MEMO (≈400-600 слів) "
+            "за ОБОВ'ЯЗКОВОЮ структурою з системного промпту: "
+            "Заголовок → Короткий висновок (з явним вибором сценарію: реальне зниження ризику / "
+            "тимчасова пауза / оманливе полегшення / ризик нової ескалації) → Що сталося → "
+            "Вплив на нафту → Вплив на логістику та світову економіку → "
+            "Що це означає для української фармкомпанії → Практичні рекомендації (5-7 нумерованих) → "
+            "Фінальний висновок для керівництва (одне речення) → Джерела.\n\n"
+            "Стиль — memo для топ-менеджменту: точно, компактно, бізнес-орієнтовано, без води.\n"
+            "Розділяй ефект 'сьогодні / кілька днів' та ефект '2-8 тижнів'.\n"
+            "Якщо у даних нічого немає — пиши у 'Короткому висновку' одне речення "
+            "'Свіжих новин про Близький Схід за вказаний період не зафіксовано...' і пропусти решту секцій крім 'Джерела'."
+        )
+
+        if mode == "daily_brief":
             user_message = (
-                f"Дата звіту: {report_date} ({weekday_ua}). Поточна дата складання: {now_kyiv.strftime('%d.%m.%Y')} ({today_weekday_ua}), Київ.\n\n"
+                f"Дата звіту: {report_date} ({weekday_ua}). Поточна дата складання: {now_kyiv.strftime('%d.%m.%Y')} ({today_weekday_ua}), Київ.\n"
+                f"Це РАНКОВИЙ ЗВІТ — охоплює ВЧОРА з 00:00 до 23:59.\n\n"
                 f"=== СТАТИСТИКА ПО ФАКТАХ ===\n"
                 f"{stats_line}\n\n"
-                f"=== СТРУКТУРОВАНІ ФАКТИ ДЛЯ БЛОКУ 1 (за 10 категоріями) ===\n"
-                f"Нижче — список АТОМАРНИХ ФАКТІВ, витягнутих з реальних статей через gpt-4o-mini. Кожен факт вже містить: що сталося, хто учасники, де, величина ефекту, вплив на ланцюги постачання, релевантність для українського імпортера, впевненість.\n"
-                f"Твоє завдання — для кожної з 10 категорій написати 'Огляд дня' (3-6 речень) у ТОМУ Ж стилі що й раніше — природним аналітичним текстом українською мовою, як ніби ти журналіст B2B-видання. НЕ виводь факти списком у фінальному звіті, НЕ згадуй слова 'FACT', 'relevance', 'confidence' — це службові мітки лише для твого розуміння.\n"
-                f"\nКРИТИЧНО:\n"
-                f"  • Використовуй ТІЛЬКИ факти з цієї категорії. НЕ переноси факти між категоріями.\n"
-                f"  • НЕ додумуй деталей яких немає в фактах. Якщо факт каже 'tariffs on Chinese APIs', НЕ пиши 'tariffs of 25% from May 1' — цифри і дати беруться тільки з поля magnitude.\n"
-                f"  • Пріоритет фактам з relevance=high > medium > low. Факти з low подавай обережно.\n"
-                f"  • Факти з confidence=low подавай з оговоркою ('за даними аналітиків', 'очікується').\n"
-                f"  • Якщо для категорії 0 фактів — пиши в 'Огляді дня': 'Свіжих новин за категорією не зафіксовано; ринок без істотних змін.' і далі 'Прямого впливу немає.'\n"
-                f"  • Якщо фактів мало (1-2) — Огляд дня буде коротшим (2-3 речення), це нормально.\n"
-                f"  • Стиль — природний зв'язний абзац українською, як у попередніх звітах. Не перераховуй факти, агрегуй у цілісний текст.\n"
-                f"\n{b1_news_text}\n\n"
-                f"=== ДАНІ ДЛЯ БЛОКУ 2 — EXECUTIVE MEMO ПРО БЛИЗЬКИЙ СХІД ===\n"
-                f"Нижче — структуровані факти з нашої БД про Близький Схід, нафту, судноплавство, санкції, "
-                f"Ормузьку протоку та Червоне море за день звіту. Це ТВОЄ ЄДИНЕ ДЖЕРЕЛО ФАКТІВ для memo — "
-                f"НЕ покладайся на загальні знання з новин, НЕ цитуй джерела яких немає у цих даних.\n\n"
-                f"Блок 2 тепер має бути написаний у форматі ONE-PAGE EXECUTIVE MEMO (≈400-600 слів) "
-                f"за ОБОВ'ЯЗКОВОЮ структурою з системного промпту: "
-                f"Заголовок → Короткий висновок (з явним вибором сценарію: реальне зниження ризику / "
-                f"тимчасова пауза / оманливе полегшення / ризик нової ескалації) → Що сталося сьогодні → "
-                f"Вплив на нафту → Вплив на логістику та світову економіку → "
-                f"Що це означає для української фармкомпанії → Практичні рекомендації (5-7 нумерованих) → "
-                f"Фінальний висновок для керівництва (одне речення) → Джерела.\n\n"
-                f"Стиль — memo для топ-менеджменту: точно, компактно, бізнес-орієнтовано, без води.\n"
-                f"Розділяй ефект 'сьогодні / кілька днів' та ефект '2-8 тижнів'.\n"
-                f"Якщо у даних нічого немає — пиши у 'Короткому висновку' одне речення "
-                f"'Свіжих новин про Близький Схід за день звіту не зафіксовано...' і пропусти решту секцій крім 'Джерела'.\n\n"
+                f"=== СТРУКТУРОВАНІ ФАКТИ ДЛЯ БЛОКУ 2 (Близький Схід) — вікно 'вчора' ===\n"
+                f"Нижче — список АТОМАРНИХ ФАКТІВ про Близький Схід за вчорашній день, витягнутих з реальних статей.\n"
+                f"Це ТВОЄ ЄДИНЕ ДЖЕРЕЛО ФАКТІВ для memo — НЕ покладайся на загальні знання.\n\n"
+                f"{_memo_b2_structure}\n\n"
                 f"ФАКТИ ДЛЯ АНАЛІЗУ:\n"
                 f"{b2_news_text}\n\n"
                 f"--- СПИСОК ДЖЕРЕЛ ДЛЯ СЕКЦІЇ 'Джерела' ---\n"
                 f"Скопіюй цей список ДОСЛІВНО в секцію 'Джерела:' Блоку 2:\n"
                 f"{b2_sources_text}\n\n"
                 f"=== ЗАВДАННЯ ===\n"
-                f"Напиши щоденний ринковий звіт строго за двома блоками згідно системного промпту.\n\n"
-                f"ОБОВ'ЯЗКОВО:\n"
-                f"- У БЛОЦІ 1 — 10 категорій. Для кожної: Тренд (одна строка), Огляд дня (3-6 речень природного тексту), Геополітика та торгівля (1-2 речення), Специфіка для України (1-2 речення). БЕЗ списків фактів, БЕЗ посилань у Блоці 1.\n"
-                f"- У БЛОЦІ 2 — EXECUTIVE MEMO на одну сторінку A4 (≈400-600 слів) за обов'язковою структурою з системного промпту. НЕ старий формат 'Огляд ситуації / Ключові теми / Вплив на компанію' — НОВИЙ memo формат із 9 секцій.\n"
-                f"- Розділяй блоки МАРКЕРАМИ 'БЛОК 1:' та 'БЛОК 2:' на окремих рядках. БЕЗ повторення заголовків 'Щоденний ринковий звіт' та 'Блок N: ...' у тілі блоків — header в PDF вже містить це.\n"
-                f"- Блок 3 НЕ ПИШИ — додається в PDF автоматично з yfinance-даних.\n"
-                f"- НЕ додавай Блок 4, Блок 5, підсумки, валюти.\n"
-                f"- НЕ пиши в звіті слова 'FACT', 'relevance', 'confidence', 'magnitude' — це службові мітки, не частина фінального тексту.\n"
+                f"Напиши ТІЛЬКИ Блок 2 (executive memo про Близький Схід за вчора).\n"
+                f"НЕ пиши Блок 1 — у ранковому щоденному звіті його немає.\n"
+                f"НЕ пиши Блок 3 — додається автоматично.\n"
+                f"НЕ згадуй слова 'FACT', 'relevance', 'confidence', 'magnitude'.\n"
                 f"Після Блоку 2 звіт завершується."
             )
-        else:
-            # ── MIDDAY PROMPT — only Block 2 (Middle East) ─────────
-            # No Block 1, no "end-of-day" framing. The window is
-            # "today 00:00 Kyiv .. right now", so we tell the model to
-            # treat this as an intraday update on top of the morning report.
+
+        elif mode == "midday":
             time_str = now_kyiv.strftime("%H:%M")
             user_message = (
                 f"Дата звіту: {report_date} ({today_weekday_ua}), станом на {time_str} Київ.\n"
-                f"Це ПОЛУДЕННЕ ОНОВЛЕННЯ — короткий звіт, що покриває СЬОГОДНІ з 00:00 до поточного моменту, "
-                f"як інтрадей-апдейт поверх ранкового звіту о 9:00.\n\n"
+                f"Це ПОЛУДЕННЕ ОНОВЛЕННЯ — охоплює СЬОГОДНІ з 00:00 до {time_str}.\n\n"
                 f"=== СТАТИСТИКА ПО ФАКТАХ ===\n"
                 f"{stats_line}\n\n"
                 f"=== СТРУКТУРОВАНІ ФАКТИ ДЛЯ БЛОКУ 2 (Близький Схід) — вікно 'сьогодні з 00:00 до {time_str}' ===\n"
-                f"Нижче — список АТОМАРНИХ ФАКТІВ за сьогоднішнє вікно, витягнутих з реальних статей. Якщо фактів 0 — це НОРМАЛЬНО для тихого полудня, і звіт повинен це ЧЕСНО відобразити.\n\n"
-                f"Твоє завдання — написати ТІЛЬКИ Блок 2 (Ситуація на Близькому Сході) у звичайному форматі:\n"
-                f"  • Огляд ситуації (5-8 речень природного тексту — коротше ніж у ранковому звіті, бо вікно менше)\n"
-                f"  • Ключові теми дня (2-4 булети)\n"
-                f"  • Вплив на нашу компанію (2-3 речення з конкретними рекомендаціями)\n"
-                f"  • Джерела (скопіюй список нижче ДОСЛІВНО)\n\n"
-                f"КРИТИЧНО:\n"
-                f"  • Якщо фактів 0 — пиши в 'Огляді ситуації' ОДНЕ речення: "
-                f"'Станом на полудень істотних нових подій на Близькому Сході з моменту ранкового звіту не зафіксовано.' "
-                f"Тоді в 'Ключових темах' напиши одним булетом '— без змін'. В 'Впливі на компанію' — 'Жодних нових дій не потрібно, ситуація стабільна.' В 'Джерелах' — '(немає джерел)'.\n"
-                f"  • НЕ вигадуй події яких немає у фактах. НЕ повторюй ранковий звіт.\n"
-                f"  • НЕ пиши Блок 1 — у полуденному звіті його немає.\n"
-                f"  • НЕ пиши Блок 3 — додається автоматично з yfinance.\n"
-                f"  • НЕ виводь факти списком, НЕ згадуй слова 'FACT', 'relevance', 'confidence'.\n\n"
+                f"Нижче — список АТОМАРНИХ ФАКТІВ за сьогоднішнє вікно. Якщо фактів 0 — це НОРМАЛЬНО для тихого полудня.\n"
+                f"Це ТВОЄ ЄДИНЕ ДЖЕРЕЛО ФАКТІВ для memo — НЕ покладайся на загальні знання.\n\n"
+                f"{_memo_b2_structure}\n\n"
+                f"ФАКТИ ДЛЯ АНАЛІЗУ:\n"
                 f"{b2_news_text}\n\n"
                 f"--- СПИСОК ДЖЕРЕЛ ДЛЯ СЕКЦІЇ 'Джерела' ---\n"
-                f"Скопіюй ДОСЛІВНО:\n"
+                f"Скопіюй цей список ДОСЛІВНО в секцію 'Джерела:' Блоку 2:\n"
                 f"{b2_sources_text}\n\n"
                 f"=== ЗАВДАННЯ ===\n"
-                f"Виведи ТІЛЬКИ Блок 2 у форматі:\n"
-                f"=== БЛОК 2: СИТУАЦІЯ НА БЛИЗЬКОМУ СХОДІ ===\n"
-                f"<Огляд ситуації>\n"
-                f"<Ключові теми дня>\n"
-                f"<Вплив на нашу компанію>\n"
-                f"<Джерела>\n\n"
-                f"Після Блоку 2 звіт завершується. НЕ додавай жодних інших блоків."
+                f"Напиши ТІЛЬКИ Блок 2 (executive memo про Близький Схід за сьогодні до {time_str}).\n"
+                f"Якщо фактів 0 — в 'Короткому висновку': 'Станом на полудень істотних нових подій не зафіксовано.'. Решту секцій пропусти крім 'Джерела'.\n"
+                f"НЕ пиши Блок 1, Блок 3.\n"
+                f"НЕ згадуй слова 'FACT', 'relevance', 'confidence', 'magnitude'.\n"
+                f"Після Блоку 2 звіт завершується."
+            )
+
+        else:  # weekly
+            user_message = (
+                f"Дата звіту: {report_date} ({weekday_ua} — п'ятниця, тижневий звіт). "
+                f"Поточна дата складання: {now_kyiv.strftime('%d.%m.%Y')} ({today_weekday_ua}), Київ.\n"
+                f"Це ТИЖНЕВИЙ ЗВІТ — охоплює повний тиждень: {report_date}.\n\n"
+                f"=== СТАТИСТИКА ПО ФАКТАХ ЗА ТИЖДЕНЬ ===\n"
+                f"{stats_line}\n\n"
+                f"=== СТРУКТУРОВАНІ ФАКТИ ДЛЯ БЛОКУ 1 (за 10 категоріями, огляд ТИЖНЯ) ===\n"
+                f"Нижче — список АТОМАРНИХ ФАКТІВ за весь тиждень, витягнутих з реальних статей. "
+                f"Кожен факт містить: що сталося, хто учасники, де, величина ефекту, вплив на ланцюги постачання, релевантність.\n"
+                f"Твоє завдання — для кожної з 10 категорій написати 'Огляд тижня' (4-7 речень) — "
+                f"природним аналітичним текстом українською, синтез найважливіших подій за тиждень. "
+                f"НЕ виводь факти списком, НЕ згадуй 'FACT', 'relevance', 'confidence'.\n"
+                f"\nКРИТИЧНО:\n"
+                f"  • Використовуй ТІЛЬКИ факти з цієї категорії. Не переноси між категоріями.\n"
+                f"  • НЕ додумуй деталей яких немає в фактах. Цифри і дати — тільки з поля magnitude.\n"
+                f"  • Пріоритет: relevance=high > medium > low. Факти low — обережно.\n"
+                f"  • Якщо для категорії 0 фактів — 'Суттєвих змін за тиждень не зафіксовано; ринок стабільний.'\n"
+                f"  • Стиль — природний зв'язний абзац, агрегуй тижневий тренд, не перераховуй дні.\n"
+                f"\n{b1_news_text}\n\n"
+                f"=== ДАНІ ДЛЯ БЛОКУ 2 — ТИЖНЕВИЙ EXECUTIVE MEMO ПРО БЛИЗЬКИЙ СХІД ===\n"
+                f"Нижче — структуровані факти про Близький Схід за весь тиждень ({report_date}). "
+                f"Це ТВОЄ ЄДИНЕ ДЖЕРЕЛО ФАКТІВ для memo.\n\n"
+                f"{_memo_b2_structure}\n\n"
+                f"У тижневому memo замість 'Що сталося сьогодні' пиши 'Ключові події тижня'. "
+                f"Узагальнюй тижневий тренд, не перераховуй дні по одному.\n\n"
+                f"ФАКТИ ДЛЯ АНАЛІЗУ:\n"
+                f"{b2_news_text}\n\n"
+                f"--- СПИСОК ДЖЕРЕЛ ДЛЯ СЕКЦІЇ 'Джерела' ---\n"
+                f"Скопіюй цей список ДОСЛІВНО в секцію 'Джерела:' Блоку 2:\n"
+                f"{b2_sources_text}\n\n"
+                f"=== ЗАВДАННЯ ===\n"
+                f"Напиши ТИЖНЕВИЙ ринковий звіт строго за двома блоками.\n\n"
+                f"ОБОВ'ЯЗКОВО:\n"
+                f"- У БЛОЦІ 1 — 10 категорій. Для кожної: Тренд тижня (одна строка), "
+                f"Огляд тижня (4-7 речень природного тексту), Геополітика та торгівля (1-2 речення), "
+                f"Специфіка для України (1-2 речення). БЕЗ списків фактів, БЕЗ посилань.\n"
+                f"- У БЛОЦІ 2 — ТИЖНЕВИЙ EXECUTIVE MEMO (≈400-600 слів) за 9-секційною структурою.\n"
+                f"- Розділяй блоки МАРКЕРАМИ 'БЛОК 1:' та 'БЛОК 2:' на окремих рядках.\n"
+                f"- Блок 3 НЕ ПИШИ — додається автоматично.\n"
+                f"- НЕ додавай Блок 4+, підсумки, валюти.\n"
+                f"- НЕ пиши слова 'FACT', 'relevance', 'confidence', 'magnitude'.\n"
+                f"Після Блоку 2 звіт завершується."
             )
 
     else:
@@ -2515,7 +2561,7 @@ async def generate_daily_pdf_report(mode: str = "daily") -> str | None:
             return f"  - [{source_tag}] {title}\n    {body}"
 
         b1_news_text = ""
-        if mode == "daily":
+        if mode == "weekly":
             b1_news_parts = []
             for cat_code, cat_name in REPORT_CATEGORIES:
                 items = news_data["by_category"].get(cat_code, [])
@@ -2539,64 +2585,72 @@ async def generate_daily_pdf_report(mode: str = "daily") -> str | None:
         else:
             b2_news_text = "(Свіжих новин про Близький Схід не знайдено)"
 
-        if mode == "daily":
+        # ── Common memo structure for fallback path ─────────────────
+        _memo_b2_structure_fb = (
+            "Блок 2 пишеться у форматі ONE-PAGE EXECUTIVE MEMO (≈400-600 слів) "
+            "за ОБОВ'ЯЗКОВОЮ структурою: "
+            "Заголовок → Короткий висновок (з явним вибором сценарію: реальне зниження ризику / "
+            "тимчасова пауза / оманливе полегшення / ризик нової ескалації) → Що сталося → "
+            "Вплив на нафту → Вплив на логістику та світову економіку → "
+            "Що це означає для української фармкомпанії → Практичні рекомендації (5-7 нумерованих) → "
+            "Фінальний висновок для керівництва (одне речення) → Джерела.\n"
+            "Стиль — memo для топ-менеджменту. Розділяй ефект 'сьогодні / кілька днів' та '2-8 тижнів'."
+        )
+
+        if mode == "daily_brief":
             user_message = (
-                f"Дата звіту: {report_date} ({weekday_ua}). Поточна дата складання: {now_kyiv.strftime('%d.%m.%Y')} ({today_weekday_ua}), Київ.\n\n"
+                f"Дата звіту: {report_date} ({weekday_ua}). Поточна дата складання: {now_kyiv.strftime('%d.%m.%Y')} ({today_weekday_ua}), Київ.\n"
+                f"Це РАНКОВИЙ ЗВІТ — охоплює ВЧОРА з 00:00 до 23:59.\n"
                 f"[FALLBACK MODE: facts table empty, using raw full_text pipeline]\n\n"
-                f"=== РЕАЛЬНІ НОВИНИ ЗА ДЕНЬ ЗВІТУ ДЛЯ БЛОКУ 1 (за 10 категоріями) ===\n"
-                f"Це повний список новин з нашої БД за категорією. Твоє завдання — СИНТЕЗУВАТИ їх у єдиний аналітичний абзац 'Огляд дня' (3-6 речень) для кожної категорії. НЕ переліковуй новини, НЕ цитуй заголовки, НЕ вставляй посилань.\n"
-                f"{b1_news_text}\n\n"
-                f"=== ДАНІ ДЛЯ БЛОКУ 2 — EXECUTIVE MEMO ПРО БЛИЗЬКИЙ СХІД ===\n"
-                f"Це повний список новин з нашої БД про Близький Схід за день звіту. "
+                f"=== НОВИНИ ДЛЯ БЛОКУ 2 (Близький Схід) — вчора ===\n"
+                f"Це повний список новин з нашої БД про Близький Схід за вчора. "
                 f"Це ТВОЄ ЄДИНЕ ДЖЕРЕЛО ФАКТІВ для memo. Копіюй заголовки та URL ДОСЛІВНО у секції 'Джерела'.\n\n"
-                f"Блок 2 тепер пишеться у форматі ONE-PAGE EXECUTIVE MEMO (≈400-600 слів) за ОБОВ'ЯЗКОВОЮ "
-                f"структурою з системного промпту: Заголовок → Короткий висновок (з явним вибором сценарію) → "
-                f"Що сталося сьогодні → Вплив на нафту → Вплив на логістику та світову економіку → "
-                f"Що це означає для української фармкомпанії → Практичні рекомендації (5-7 нумерованих) → "
-                f"Фінальний висновок для керівництва → Джерела (всі надані новини у форматі '- [Заголовок](URL)').\n\n"
-                f"Стиль — memo для топ-менеджменту. Розділяй ефект 'сьогодні / кілька днів' та '2-8 тижнів'.\n\n"
+                f"{_memo_b2_structure_fb}\n\n"
                 f"НОВИНИ ДЛЯ АНАЛІЗУ:\n"
                 f"{b2_news_text}\n\n"
                 f"=== ЗАВДАННЯ ===\n"
-                f"Напиши щоденний ринковий звіт строго за двома блоками згідно системного промпту.\n\n"
-                f"ОБОВ'ЯЗКОВО:\n"
-                f"- У БЛОЦІ 1 — 10 категорій. Для кожної: Тренд, Огляд дня (3-6 речень синтезу), Геополітика та торгівля, Специфіка для України. БЕЗ списків новин, БЕЗ посилань.\n"
-                f"- У БЛОЦІ 2 — EXECUTIVE MEMO на одну сторінку A4 за обов'язковою 9-секційною структурою з системного промпту (Заголовок, Короткий висновок, Що сталося сьогодні, Вплив на нафту, Вплив на логістику, Що це означає для укр. фармкомпанії, Практичні рекомендації, Фінальний висновок, Джерела).\n"
-                f"- У секції 'Джерела' скопіюй ВСІ надані новини у форматі '- [Заголовок](URL)', по одній на рядок. ДОСЛІВНО.\n"
-                f"- Розділяй блоки МАРКЕРАМИ 'БЛОК 1:' та 'БЛОК 2:' на окремих рядках. БЕЗ повторення заголовків 'Щоденний ринковий звіт' та 'Блок N: ...' у тілі блоків.\n"
-                f"- Блок 3 НЕ ПИШИ — він додається в PDF автоматично з yfinance-даних.\n"
-                f"- НЕ додавай Блок 4, Блок 5, підсумки, валюти.\n"
+                f"Напиши ТІЛЬКИ Блок 2 (executive memo про Близький Схід за вчора).\n"
+                f"НЕ пиши Блок 1, Блок 3. НЕ додавай підсумки, валюти.\n"
                 f"Після Блоку 2 звіт завершується."
             )
-        else:
-            # ── MIDDAY FALLBACK PROMPT — only Block 2 ──────────────
+
+        elif mode == "midday":
             time_str = now_kyiv.strftime("%H:%M")
             user_message = (
                 f"Дата звіту: {report_date} ({today_weekday_ua}), станом на {time_str} Київ.\n"
-                f"[FALLBACK MODE: facts table empty, using raw full_text pipeline]\n"
-                f"Це ПОЛУДЕННЕ ОНОВЛЕННЯ — короткий звіт, що покриває СЬОГОДНІ з 00:00 до поточного моменту, "
-                f"як інтрадей-апдейт поверх ранкового звіту о 9:00.\n\n"
-                f"=== РЕАЛЬНІ НОВИНИ ДЛЯ БЛОКУ 2 (Близький Схід) — вікно 'сьогодні з 00:00 до {time_str}' ===\n"
-                f"Це список новин з нашої БД про Близький Схід за сьогоднішнє вікно. Якщо новин 0 — це НОРМАЛЬНО для тихого полудня.\n\n"
-                f"Твоє завдання — написати ТІЛЬКИ Блок 2 у звичайному форматі:\n"
-                f"  • Огляд ситуації (5-8 речень — коротше ніж ранковий звіт)\n"
-                f"  • Ключові теми дня (2-4 булети)\n"
-                f"  • Вплив на нашу компанію (2-3 речення)\n"
-                f"  • Джерела (всі надані новини у форматі '- [Заголовок](URL)')\n\n"
-                f"КРИТИЧНО:\n"
-                f"  • Якщо новин 0 — пиши ОДНЕ речення в 'Огляді': "
-                f"'Станом на полудень істотних нових подій на Близькому Сході з моменту ранкового звіту не зафіксовано.' "
-                f"В 'Ключових темах' — '— без змін'. В 'Впливі' — 'Жодних нових дій не потрібно, ситуація стабільна.' В 'Джерелах' — '(немає джерел)'.\n"
-                f"  • Копіюй заголовки та URL ДОСЛІВНО. НЕ вигадуй.\n"
-                f"  • НЕ пиши Блок 1, Блок 3, підсумки, валюти.\n\n"
+                f"Це ПОЛУДЕННЕ ОНОВЛЕННЯ — охоплює СЬОГОДНІ з 00:00 до {time_str}.\n"
+                f"[FALLBACK MODE: facts table empty, using raw full_text pipeline]\n\n"
+                f"=== НОВИНИ ДЛЯ БЛОКУ 2 (Близький Схід) — сьогодні до {time_str} ===\n"
+                f"Це список новин з нашої БД. Якщо новин 0 — це НОРМАЛЬНО для тихого полудня.\n\n"
+                f"{_memo_b2_structure_fb}\n\n"
+                f"Якщо новин 0 — в 'Короткому висновку': 'Станом на полудень істотних нових подій не зафіксовано.'. Решту пропусти крім 'Джерела'.\n\n"
+                f"НОВИНИ ДЛЯ АНАЛІЗУ:\n"
                 f"{b2_news_text}\n\n"
                 f"=== ЗАВДАННЯ ===\n"
-                f"Виведи ТІЛЬКИ Блок 2 у форматі:\n"
-                f"=== БЛОК 2: СИТУАЦІЯ НА БЛИЗЬКОМУ СХОДІ ===\n"
-                f"<Огляд ситуації>\n"
-                f"<Ключові теми дня>\n"
-                f"<Вплив на нашу компанію>\n"
-                f"<Джерела>\n\n"
+                f"Напиши ТІЛЬКИ Блок 2 (executive memo про Близький Схід за сьогодні до {time_str}).\n"
+                f"НЕ пиши Блок 1, Блок 3. Після Блоку 2 звіт завершується."
+            )
+
+        else:  # weekly fallback
+            user_message = (
+                f"Дата звіту: {report_date} ({weekday_ua} — тижневий звіт). "
+                f"Поточна дата складання: {now_kyiv.strftime('%d.%m.%Y')} ({today_weekday_ua}), Київ.\n"
+                f"Це ТИЖНЕВИЙ ЗВІТ — охоплює повний тиждень: {report_date}.\n"
+                f"[FALLBACK MODE: facts table empty, using raw full_text pipeline]\n\n"
+                f"=== РЕАЛЬНІ НОВИНИ ЗА ТИЖДЕНЬ ДЛЯ БЛОКУ 1 (за 10 категоріями) ===\n"
+                f"Твоє завдання — СИНТЕЗУВАТИ їх у єдиний аналітичний абзац 'Огляд тижня' (4-7 речень) для кожної категорії.\n"
+                f"{b1_news_text}\n\n"
+                f"=== НОВИНИ ДЛЯ БЛОКУ 2 — ТИЖНЕВИЙ EXECUTIVE MEMO ПРО БЛИЗЬКИЙ СХІД ===\n"
+                f"Це список новин за тиждень. Це ТВОЄ ЄДИНЕ ДЖЕРЕЛО ФАКТІВ для memo.\n\n"
+                f"{_memo_b2_structure_fb}\n\n"
+                f"У тижневому memo 'Що сталося сьогодні' → 'Ключові події тижня'.\n\n"
+                f"НОВИНИ ДЛЯ АНАЛІЗУ:\n"
+                f"{b2_news_text}\n\n"
+                f"=== ЗАВДАННЯ ===\n"
+                f"Напиши ТИЖНЕВИЙ ринковий звіт за двома блоками.\n"
+                f"БЛОК 1 — 10 категорій (Тренд тижня + Огляд тижня 4-7 речень + Геополітика + Специфіка для України).\n"
+                f"БЛОК 2 — тижневий executive memo (≈400-600 слів, 9 секцій).\n"
+                f"Розділяй блоки МАРКЕРАМИ 'БЛОК 1:' та 'БЛОК 2:'. Блок 3 НЕ ПИШИ.\n"
                 f"Після Блоку 2 звіт завершується."
             )
 
@@ -2667,17 +2721,16 @@ async def generate_daily_pdf_report(mode: str = "daily") -> str | None:
 
         return chunk.strip()
 
-    if mode == "midday":
+    if mode in ("midday", "daily_brief"):
+        # No Block 1 in these modes — strip optional block-2 header if model added it
         block1 = ""
-        # Strip the optional block-2 header the model may still prepend —
-        # reuse the same regex so we match every format.
         b2_pat = _block_header_pattern(2)
         m = b2_pat.search(report_text)
         if m:
             block2 = report_text[m.end():].strip()
         else:
             block2 = report_text.strip()
-    else:
+    else:  # weekly: parse both block1 and block2
         block1 = extract_block(report_text, 1, 2)
         block2 = extract_block(report_text, 2, 3)
 
@@ -2735,7 +2788,7 @@ async def generate_daily_pdf_report(mode: str = "daily") -> str | None:
         f"Parser extracted: block1={len(block1)} chars, block2={len(block2)} chars "
         f"(mode={mode}, raw={len(report_text)} chars)"
     )
-    if mode == "daily" and not block2:
+    if mode in ("daily_brief", "weekly") and not block2:
         print(
             "⚠ Parser warning: block2 is empty in daily mode. "
             "Raw model output first 300 chars:\n  " + report_text[:300].replace("\n", " | ")
@@ -2743,9 +2796,9 @@ async def generate_daily_pdf_report(mode: str = "daily") -> str | None:
 
     # If markers not present — use full text as fallback content
     if not any([block1, block2]):
-        if mode == "midday":
+        if mode in ("midday", "daily_brief"):
             block2 = report_text
-        else:
+        else:  # weekly
             block1 = report_text
 
     # ── Build PDF ─────────────────────────────────────────────────
@@ -2756,11 +2809,11 @@ async def generate_daily_pdf_report(mode: str = "daily") -> str | None:
     pdf.add_page()
     draw_header_bar(pdf, report_date, base_dir)
 
-    # ── BLOCK 1: Секції по 10 категоріях (DAILY MODE ONLY) ────────
-    # In midday mode Block 1 is suppressed — the first page starts directly
-    # with Block 2 (Middle East). Block 3 (commodity charts) follows as usual.
-    if mode == "daily":
-        section_title(pdf, "БЛОК 1  ·  Огляд за категоріями")
+    # ── BLOCK 1: Секції по 10 категоріях (WEEKLY MODE ONLY) ────────
+    # In daily_brief and midday modes Block 1 is suppressed — the first page
+    # starts directly with Block 2 (Middle East memo).
+    if mode == "weekly":
+        section_title(pdf, "БЛОК 1  ·  Огляд тижня за категоріями")
 
     def render_block1_sections(pdf: FPDF, text: str):
         """Render Block 1 as per-category sections, splitting on ### headings.
@@ -2818,23 +2871,23 @@ async def generate_daily_pdf_report(mode: str = "daily") -> str | None:
             if remaining < 40:  # less than ~40mm left — new page
                 pdf.add_page()
                 draw_header_bar(pdf, report_date, base_dir)
-                section_title(pdf, "БЛОК 1  ·  Огляд за категоріями (продовження)")
+                section_title(pdf, "БЛОК 1  ·  Огляд тижня за категоріями (продовження)")
 
             if title:
                 sub_title(pdf, title)
             body_text(pdf, "\n".join(body_lines))
             draw_divider(pdf)
 
-    if mode == "daily":
+    if mode == "weekly":
         if block1:
             render_block1_sections(pdf, block1)
         else:
             body_text(pdf, "Дані відсутні.")
 
-        # ── BLOCK 2: Ситуація на Близькому Сході (new page in daily) ─
+        # ── BLOCK 2: new page after Block 1 in weekly ─────────────
         pdf.add_page()
         draw_header_bar(pdf, report_date, base_dir)
-    # In midday mode Block 2 starts on the same first page (no add_page above).
+    # In daily_brief / midday Block 2 starts on the same first page.
     section_title(pdf, "БЛОК 2  ·  Ситуація на Близькому Сході")
 
     if block2:
@@ -2971,7 +3024,12 @@ async def generate_daily_pdf_report(mode: str = "daily") -> str | None:
     # ── Save PDF ──────────────────────────────────────────────────
     # daily:  daily_report_YYYYMMDD.pdf        (subject = yesterday)
     # midday: daily_report_YYYYMMDD_midday.pdf (subject = today)
-    filename_suffix = "_midday" if mode == "midday" else ""
+    if mode == "midday":
+        filename_suffix = "_midday"
+    elif mode == "weekly":
+        filename_suffix = "_weekly"
+    else:
+        filename_suffix = ""
     pdf_path = os.path.join(
         base_dir,
         f"daily_report_{report_subject_date.strftime('%Y%m%d')}{filename_suffix}.pdf"
@@ -2994,18 +3052,37 @@ async def generate_daily_pdf_report(mode: str = "daily") -> str | None:
 # ─────────────────────────────────────────────────────────────────
 
 async def send_daily_report_to_users():
-    pdf_path = await generate_daily_pdf_report(mode="daily")
+    """
+    09:00 Kyiv dispatcher.
+    Friday → weekly report (Block 1 + Block 2 + Block 3, 7-day window).
+    Mon-Thu → daily_brief report (Block 2 + Block 3, yesterday window).
+    All report types pin the message for all users (pin accumulation — option 3).
+    """
+    now_kyiv = datetime.datetime.now(pytz.timezone("Europe/Kyiv"))
+    is_friday = now_kyiv.weekday() == 4  # 0=Mon, 4=Fri
+
+    if is_friday:
+        report_mode = "weekly"
+        doc_filename = "Weekly_Report.pdf"
+    else:
+        report_mode = "daily_brief"
+        doc_filename = "Daily_Report.pdf"
+
+    pdf_path = await generate_daily_pdf_report(mode=report_mode)
     if not pdf_path or not os.path.exists(pdf_path):
-        print("Daily report generation skipped or failed.")
+        print(f"{report_mode} report generation skipped or failed.")
         return
+
+    today_str = now_kyiv.strftime("%d.%m.%Y")
+    if is_friday:
+        caption = f"📅 Тижневий ринковий звіт за тиждень до {today_str} готовий."
+    else:
+        caption = f"📊 Ранковий ринковий звіт за {today_str} готовий."
 
     conn = get_db_connection()
     cursor = conn.cursor()
     users = db_fetchall(cursor, "SELECT chat_id FROM telegram_users")
     conn.close()
-
-    today_str = datetime.datetime.now(pytz.timezone("Europe/Kyiv")).strftime("%d.%m.%Y")
-    caption = f"📊 Щоденний ринковий звіт за {today_str} готовий."
 
     async with httpx.AsyncClient() as client:
         for user in users:
@@ -3015,7 +3092,7 @@ async def send_daily_report_to_users():
                     r = await client.post(
                         f"{TELEGRAM_API_URL}/sendDocument",
                         data={"chat_id": chat_id, "caption": caption},
-                        files={"document": ("Daily_Report.pdf", f)}
+                        files={"document": (doc_filename, f)}
                     )
                     if r.status_code == 200:
                         msg_data = r.json()
@@ -3038,11 +3115,23 @@ async def send_daily_report_to_users():
         for admin_chat_id in chat_ids:
             try:
                 with open(pdf_path, 'rb') as f:
-                    await client.post(
+                    r = await client.post(
                         f"{TELEGRAM_API_URL}/sendDocument",
                         data={"chat_id": admin_chat_id, "caption": caption},
-                        files={"document": ("Daily_Report.pdf", f)}
+                        files={"document": (doc_filename, f)}
                     )
+                    if r.status_code == 200:
+                        msg_data = r.json()
+                        msg_id = msg_data.get("result", {}).get("message_id")
+                        if msg_id:
+                            await client.post(
+                                f"{TELEGRAM_API_URL}/pinChatMessage",
+                                json={
+                                    "chat_id": admin_chat_id,
+                                    "message_id": msg_id,
+                                    "disable_notification": True
+                                }
+                            )
             except Exception as e:
                 print(f"Error sending PDF to admin {admin_chat_id}: {e}")
 
@@ -3077,11 +3166,23 @@ async def send_midday_report_to_users():
             try:
                 chat_id = user["chat_id"]
                 with open(pdf_path, 'rb') as f:
-                    await client.post(
+                    r = await client.post(
                         f"{TELEGRAM_API_URL}/sendDocument",
                         data={"chat_id": chat_id, "caption": caption},
                         files={"document": ("Midday_Report.pdf", f)}
                     )
+                    if r.status_code == 200:
+                        msg_data = r.json()
+                        msg_id = msg_data.get("result", {}).get("message_id")
+                        if msg_id:
+                            await client.post(
+                                f"{TELEGRAM_API_URL}/pinChatMessage",
+                                json={
+                                    "chat_id": chat_id,
+                                    "message_id": msg_id,
+                                    "disable_notification": True
+                                }
+                            )
             except Exception as e:
                 print(f"Error sending midday PDF to {chat_id}: {e}")
 
@@ -3091,11 +3192,23 @@ async def send_midday_report_to_users():
         for admin_chat_id in chat_ids:
             try:
                 with open(pdf_path, 'rb') as f:
-                    await client.post(
+                    r = await client.post(
                         f"{TELEGRAM_API_URL}/sendDocument",
                         data={"chat_id": admin_chat_id, "caption": caption},
                         files={"document": ("Midday_Report.pdf", f)}
                     )
+                    if r.status_code == 200:
+                        msg_data = r.json()
+                        msg_id = msg_data.get("result", {}).get("message_id")
+                        if msg_id:
+                            await client.post(
+                                f"{TELEGRAM_API_URL}/pinChatMessage",
+                                json={
+                                    "chat_id": admin_chat_id,
+                                    "message_id": msg_id,
+                                    "disable_notification": True
+                                }
+                            )
             except Exception as e:
                 print(f"Error sending midday PDF to admin {admin_chat_id}: {e}")
 
@@ -3877,11 +3990,20 @@ def get_category_news(category: str):
 
 @app.get("/generate_report")
 async def trigger_report():
-    """HTTP endpoint to manually trigger daily (09:00) report generation."""
-    pdf_path = await generate_daily_pdf_report(mode="daily")
+    """HTTP endpoint to manually trigger morning daily_brief (Mon-Thu) report."""
+    pdf_path = await generate_daily_pdf_report(mode="daily_brief")
     if pdf_path and os.path.exists(pdf_path):
         return FileResponse(pdf_path, media_type="application/pdf", filename="Daily_Report.pdf")
     raise HTTPException(status_code=500, detail="Report generation failed")
+
+
+@app.get("/generate_weekly")
+async def trigger_weekly_report():
+    """HTTP endpoint to manually trigger the weekly Friday report (Block 1+2+3, 7-day window)."""
+    pdf_path = await generate_daily_pdf_report(mode="weekly")
+    if pdf_path and os.path.exists(pdf_path):
+        return FileResponse(pdf_path, media_type="application/pdf", filename="Weekly_Report.pdf")
+    raise HTTPException(status_code=500, detail="Weekly report generation failed")
 
 
 @app.get("/generate_midday")
