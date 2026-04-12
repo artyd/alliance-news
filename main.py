@@ -222,12 +222,27 @@ RSS_FEEDS = {
     # Simplified to broad OR-union without site: filter so it actually returns
     # results on quiet days.
     "middle_east":    "https://news.google.com/rss/search?q=Iran+OR+Israel+OR+%22Red+Sea%22+OR+Hormuz+OR+Houthi+OR+Gaza+OR+Lebanon+OR+%22Persian+Gulf%22+when:7d&hl=en-US&gl=US&ceid=US:en",
+    # Uplifting / heartwarming news. Aggregated from several positive-news
+    # publishers via Google News site: filter. NOT used in the daily report
+    # — listed in NON_REPORT_CATEGORIES so it skips extraction/facts pipeline.
+    # Purely mood content for Telegram subscribers.
+    "good_news":      "https://news.google.com/rss/search?q=(site:goodnewsnetwork.org+OR+site:positive.news+OR+site:reasonstobecheerful.world+OR+%22uplifting+news%22+OR+%22heartwarming%22+OR+%22good+news%22)+when:3d&hl=en-US&gl=US&ceid=US:en",
 }
 
 # Categories that are fetched into DB but NOT shown as subscription options to users.
 # They exist purely to feed the daily report.
 # `global_sources` is a 10th Block-1 category — it IS user-visible in Telegram.
 INTERNAL_CATEGORIES = {"middle_east"}
+
+# Categories that ARE visible to Telegram subscribers and appear in /news panel,
+# but DO NOT participate in the B2B daily/midday report, full-text extraction,
+# or structured fact extraction. Used for:
+#   - market_alerts: commodity price spike notifications (yfinance → LLM reason)
+#   - good_news:     uplifting / heartwarming stories (Google News aggregation)
+# These flow through the same Telegram push pipeline as regular categories,
+# but are excluded from extraction/facts backfill (they don't need full article
+# bodies — market_alerts are generated internally, good_news are just for mood).
+NON_REPORT_CATEGORIES = {"market_alerts", "good_news"}
 
 # ─────────────────────────────────────────────
 # MASTER REPORT PROMPT — повний звіт через AI
@@ -347,14 +362,21 @@ def get_topics_keyboard(current_subs_str, only_daily_mode=False):
     keyboard.append([{"text": all_text, "callback_data": "topic_all"}])
 
     row = []
-    for cat in RSS_FEEDS.keys():
+    # Virtual categories that don't have RSS feeds but should appear as
+    # subscription options. market_alerts is generated internally from
+    # yfinance + LLM and pushed via its own scheduler, not fetch_and_store_news.
+    _virtual_subscription_categories = ["market_alerts"]
+    _all_cats = list(RSS_FEEDS.keys()) + _virtual_subscription_categories
+    # Friendly display labels — defaults to cat.upper() but we rename a few
+    # with underscores / renamings to look nicer as Telegram buttons.
+    display_map = {
+        "global_sources": "GLOBAL ECONOMY",
+        "good_news":      "GOOD NEWS 🌞",
+        "market_alerts":  "MARKET ALERTS ⚡",
+    }
+    for cat in _all_cats:
         if cat in INTERNAL_CATEGORIES:
             continue  # service categories (e.g. middle_east) not shown to users
-        # Friendly display labels — defaults to cat.upper() but we rename a few
-        # with underscores to look nicer as Telegram buttons.
-        display_map = {
-            "global_sources": "GLOBAL ECONOMY",
-        }
         display_name = display_map.get(cat, cat.upper())
         if only_daily_mode:
             text = f"❌ {display_name}"
@@ -967,6 +989,7 @@ async def backfill_missing_full_text(max_articles: int = 150):
             SELECT link FROM articles
             WHERE (extraction_status IS NULL OR extraction_status = 'pending')
               AND (published = '' OR published >= %s)
+              AND category != 'market_alerts'
             ORDER BY published DESC NULLS LAST
             LIMIT %s
             """,
@@ -1300,6 +1323,7 @@ async def backfill_missing_facts(max_articles: int = 100):
             WHERE extraction_status = 'ok'
               AND (facts_status IS NULL OR facts_status = 'pending')
               AND (published = '' OR published >= %s)
+              AND category != 'market_alerts'
             ORDER BY published DESC NULLS LAST
             LIMIT %s
             """,
@@ -2971,6 +2995,325 @@ async def send_midday_report_to_users():
 
 
 # ─────────────────────────────────────────────────────────────────
+# MARKET ALERTS — commodity price spike notifications
+# ─────────────────────────────────────────────────────────────────
+# Monitors Corn / Brent / Palm Oil via yfinance every 30 minutes during
+# market hours (08:00–23:00 Kyiv). When intraday move exceeds ±7%, asks
+# gpt-4o-mini to explain the move using today's news in our DB, stores
+# the result as a pseudo-article with category='market_alerts', and pushes
+# it to Telegram subscribers.
+#
+# Deduplication: one alert per commodity per direction per day. A second
+# spike the same day in the same direction will not retrigger (the link
+# is a unique composite key). An opposite-direction spike the same day
+# WILL trigger a fresh alert.
+
+_MARKET_ALERT_THRESHOLD_PCT = 7.0  # absolute percent, either direction
+_MARKET_ALERT_INTERVAL_SECONDS = 30 * 60  # check every 30 minutes
+_MARKET_ALERT_NEWS_LOOKBACK_CATEGORIES = (
+    "global_sources", "middle_east", "food", "logistics",
+    "feed", "api",
+)
+
+
+def _get_intraday_price_info(tickers: tuple[str, ...]) -> dict | None:
+    """
+    Fetch today's open + latest price for a commodity ticker chain.
+    Returns dict {open, current, change_pct, ticker, as_of} or None.
+
+    Strategy: ask yfinance for 2 recent daily candles. The *latest* row
+    is considered "today" (even if the candle hasn't closed yet — yfinance
+    updates it intraday). If the market is closed, latest row is last
+    close and change_pct is that row's own daily change.
+    """
+    if not CHARTS_AVAILABLE:
+        return None
+
+    for ticker_sym in tickers:
+        try:
+            tk = yf.Ticker(ticker_sym)
+            df = tk.history(period="5d", interval="1d")
+            if df is None or df.empty or len(df) < 1:
+                continue
+            last_row = df.iloc[-1]
+            open_price    = float(last_row["Open"])
+            current_price = float(last_row["Close"])
+            if open_price <= 0:
+                continue
+            change_pct = (current_price - open_price) / open_price * 100
+            return {
+                "open":       round(open_price, 2),
+                "current":    round(current_price, 2),
+                "change_pct": round(change_pct, 2),
+                "ticker":     ticker_sym,
+                "as_of":      df.index[-1].strftime("%Y-%m-%d"),
+            }
+        except Exception as e:
+            print(f"Intraday price fetch failed for {ticker_sym}: {e}")
+            continue
+    return None
+
+
+async def _explain_market_move(commodity_label: str, change_pct: float,
+                                current_price: float, unit: str) -> str:
+    """
+    Ask gpt-4o-mini to explain a commodity spike using today's news from DB.
+    Returns 2-3 sentence explanation in Ukrainian, or a fallback line.
+    """
+    if not aclient:
+        return "Причина не ідентифікована (OpenAI недоступний)."
+
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        # Use Kyiv-local "today 00:00" because published is stored as naive
+        # Kyiv-time string in the DB. Server runs in UTC (Hetzner), so
+        # datetime.now() without tzinfo would give the wrong window.
+        kyiv_tz = pytz.timezone("Europe/Kyiv")
+        today_start = datetime.datetime.now(kyiv_tz).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        ).strftime("%Y-%m-%d %H:%M:%S")
+        placeholders = ",".join(["%s"] * len(_MARKET_ALERT_NEWS_LOOKBACK_CATEGORIES))
+        rows = db_fetchall(
+            cursor,
+            f"""
+            SELECT title, COALESCE(summary_en, '') AS summary_en, category
+            FROM articles
+            WHERE category IN ({placeholders})
+              AND published >= %s
+            ORDER BY published DESC
+            LIMIT 30
+            """,
+            (*_MARKET_ALERT_NEWS_LOOKBACK_CATEGORIES, today_start),
+        )
+        conn.close()
+    except Exception as e:
+        print(f"Market alert news query failed: {e}")
+        rows = []
+
+    direction_ua = "зросла" if change_pct >= 0 else "впала"
+    sign = "+" if change_pct >= 0 else ""
+
+    if not rows:
+        return (
+            f"{commodity_label} {direction_ua} на {sign}{change_pct:.1f}% "
+            f"(поточна {current_price} {unit}). "
+            f"Свіжих новин за сьогодні в нашій базі немає, причина не ідентифікована."
+        )
+
+    news_block = "\n".join(
+        f"- [{r['category']}] {r['title'][:120]}"
+        + (f" — {r['summary_en'][:150]}" if r['summary_en'] else "")
+        for r in rows
+    )
+
+    prompt = (
+        f"Ціна {commodity_label} сьогодні {direction_ua} на {sign}{change_pct:.1f}% "
+        f"(поточна {current_price} {unit}).\n\n"
+        f"Нижче — новини за сьогодні з нашої бази даних:\n{news_block}\n\n"
+        f"Напиши 2-3 коротких речення українською мовою про те, які з цих новин "
+        f"можуть пояснити такий рух ціни. Посилайся на конкретні події. "
+        f"Якщо жодна новина не пояснює рух — напиши одне речення: "
+        f"'Прямої причини у новинах сьогодні не знайдено, ймовірно технічний рух ринку.'\n"
+        f"НЕ вигадуй факти. НЕ цитуй новини які не в списку. Пиши природно і коротко."
+    )
+
+    try:
+        response = await aclient.chat.completions.create(
+            model="gpt-4o-mini",
+            max_tokens=250,
+            temperature=0.3,
+            messages=[
+                {"role": "system", "content": "Ти — короткий фінансовий аналітик. Пояснюєш рухи цін на сировину."},
+                {"role": "user",   "content": prompt},
+            ],
+        )
+        reason = response.choices[0].message.content.strip()
+        return (
+            f"{commodity_label} {direction_ua} на {sign}{change_pct:.1f}% "
+            f"(поточна {current_price} {unit}).\n\n{reason}"
+        )
+    except Exception as e:
+        print(f"Market alert LLM call failed: {e}")
+        return (
+            f"{commodity_label} {direction_ua} на {sign}{change_pct:.1f}% "
+            f"(поточна {current_price} {unit})."
+        )
+
+
+async def _push_market_alert(title: str, body: str, link: str, emoji: str):
+    """
+    Store a market_alerts pseudo-article in DB and push to subscribers.
+    Mirrors the push logic from fetch_and_store_news but inline, so we
+    don't have to wait for the next 15-minute fetch cycle.
+    """
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        now_str = datetime.datetime.now(pytz.timezone("Europe/Kyiv")).strftime("%Y-%m-%d %H:%M:%S")
+        placeholder_image = "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?q=80&w=1200&auto=format&fit=crop"
+        try:
+            cursor.execute(
+                """
+                INSERT INTO articles
+                    (title, link, published, category,
+                     summary_en, summary_ua, summary_ru,
+                     image_url, extraction_status, facts_status)
+                VALUES (%s, %s, %s, 'market_alerts', %s, %s, %s, %s, 'skipped', 'skipped')
+                ON CONFLICT(link) DO NOTHING
+                RETURNING id
+                """,
+                (title, link, now_str, body, body, body, placeholder_image),
+            )
+            inserted_row = cursor.fetchone()
+            conn.commit()
+        except Exception as e:
+            print(f"Market alert INSERT failed: {e}")
+            return
+
+        if inserted_row is None:
+            # Link already exists → dedup hit, do not push again
+            return
+
+        # Push to subscribed users
+        try:
+            users = db_fetchall(cursor,
+                "SELECT chat_id, language, subscriptions, only_daily_mode FROM telegram_users"
+            )
+        except Exception as e:
+            print(f"Market alert users query failed: {e}")
+            users = []
+
+        async with httpx.AsyncClient() as http_client:
+            for user in users:
+                try:
+                    if user["only_daily_mode"]:
+                        continue
+                    chat_id = user["chat_id"]
+                    subs = user["subscriptions"] or "all"
+                    if subs != "all" and "market_alerts" not in subs.split(","):
+                        continue
+
+                    msg = f"{emoji} <b>{title}</b>\n\n{body}"
+                    resp = await http_client.post(
+                        f"{TELEGRAM_API_URL}/sendMessage",
+                        json={
+                            "chat_id": chat_id,
+                            "text": msg,
+                            "parse_mode": "HTML",
+                        },
+                    )
+                    if resp.status_code == 200:
+                        try:
+                            cursor.execute(
+                                "INSERT INTO telegram_sent (chat_id, article_link) "
+                                "VALUES (%s, %s) ON CONFLICT DO NOTHING",
+                                (chat_id, link),
+                            )
+                            conn.commit()
+                        except Exception as e:
+                            print(f"Market alert telegram_sent record failed: {e}")
+                except Exception as e:
+                    print(f"Market alert push to {user.get('chat_id')} failed: {e}")
+
+            # Admin fan-out (same content, not tracked in telegram_sent)
+            admin_chat_ids = [
+                cid.strip()
+                for cid in os.getenv("TELEGRAM_CHAT_ID", "").split(",")
+                if cid.strip()
+            ]
+            for admin_chat_id in admin_chat_ids:
+                try:
+                    msg = f"{emoji} <b>{title}</b>\n\n{body}"
+                    await http_client.post(
+                        f"{TELEGRAM_API_URL}/sendMessage",
+                        json={"chat_id": admin_chat_id, "text": msg, "parse_mode": "HTML"},
+                    )
+                except Exception as e:
+                    print(f"Market alert push to admin {admin_chat_id} failed: {e}")
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
+async def monitor_market_alerts():
+    """
+    Long-running loop that checks commodity prices every 30 minutes during
+    Kyiv market hours (08:00–23:00). Sends a Telegram alert when any of
+    Corn / Brent / Palm Oil moves by ±7% intraday. One alert per commodity
+    per direction per day (dedup by composite link).
+    """
+    if not CHARTS_AVAILABLE:
+        print("monitor_market_alerts: yfinance unavailable, exiting")
+        return
+
+    print("monitor_market_alerts: started")
+    kyiv_tz = pytz.timezone("Europe/Kyiv")
+
+    while True:
+        try:
+            now_kyiv = datetime.datetime.now(kyiv_tz)
+            # Only run during extended market hours: 08:00-23:00 Kyiv
+            if not (8 <= now_kyiv.hour < 23):
+                await asyncio.sleep(_MARKET_ALERT_INTERVAL_SECONDS)
+                continue
+
+            for key, cfg in CHART_TICKERS.items():
+                try:
+                    info = await asyncio.to_thread(
+                        _get_intraday_price_info, cfg["tickers"]
+                    )
+                except Exception as e:
+                    print(f"monitor_market_alerts: fetch {key} failed: {e}")
+                    continue
+                if info is None:
+                    continue
+                change_pct = info["change_pct"]
+                if abs(change_pct) < _MARKET_ALERT_THRESHOLD_PCT:
+                    continue
+
+                # Dedup key: one alert per commodity per direction per day
+                direction = "up" if change_pct >= 0 else "down"
+                day_str = now_kyiv.strftime("%Y%m%d")
+                link = f"alert://commodity/{key}/{day_str}/{direction}"
+
+                # Quick dedup check before we spend money on LLM
+                try:
+                    conn = get_db_connection()
+                    cur = conn.cursor()
+                    cur.execute("SELECT 1 FROM articles WHERE link = %s", (link,))
+                    already = cur.fetchone() is not None
+                    conn.close()
+                except Exception as e:
+                    print(f"Market alert dedup check failed: {e}")
+                    already = False
+                if already:
+                    continue
+
+                label   = cfg["label"]
+                unit    = cfg["unit"]
+                emoji   = cfg["emoji"]
+                sign    = "+" if change_pct >= 0 else ""
+                title   = f"{label}: {sign}{change_pct:.1f}% сьогодні"
+                body    = await _explain_market_move(label, change_pct, info["current"], unit)
+
+                await _push_market_alert(title, body, link, emoji)
+                print(f"monitor_market_alerts: pushed {key} {sign}{change_pct:.1f}%")
+
+        except asyncio.CancelledError:
+            print("monitor_market_alerts: cancelled")
+            raise
+        except Exception as e:
+            print(f"monitor_market_alerts loop error: {e}")
+
+        await asyncio.sleep(_MARKET_ALERT_INTERVAL_SECONDS)
+
+
+# ─────────────────────────────────────────────────────────────────
 # BACKGROUND TASKS (news fetching unchanged)
 # ─────────────────────────────────────────────────────────────────
 
@@ -3103,7 +3446,11 @@ async def fetch_and_store_news():
                     # so it's safe even if this iteration's `conn` is closed later.
                     # The _EXTRACTION_SEMAPHORE inside extract_article_fulltext
                     # caps real parallelism at 5 concurrent fetches.
-                    if TRAFILATURA_AVAILABLE:
+                    # NOTE: market_alerts pseudo-articles are internally generated
+                    # (link is alert://, no real URL to fetch) — defensive skip,
+                    # though they shouldn't reach this loop since they're not in
+                    # RSS_FEEDS. good_news articles go through normal extraction.
+                    if TRAFILATURA_AVAILABLE and category != "market_alerts":
                         extraction_tasks.append(
                             asyncio.create_task(extract_and_store(link))
                         )
@@ -3264,6 +3611,11 @@ async def lifespan(app: FastAPI):
     # Same fire-and-forget pattern.
     task_backfill_facts = asyncio.create_task(backfill_missing_facts(max_articles=100))
 
+    # Market alerts monitor: long-running loop that checks commodity prices
+    # every 30 minutes during Kyiv market hours and pushes Telegram alerts
+    # on ±7% intraday moves. Dedup is per-commodity per-direction per-day.
+    task_market_alerts = asyncio.create_task(monitor_market_alerts())
+
     scheduler = AsyncIOScheduler(timezone=pytz.timezone('Europe/Kyiv'))
     # Daily report at 09:00 Kyiv time
     scheduler.add_job(send_daily_report_to_users, 'cron', hour=9, minute=0)
@@ -3295,6 +3647,7 @@ async def lifespan(app: FastAPI):
     task_cleanup.cancel()
     task_backfill.cancel()
     task_backfill_facts.cancel()
+    task_market_alerts.cancel()
 
 
 app = FastAPI(title="Alliance News API", lifespan=lifespan)
