@@ -1755,27 +1755,37 @@ def _make_candle_chart(tickers: tuple[str, ...], label: str, unit: str,
             for spine in ax.spines.values():
                 spine.set_edgecolor("#333333")
 
-        # ── candlesticks ───────────────────────────────────────────
-        w = 0.6   # bar width in days
-        for i, (ts, row) in enumerate(df.iterrows()):
-            o, h, l, c = row["Open"], row["High"], row["Low"], row["Close"]
-            color = "#26a69a" if c >= o else "#ef5350"   # teal / red
-            # candle body
-            ax_price.bar(i, abs(c - o), bottom=min(o, c),
-                         color=color, width=w, linewidth=0)
-            # wick
-            ax_price.plot([i, i], [l, h], color=color, linewidth=0.8)
-
-        # ── highlight report day (last bar) ─────────────────────────
-        last_i = len(df) - 1
-        last_close = df["Close"].iloc[-1]
+        # ── line chart (TradingView style) ────────────────────────
+        closes    = df["Close"].values
+        x_indices = range(len(df))
+        last_i     = len(df) - 1
+        last_close = closes[-1]
         last_open  = df["Open"].iloc[-1]
-        ax_price.bar(last_i,
-                     abs(last_close - last_open),
-                     bottom=min(last_close, last_open),
-                     color="#f5a623", width=w, linewidth=0, zorder=5)
 
-        # ── price label on last candle ─────────────────────────────
+        # Determine overall trend colour: teal if today closed above open, red if below
+        overall_color = "#2962ff"   # TradingView blue — neutral line colour
+
+        # Draw main price line
+        ax_price.plot(x_indices, closes, color=overall_color,
+                      linewidth=1.3, zorder=3)
+
+        # Gradient fill under the line using LinearSegmentedColormap
+        from matplotlib.colors import LinearSegmentedColormap
+        import numpy as np
+        y_min = closes.min()
+        y_max = closes.max()
+        y_range = y_max - y_min if y_max != y_min else 1.0
+
+        # Build a vertical gradient fill: blue at line, transparent at bottom
+        grad_cmap = LinearSegmentedColormap.from_list(
+            "tv_fill", [(0, (0.16, 0.38, 1.0, 0.0)),
+                        (1, (0.16, 0.38, 1.0, 0.18))]
+        )
+        # Polygon fill
+        ax_price.fill_between(x_indices, closes, y_min * 0.999,
+                              color="#2962ff", alpha=0.12, zorder=2)
+
+        # ── price label on last point ──────────────────────────────
         ax_price.annotate(
             f"{last_close:.2f}",
             xy=(last_i, last_close),
@@ -1784,11 +1794,16 @@ def _make_candle_chart(tickers: tuple[str, ...], label: str, unit: str,
             ha="right", va="center",
         )
 
+        # Horizontal dotted price line at last close
+        ax_price.axhline(y=last_close, color="#f5a623",
+                         linewidth=0.6, linestyle=":", alpha=0.7, zorder=1)
+
         # ── volume bars ────────────────────────────────────────────
+        w_vol = 0.6
         vol_colors = ["#26a69a" if df["Close"].iloc[i] >= df["Open"].iloc[i]
                       else "#ef5350" for i in range(len(df))]
         ax_vol.bar(range(len(df)), df["Volume"], color=vol_colors,
-                   width=w, linewidth=0, alpha=0.7)
+                   width=w_vol, linewidth=0, alpha=0.7)
         ax_vol.set_ylabel("Обсяг", color="#888888", fontsize=6)
         ax_vol.yaxis.set_major_formatter(
             mticker.FuncFormatter(
@@ -1835,10 +1850,10 @@ def _make_candle_chart(tickers: tuple[str, ...], label: str, unit: str,
             ha="right", va="top",
         )
 
-        # ── report-day marker ──────────────────────────────────────
+        # ── report-day dot marker on the line ─────────────────────
         report_idx = len(df) - 1
-        ax_price.axvline(x=report_idx, color="#f5a623",
-                         linewidth=0.7, linestyle="--", alpha=0.5)
+        ax_price.plot(report_idx, last_close, "o",
+                      color="#f5a623", markersize=5, zorder=6)
 
         fig.tight_layout(pad=0.4)
         fig.savefig(out_path, dpi=130, bbox_inches="tight",
