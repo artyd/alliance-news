@@ -244,6 +244,56 @@ INTERNAL_CATEGORIES = {"middle_east"}
 # bodies — market_alerts are generated internally, good_news are just for mood).
 NON_REPORT_CATEGORIES = {"market_alerts", "good_news"}
 
+# ── Telegram message helpers ──────────────────────────────────────────────────
+# Ukrainian category labels and emoji for structured Telegram push messages.
+_CAT_LABEL_UA = {
+    "api":            "Фармацевтичні субстанції",
+    "cosmetic":       "Косметика та сировина",
+    "herbal":         "Трави та екстракти",
+    "veterinary":     "Ветеринарія",
+    "food":           "Харчова сировина",
+    "feed":           "Кормові амінокислоти",
+    "capsules":       "Капсули та оболонки",
+    "pvc":            "ПВХ та пакування",
+    "logistics":      "Логістика",
+    "global_sources": "Глобальна економіка",
+    "good_news":      "Позитивні новини",
+    "market_alerts":  "Ринковий алерт",
+}
+_CAT_EMOJI = {
+    "api":            "💊", "cosmetic":       "🧴", "herbal":         "🌿",
+    "veterinary":     "🐾", "food":           "🌾", "feed":           "🐄",
+    "capsules":       "🔬", "pvc":            "📦", "logistics":      "🚢",
+    "global_sources": "🌐", "good_news":      "✨", "market_alerts":  "⚡",
+}
+
+
+def _build_tg_msg(title: str, summary: str, category: str, link: str) -> str:
+    """
+    Build a structured, readable Telegram news message.
+
+    Format:
+    ━━━━━━━━━━━━━━━━━━━━━━━━
+    [emoji]  [Category Name]
+    ━━━━━━━━━━━━━━━━━━━━━━━━
+    [Title bold]
+
+    [Summary — 3 sentences: event / global impact / Ukraine B2B impact]
+
+    🔗 Читати повністю
+    """
+    label   = _CAT_LABEL_UA.get(category, category.upper())
+    emoji   = _CAT_EMOJI.get(category, "📰")
+    divider = "━" * 24
+    return (
+        f"{divider}\n"
+        f"{emoji}  <b>{label}</b>\n"
+        f"{divider}\n"
+        f"<b>{title}</b>\n\n"
+        f"{summary}\n\n"
+        f'🔗 <a href="{link}">Читати повністю</a>'
+    )
+
 # ─────────────────────────────────────────────
 # MASTER REPORT PROMPT — повний звіт через AI
 # ─────────────────────────────────────────────
@@ -676,54 +726,85 @@ async def poll_telegram_updates():
             await asyncio.sleep(2)
 
 
-SYSTEM_PROMPT = """You are a senior B2B market analyst focusing on Ukraine.
-Analyze the following article. Provide the output strictly as a raw JSON object with these exact keys: 'summary_en', 'summary_ua', 'summary_ru'.
-IMPORTANT: Your output must be ONLY a valid JSON object. You must carefully escape any inner double quotes inside the text values using a backslash (\\"). Do not wrap the output in markdown blocks like ```json.
+SYSTEM_PROMPT = """You are a senior B2B market intelligence analyst for a Ukrainian pharmaceutical and chemical raw materials importer.
 
-NEW CONSTRAINTS: The summary must be STRICTLY under 35 words per language.
-NEW STRUCTURE: The summary must contain exactly two parts:
-1. The Core Event: What happened globally.
-2. Strategic B2B Impact: How a Ukrainian company in this sector should react or what they should prepare for.
+Analyze the article and return ONLY a raw JSON object with keys: summary_en, summary_ua, summary_ru.
+No markdown, no code blocks — only valid JSON.
 
-Translate the exact same summary into English, Ukrainian, and Russian respectively for the keys."""
+STRICT RULES:
+- Each summary: 40-50 words.
+- Write 3 sentences:
+  1. THE EVENT: What happened, where, who. Include numbers/% if available.
+  2. GLOBAL IMPACT: How does this affect global markets, supply chains, or trade policy.
+  3. UKRAINE B2B IMPACT: How does this affect a Ukrainian importer of pharma ingredients, cosmetic raw materials, packaging, or food-grade materials. What should procurement do now.
+- Professional B2B tone. Be direct and specific. No vague phrases like "could affect" or "may have impact".
+- If no B2B impact: write "Direct procurement impact not identified; monitoring recommended."
+- summary_en: English. summary_ua: Ukrainian. summary_ru: Russian. Same content translated."""
 
 
 async def generate_summary(text: str):
-    if not text or not gemini_api_key:
+    """Generate 3-language B2B summaries via OpenAI GPT-4o-mini (Gemini fallback)."""
+    if not text:
         return {"summary_en": text, "summary_ua": text, "summary_ru": text}
 
-    model = genai.GenerativeModel("gemini-2.5-flash")
-    for attempt in range(3):
-        try:
-            response = await model.generate_content_async(
-                f"{SYSTEM_PROMPT}\n\nArticle Content:\n{text}",
-                request_options={"timeout": 120}
-            )
-            raw_text = response.text.strip()
-            if raw_text.startswith("```json"):
-                raw_text = raw_text[7:]
-            elif raw_text.startswith("```"):
-                raw_text = raw_text[3:]
-            if raw_text.endswith("```"):
-                raw_text = raw_text[:-3]
-            raw_text = raw_text.strip()
+    # Primary: OpenAI GPT-4o-mini
+    if aclient:
+        truncated = text[:3000]
+        for attempt in range(3):
+            try:
+                response = await aclient.chat.completions.create(
+                    model="gpt-4o-mini",
+                    max_tokens=400,
+                    temperature=0.2,
+                    response_format={"type": "json_object"},
+                    messages=[
+                        {"role": "system", "content": SYSTEM_PROMPT},
+                        {"role": "user",   "content": f"Article:\n{truncated}"},
+                    ],
+                )
+                parsed = json.loads(response.choices[0].message.content.strip())
+                return {
+                    "summary_en": parsed.get("summary_en", text[:200]),
+                    "summary_ua": parsed.get("summary_ua", text[:200]),
+                    "summary_ru": parsed.get("summary_ru", text[:200]),
+                }
+            except json.JSONDecodeError as e:
+                print(f"generate_summary JSON error (attempt {attempt+1}): {e}")
+                if attempt == 2:
+                    return {"summary_en": text[:200], "summary_ua": text[:200], "summary_ru": text[:200]}
+            except Exception as e:
+                print(f"generate_summary OpenAI error (attempt {attempt+1}): {e}")
+                if attempt < 2:
+                    await asyncio.sleep(2)
+                else:
+                    return {"summary_en": text[:200], "summary_ua": text[:200], "summary_ru": text[:200]}
 
-            parsed = json.loads(raw_text)
+    # Fallback: Gemini (if OpenAI unavailable)
+    if gemini_api_key:
+        try:
+            model = genai.GenerativeModel("gemini-2.5-flash")
+            response = await model.generate_content_async(
+                f"{SYSTEM_PROMPT}\n\nArticle:\n{text[:2000]}",
+                request_options={"timeout": 60}
+            )
+            raw = response.text.strip()
+            if raw.startswith("```json"):
+                raw = raw[7:]
+            elif raw.startswith("```"):
+                raw = raw[3:]
+            if raw.endswith("```"):
+                raw = raw[:-3]
+            raw = raw.strip()
+            parsed = json.loads(raw)
             return {
-                "summary_en": parsed.get("summary_en", text),
-                "summary_ua": parsed.get("summary_ua", text),
-                "summary_ru": parsed.get("summary_ru", text)
+                "summary_en": parsed.get("summary_en", text[:200]),
+                "summary_ua": parsed.get("summary_ua", text[:200]),
+                "summary_ru": parsed.get("summary_ru", text[:200]),
             }
-        except json.JSONDecodeError as e:
-            print(f"JSON Parsing Error: {e} - Raw Output: {raw_text}")
-            if attempt == 2:
-                return {"summary_en": text, "summary_ua": text, "summary_ru": text}
         except Exception as e:
-            print(f"LLM API error (attempt {attempt + 1}/3): {e}")
-            if attempt < 2:
-                await asyncio.sleep(2)
-            else:
-                return {"summary_en": text, "summary_ua": text, "summary_ru": text}
+            print(f"generate_summary Gemini fallback error: {e}")
+
+    return {"summary_en": text[:200], "summary_ua": text[:200], "summary_ru": text[:200]}
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -1398,13 +1479,14 @@ async def backfill_missing_facts(max_articles: int = 100):
 FONT_REGULAR = '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'
 FONT_BOLD    = '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf'
 
-# Accent colour — чорний для всіх блоків та секцій
-COLOR_ACCENT  = (20, 20, 20)
-# Light grey for alternating rows / dividers
-COLOR_LIGHT   = (240, 240, 240)
-# Body text dark
-COLOR_BODY    = (30, 30, 30)
-# Risk badge colours
+# ── Colour system — clean white/dark professional palette ──────────
+COLOR_ACCENT      = (27, 79, 216)    # Blue accent for section left-border
+COLOR_ACCENT_DARK = (15, 45, 130)    # Deep blue for section title text
+COLOR_LIGHT       = (245, 247, 250)  # Light blue-grey for table rows
+COLOR_DIVIDER     = (215, 222, 235)  # Subtle horizontal divider
+COLOR_BODY        = (25, 25, 35)     # Near-black body text
+COLOR_MUTED       = (110, 115, 130)  # Grey for metadata / captions
+# Risk badge colours (unchanged)
 RISK_COLORS   = {
     "Високий": (220, 53, 69),
     "Середній": (255, 165, 0),
@@ -1414,65 +1496,91 @@ RISK_COLORS   = {
 
 def make_pdf_base() -> FPDF:
     pdf = FPDF()
-    pdf.add_font("DejaVu",        fname=FONT_REGULAR)
+    pdf.add_font("DejaVu",          fname=FONT_REGULAR)
     pdf.add_font("DejaVu", style="B", fname=FONT_BOLD)
-    pdf.set_margins(18, 18, 18)
-    pdf.set_auto_page_break(auto=True, margin=20)
+    pdf.set_margins(20, 20, 20)           # wider margins — professional standard
+    pdf.set_auto_page_break(auto=True, margin=22)
     return pdf
 
 
 def draw_header_bar(pdf: FPDF, report_date: str, base_dir: str):
-    """Cover-style header — чорний фон, лого ліворуч, назва по центру правої частини."""
-    pdf.set_fill_color(20, 20, 20)
-    pdf.rect(0, 0, 210, 42, style="F")
+    """White header: logo + text + thin dark bottom rule."""
+    # White background
+    pdf.set_fill_color(255, 255, 255)
+    pdf.rect(0, 0, 210, 44, style="F")
+
+    # Thin dark rule at the bottom of the header
+    pdf.set_draw_color(25, 25, 35)
+    pdf.set_line_width(0.5)
+    pdf.line(0, 43, 210, 43)
 
     logo_path = os.path.join(base_dir, "logo.png")
     if os.path.exists(logo_path):
-        pdf.image(logo_path, x=7, y=7, h=26)
-        text_x = 52
+        pdf.image(logo_path, x=8, y=8, h=26)
+        text_x = 54
     else:
         text_x = 14
 
     remaining_w = 210 - text_x - 8
 
-    pdf.set_xy(text_x, 8)
-    pdf.set_font("DejaVu", style="B", size=15)
-    pdf.set_text_color(255, 255, 255)
+    # Report title — bold black
+    pdf.set_xy(text_x, 9)
+    pdf.set_font("DejaVu", style="B", size=14)
+    pdf.set_text_color(20, 20, 20)
     pdf.cell(remaining_w, 9, "Щоденний ринковий звіт", ln=True, align="C")
 
+    # Subtitle — medium grey
     pdf.set_x(text_x)
-    pdf.set_font("DejaVu", size=9)
-    pdf.set_text_color(200, 200, 200)
-    pdf.cell(remaining_w, 6, f"Для B2B-компанії в Україні  |  Огляд за {report_date}", ln=True, align="C")
+    pdf.set_font("DejaVu", size=8.5)
+    pdf.set_text_color(90, 90, 90)
+    pdf.cell(remaining_w, 6,
+             f"Для B2B-компанії в Україні  ·  Огляд за {report_date}",
+             ln=True, align="C")
 
+    # Categories line — light grey
     pdf.set_x(text_x)
-    pdf.set_font("DejaVu", size=8)
-    pdf.set_text_color(155, 155, 155)
-    pdf.cell(remaining_w, 5, "Сировина · Субстанції · Логістика · Близький Схід · Товарні ринки", ln=True, align="C")
+    pdf.set_font("DejaVu", size=7.5)
+    pdf.set_text_color(150, 150, 150)
+    pdf.cell(remaining_w, 5,
+             "Сировина  ·  Субстанції  ·  Логістика  ·  Близький Схід  ·  Товарні ринки",
+             ln=True, align="C")
 
     pdf.set_text_color(*COLOR_BODY)
-    pdf.ln(12)
+    pdf.ln(14)
 
 
 def section_title(pdf: FPDF, title: str):
-    """Coloured section banner."""
-    pdf.set_fill_color(*COLOR_ACCENT)
-    pdf.set_text_color(255, 255, 255)
-    pdf.set_font("DejaVu", style="B", size=11)
-    pdf.set_x(pdf.l_margin)
-    pdf.cell(0, 8, f"  {title}", ln=True, fill=True)
+    """Section header with dark left border — clean professional style."""
+    y = pdf.get_y()
+
+    # Dark vertical bar on the left
+    pdf.set_fill_color(25, 25, 35)
+    pdf.rect(pdf.l_margin, y, 3.5, 9, style="F")
+
+    # Title text — dark grey uppercase
+    pdf.set_xy(pdf.l_margin + 6, y)
+    pdf.set_font("DejaVu", style="B", size=10)
+    pdf.set_text_color(25, 25, 35)
+    pdf.cell(0, 9, title.upper(), ln=True)
+
+    # Subtle horizontal rule below
+    pdf.set_draw_color(*COLOR_DIVIDER)
+    pdf.set_line_width(0.25)
+    pdf.line(pdf.l_margin, pdf.get_y(), 210 - pdf.r_margin, pdf.get_y())
     pdf.set_text_color(*COLOR_BODY)
-    pdf.ln(2)
+    pdf.ln(4)
 
 
 def sub_title(pdf: FPDF, title: str):
-    """Bold dark sub-heading."""
+    """Bold dark sub-heading with top spacing."""
+    pdf.ln(2)
     pdf.set_x(pdf.l_margin)
-    pdf.set_font("DejaVu", style="B", size=10)
-    pdf.set_text_color(*COLOR_ACCENT)
-    pdf.multi_cell(0, 6, title)
+    pdf.set_font("DejaVu", style="B", size=10.5)
+    pdf.set_text_color(25, 25, 35)
+    pdf.multi_cell(0, 6.5, title)
     pdf.set_text_color(*COLOR_BODY)
     pdf.set_x(pdf.l_margin)
+    pdf.ln(1)
 
 
 # Regex for inline markdown links: [text](url)
@@ -1563,44 +1671,44 @@ def _render_line_tokens(pdf: FPDF, tokens: list[tuple[str, str, str | None]], si
                 pass
 
 
-def body_text(pdf: FPDF, text: str, size: int = 9):
-    """Render text with inline **bold** and clickable [text](url) / bare URL support.
-    Strips ## / # headings. Stray ** markers are dropped."""
+def body_text(pdf: FPDF, text: str, size: int = 10):
+    """Render text with 10pt size, 6.5mm line-height, 3mm paragraph spacing.
+    Supports **bold**, [text](url), bare URLs. Strips ## headings."""
     pdf.set_text_color(*COLOR_BODY)
     for line in text.split("\n"):
-        # Strip markdown heading markers (# ## ### ####)
         clean = line.strip()
         while clean.startswith("#"):
             clean = clean[1:]
         clean = clean.strip()
 
         if not clean:
-            pdf.ln(2)
+            pdf.ln(3)   # paragraph spacing
             continue
 
         pdf.set_x(pdf.l_margin)
         tokens = _tokenize_line(clean)
 
-        # Fast path: single plain-text token, no bold, no link
         if len(tokens) == 1 and tokens[0][0] == "text":
             pdf.set_font("DejaVu", size=size)
             try:
-                pdf.multi_cell(0, 5.5, tokens[0][1])
+                pdf.multi_cell(0, 6.5, tokens[0][1])
             except Exception:
                 pass
         else:
             _render_line_tokens(pdf, tokens, size)
-            pdf.ln(5.5)
+            pdf.ln(6.5)
             pdf.set_font("DejaVu", size=size)
             pdf.set_text_color(*COLOR_BODY)
     pdf.ln(1)
 
 
 def draw_divider(pdf: FPDF):
-    pdf.set_draw_color(*COLOR_ACCENT)
-    pdf.set_line_width(0.3)
-    pdf.line(pdf.l_margin, pdf.get_y(), 210 - pdf.r_margin, pdf.get_y())
+    """Thin subtle divider between sections."""
     pdf.ln(3)
+    pdf.set_draw_color(*COLOR_DIVIDER)
+    pdf.set_line_width(0.25)
+    pdf.line(pdf.l_margin, pdf.get_y(), 210 - pdf.r_margin, pdf.get_y())
+    pdf.ln(4)
 
 
 def draw_risk_table(pdf: FPDF, lines: list[str]):
@@ -1662,10 +1770,23 @@ def draw_risk_table(pdf: FPDF, lines: list[str]):
 
 
 def draw_footer(pdf: FPDF, report_date: str):
-    pdf.set_y(-14)
+    """Footer with thin rule, page info, and confidentiality notice."""
+    pdf.set_y(-18)
+    pdf.set_draw_color(*COLOR_DIVIDER)
+    pdf.set_line_width(0.25)
+    pdf.line(pdf.l_margin, pdf.get_y(), 210 - pdf.r_margin, pdf.get_y())
+    pdf.ln(2)
     pdf.set_font("DejaVu", size=7)
-    pdf.set_text_color(140, 140, 140)
-    pdf.cell(0, 5, f"MacroHarvey  ·  Ринковий звіт за {report_date}  ·  Стор. {pdf.page_no()}", align="C")
+    pdf.set_text_color(*COLOR_MUTED)
+    pdf.cell(0, 4.5,
+             f"MacroHarvey  ·  Ринковий звіт за {report_date}  ·  Стор. {pdf.page_no()}",
+             align="C")
+    pdf.ln(4.5)
+    pdf.set_font("DejaVu", size=6.5)
+    pdf.set_text_color(170, 175, 185)
+    pdf.cell(0, 4,
+             "Конфіденційно. Призначено виключно для внутрішнього використання.",
+             align="C")
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -1747,13 +1868,13 @@ def _make_candle_chart(tickers: tuple[str, ...], label: str, unit: str,
         fig, (ax_price, ax_vol) = plt.subplots(
             2, 1, figsize=(9, 4.2),
             gridspec_kw={"height_ratios": [3, 1]},
-            facecolor="#111111"
+            facecolor="#FFFFFF"
         )
         for ax in (ax_price, ax_vol):
-            ax.set_facecolor("#1a1a1a")
-            ax.tick_params(colors="#cccccc", labelsize=7)
+            ax.set_facecolor("#F8F9FC")
+            ax.tick_params(colors="#555555", labelsize=7)
             for spine in ax.spines.values():
-                spine.set_edgecolor("#333333")
+                spine.set_edgecolor("#DDDDDD")
 
         # ── line chart (TradingView style) ────────────────────────
         closes    = df["Close"].values
@@ -1804,7 +1925,7 @@ def _make_candle_chart(tickers: tuple[str, ...], label: str, unit: str,
                       else "#ef5350" for i in range(len(df))]
         ax_vol.bar(range(len(df)), df["Volume"], color=vol_colors,
                    width=w_vol, linewidth=0, alpha=0.7)
-        ax_vol.set_ylabel("Обсяг", color="#888888", fontsize=6)
+        ax_vol.set_ylabel("Обсяг", color="#666666", fontsize=6)
         ax_vol.yaxis.set_major_formatter(
             mticker.FuncFormatter(
                 lambda x, _: f"{x/1e6:.0f}M" if x >= 1e6 else f"{x/1e3:.0f}K"
@@ -1817,12 +1938,12 @@ def _make_candle_chart(tickers: tuple[str, ...], label: str, unit: str,
         tick_labels    = [df.index[i].strftime("%d.%m") for i in tick_positions]
         ax_price.set_xticks([])
         ax_vol.set_xticks(tick_positions)
-        ax_vol.set_xticklabels(tick_labels, color="#aaaaaa", fontsize=6)
+        ax_vol.set_xticklabels(tick_labels, color="#666666", fontsize=6)
 
         # ── y-axis formatting ──────────────────────────────────────
         ax_price.yaxis.tick_right()
         ax_price.yaxis.set_label_position("right")
-        ax_price.set_ylabel(unit, color="#888888", fontsize=6)
+        ax_price.set_ylabel(unit, color="#666666", fontsize=6)
 
         # ── title & OHLC info ──────────────────────────────────────
         last_row = df.iloc[-1]
@@ -1839,7 +1960,7 @@ def _make_candle_chart(tickers: tuple[str, ...], label: str, unit: str,
             f"L:{last_row['Low']:.2f}  "
             f"C:{last_row['Close']:.2f}  "
         )
-        ax_price.set_title(title_str, color="#dddddd", fontsize=7.5,
+        ax_price.set_title(title_str, color="#333333", fontsize=7.5,
                            loc="left", pad=4)
         # change badge in top-right
         ax_price.annotate(
@@ -1857,7 +1978,7 @@ def _make_candle_chart(tickers: tuple[str, ...], label: str, unit: str,
 
         fig.tight_layout(pad=0.4)
         fig.savefig(out_path, dpi=130, bbox_inches="tight",
-                    facecolor="#111111")
+                    facecolor="#FFFFFF")
         plt.close(fig)
 
         price_info = {
@@ -3724,12 +3845,7 @@ async def fetch_and_store_news():
                                         continue
 
                                     summary_text = summaries.get(f"summary_{lang}", sum_en)
-                                    msg = (
-                                        f"📰 <b>{title}</b>\n\n"
-                                        f"📝 <i>{summary_text}</i>\n\n"
-                                        f"🏷 Category: #{category}\n"
-                                        f"🔗 <a href='{link}'>Read full article</a>"
-                                    )
+                                    msg = _build_tg_msg(title, summary_text, category, link)
 
                                     resp = await http_client.post(f"{TELEGRAM_API_URL}/sendMessage", json={
                                         "chat_id": chat_id,
@@ -3756,12 +3872,7 @@ async def fetch_and_store_news():
                                     if cursor.fetchone() is not None:
                                         continue
 
-                                    msg = (
-                                        f"📰 <b>{title}</b>\n\n"
-                                        f"📝 <i>{sum_en}</i>\n\n"
-                                        f"🏷 Category: #{category}\n"
-                                        f"🔗 <a href='{link}'>Read full article</a>"
-                                    )
+                                    msg = _build_tg_msg(title, sum_ua, category, link)
                                     resp = await http_client.post(f"{TELEGRAM_API_URL}/sendMessage", json={
                                         "chat_id": admin_chat_id,
                                         "text": msg,
