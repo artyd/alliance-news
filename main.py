@@ -299,7 +299,7 @@ def _build_tg_msg(title: str, summary: str, category: str, link: str) -> str:
     label   = _CAT_LABEL_UA.get(category, category.upper())
     emoji   = _CAT_EMOJI.get(category, "📰")
     hashtag = _CAT_HASHTAG.get(category, f"#{category}")
-    divider = "━━━━━━━━━━━━━━━━━"  # fixed 17 chars — never changes
+    divider = "━" * 24
     return (
         f"{emoji} <b>{label}</b>  {hashtag}\n"
         f"{divider}\n\n"
@@ -393,48 +393,49 @@ DAILY_REPORT_SYSTEM_PROMPT = """Ти — старший B2B аналітик р�
 9. Логістика та постачання
 10. Глобальна економіка та торгівля
 
-=== БЛОК 2: БЛИЗЬКИЙ СХІД — ВПЛИВ НА УКРАЇНУ ТА ЄВРОПУ (EXECUTIVE MEMO) ===
+=== БЛОК 2: СИТУАЦІЯ НА БЛИЗЬКОМУ СХОДІ (EXECUTIVE MEMO) ===
 
-Твоя РОЛЬ: старший аналітик геополітичних ризиків та B2B-торгівлі. Твоя аудиторія — керівництво УКРАЇНСЬКОЇ компанії-імпортера та їхні ЄВРОПЕЙСЬКІ партнери й постачальники.
+Твоя РОЛЬ: старший аналітик геополітичних ризиків та радник із закупівель для фармацевтичної компанії-імпортера.
 
-ГОЛОВНА МЕТА БЛОКУ 2 — НЕ опис подій на Близькому Сході, а відповідь на питання:
-"ЯК КОНКРЕТНО ЦІ ПОДІЇ ВПЛИВАЮТЬ НА БІЗНЕС В УКРАЇНІ ТА ЄВРОПІ?"
+ГОЛОВНА МЕТА: memo ~500-700 слів для керівництва. КОНКРЕТНО пояснює:
+- що саме сталося сьогодні (не фон, а нові події)
+- як це вплинуло/вплине на нафту, фрахт, страхування, транзит
+- що це означає для нашої компанії у цифрах і термінах
+- що робити відділу закупівель вже сьогодні та впродовж 2-3 тижнів
 
-ОБОВ'ЯЗКОВА ПРИЗМА АНАЛІЗУ (застосовуй до КОЖНОГО факту з наданих новин):
-  1. Як ця подія впливає на ЕНЕРГЕТИКУ в Європі? (ціни на газ, LNG, нафту для ЄС)
-  2. Як вона впливає на ЛОГІСТИКУ та фрахт на маршрутах Азія→Європа, Азія→Україна?
-  3. Як вона змінює ТОРГОВЕЛЬНУ ПОЛІТИКУ ЄС щодо Ірану, санкції, торгові угоди?
-  4. Як впливає на ЗАКУПІВЕЛЬНІ ЦІНИ для українського імпортера (АФІ, сировина, пакування)?
-  5. Чи є ПРЯМІ наслідки для України як транзитної/торгової країни?
+ПРОЦЕС РОБОТИ (внутрішньо, не виводь стадії):
+  СТАДІЯ 1 — збір фактів: тільки нові події з наданих даних (не фон).
+  СТАДІЯ 2 — інтерпретація: що сталося, чому важливо, короткостроковий чи середній ефект.
+  СТАДІЯ 3 — memo за структурою нижче.
 
-ДЖЕРЕЛА: ВИКЛЮЧНО факти з переданих новин (user message). Якщо факт не підтверджено — маркуй "(невизначено)". НЕ покладайся на загальні знання про регіон.
+ДЖЕРЕЛА: тільки факти з user message. Якщо факт не підтверджено — маркуй "невизначено".
 
 ОБОВ'ЯЗКОВА СТРУКТУРА MEMO:
 
-**Заголовок:** [Один заголовок, орієнтований на НАСЛІДКИ для Європи/України, не на саму подію на Близькому Сході. Приклад правильно: "Іранська криза підштовхує LNG-ціни в ЄС: українські імпортери готуються до здорожчання логістики". Приклад неправильно: "Ескалація конфлікту на Близькому Сході"]
+**Заголовок:** [Сильний бізнес-аналітичний заголовок — одне речення, що відображає головне повідомлення дня]
 
-**Короткий висновок:** [3-4 речення для керівництва. Що сталося → що це означає для Європи/України → що треба зробити відділу закупівель. Вкажи сценарій: реальне зниження ризику / тимчасова пауза / оманливе полегшення / ризик нової ескалації]
+**Короткий висновок:** [3-4 речення для керівництва. КОНКРЕТНО: що сталося, яке значення, що робити. Вкажи сценарій: реальне зниження ризику / тимчасова пауза / оманливе полегшення / ризик нової ескалації]
 
-**Що сталося на Близькому Сході:** [Стисло — конкретні події з новин. Хто, що, де, коли, цифри. 3-4 речення. НЕ переказуй фон — тільки нові факти з переданих даних.]
+**Що сталося:** [Конкретні події дня. Хто, що, де, коли — з цифрами де є. 4-6 речень.]
 
-**Вплив на енергетику Європи:** [Як події впливають на ціни газу/LNG/нафти в ЄС. Які країни ЄС найбільш вразливі. Як це позначиться на виробничих витратах і промисловості Європи. 3-4 речення.]
+**Вплив на нафту:** [Напрямок і причина зміни ціни. Чи збережеться волатильність. Геополітична премія. Прогноз на 1-2 тижні. 3-4 речення.]
 
-**Вплив на торгівлю та логістику ЄС і України:** [Фрахт на маршрутах Азія→Середземномор'я→Україна/ЄС. War-risk страхування. Зміна торгових маршрутів через Суец/Горлом. Затримки та здорожчання поставок. Що змінюється впродовж 2-3 тижнів. 4-5 речень.]
+**Вплив на логістику та світову економіку:** [Фрахт, war-risk страхування, маршрути танкерів/контейнерів, інфляційні очікування, настрої інвесторів у Європі та Азії. Що зміниться впродовж 2-3 тижнів. 5-7 речень.]
 
-**Що це означає конкретно для нашої компанії:** [ТІЛЬКИ практичні наслідки для закупівель: як зміняться ціни на АФІ та сировину (оцінка %); зміна строків поставки з Китаю/Індії через альтернативні маршрути; ризики дефіциту; вплив на оборотний капітал. 4-5 речень.]
+**Що це означає для нашої компанії:** [КОНКРЕТНО: як зміняться закупівельні ціни на АФІ та сировину (оцінка %); логістичні витрати; строки поставки; ризики по Китаю/Індії; потреба в запасах; вплив на оборотний капітал. 5-6 речень.]
 
-**Практичні рекомендації:** [5-7 пунктів. Кожен — одне конкретне діяння ЗАРАЗ або впродовж тижня. НЕ "моніторити" — а що саме зробити: з ким поговорити, що зафіксувати, що перевірити, які запаси збільшити, яких постачальників уточнити.]
+**Практичні рекомендації:** [5-7 пунктів. Кожен — одне конкретне діяння прямо зараз або впродовж тижня. Нумерований список. НЕ "моніторити ситуацію" — а що саме зробити, з ким поговорити, що перевірити, що зафіксувати.]
 
-**Прогноз на 2-3 тижні:** [Що очікується далі: нафта/LNG в ЄС, фрахт, закупівельні ціни для нас. 3-4 речення.]
+**Прогноз на 2-3 тижні:** [Що очікується далі по кожному напрямку: нафта, фрахт, закупівлі. Конкретно і обґрунтовано. 3-4 речення.]
 
 **Фінальний висновок для керівництва:** [ОДНЕ речення: що відділ закупівель має зробити вже сьогодні.]
 
 **Джерела:**
-[Список усіх переданих новин у форматі: - [Заголовок](URL)]
+[Список усіх наданих новин у форматі: - [Заголовок](URL)]
 
 СТИЛЬ БЛОКУ 2:
-- Memo для топ-менеджменту: точно, компактно, без геополітичної риторики
-- Фокус завжди на UKRAINE/EU BUSINESS IMPACT — не на подіях самого регіону
+- Memo для топ-менеджменту: точно, компактно, без води
+- Кожен абзац — комерційний зміст, не геополітична стаття
 - Чітко розділяй ефект "сьогодні/кілька днів" vs "2-8 тижнів"
 - НЕ пиши "Блок 2" або "Щоденний ринковий звіт" у тілі
 - Якщо новин 0: у "Короткому висновку" — "Свіжих новин не зафіксовано, нових ризиків не ідентифіковано." Решту пропусти крім "Джерела: (немає джерел)"
@@ -1668,103 +1669,189 @@ def _render_line_tokens(pdf: FPDF, tokens: list[tuple[str, str, str | None]], si
                 pass
 
 
+def _justify_line(pdf: "FPDF", words: list, width: float, line_h: float,
+                  is_last: bool, color: tuple):
+    """
+    Render one line of already-wrapped words at current X position.
+    If is_last (or single word) → left-aligned cell.
+    Otherwise → space widths expanded to fill `width` exactly.
+    """
+    from fpdf.enums import XPos, YPos
+    pdf.set_text_color(*color)
+    if not words:
+        pdf.ln(line_h)
+        return
+    if is_last or len(words) == 1:
+        pdf.cell(width, line_h, " ".join(words),
+                 new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        return
+    total_word_w = sum(pdf.get_string_width(w) for w in words)
+    gap = (width - total_word_w) / (len(words) - 1)
+    for i, word in enumerate(words):
+        pdf.cell(pdf.get_string_width(word), line_h, word,
+                 new_x=XPos.RIGHT, new_y=YPos.TOP)
+        if i < len(words) - 1:
+            pdf.cell(gap, line_h, "", new_x=XPos.RIGHT, new_y=YPos.TOP)
+    pdf.ln(line_h)
+
+
+def _wrap_words(pdf: "FPDF", text: str, first_budget: float,
+                full_w: float) -> list:
+    """
+    Word-wrap `text` into lines.
+    first_budget: available width on the first line (may be less if bold prefix used).
+    full_w:       available width on subsequent lines.
+    Returns list of (words_list, available_width).
+    """
+    words = text.split()
+    lines = []
+    current: list = []
+    current_w = 0.0
+    budget = first_budget
+    for word in words:
+        ww = pdf.get_string_width(word + " ")
+        if current and current_w + ww > budget + 0.3:
+            lines.append((current, budget))
+            current = [word]
+            current_w = ww
+            budget = full_w
+        else:
+            current.append(word)
+            current_w += ww
+    if current:
+        lines.append((current, budget))
+    return lines
+
+
 def body_text(pdf: FPDF, text: str, size: int = 10):
     """
-    Render body text with professional document formatting:
-    - Font: 10pt, line height 6.5mm
-    - Paragraph spacing: 3mm between paragraphs
-    - First-line indent: 7mm for regular body paragraphs
-    - Justified alignment for body text
-    - Bold sub-headings (lines starting with **...**) rendered as
-      left-aligned 10.5pt bold, no indent, 2mm space above
-    - Supports **bold** inline, [text](url) clickable links, bare URLs
-    - Strips # markdown heading markers
+    Renders body text to match the reference PDF format exactly:
+
+    • **Bold label:** body text on same line, all continuation lines start
+      from the LEFT margin (no indent), right-edge justified.
+    • Pure paragraphs: fully justified, last line left-aligned.
+    • Numbered list items: bold number, body justified from same line.
+    • Standalone **Bold heading:** (no body on same line): left-aligned bold.
+    • Empty input lines → small vertical gap between paragraphs.
+    • Strips leading # markdown heading markers.
+    • Supports [text](url) clickable links via _render_line_tokens fallback.
     """
-    _INDENT      = 7    # mm — first-line paragraph indent
-    _LINE_H      = 6.5  # mm — line height
-    _PARA_GAP    = 3    # mm — spacing between paragraphs
-    _SUBHD_GAP   = 2    # mm — extra space above a sub-heading line
+    from fpdf.enums import XPos, YPos
+
+    _LINE_H    = 6.5  # mm
+    _PARA_GAP  = 3    # mm — gap for explicit empty lines in source text
+    _BLOCK_GAP = 4    # mm — gap added automatically after every bold-label paragraph
+    _INDENT    = 7    # mm — first-line indent for every paragraph (like book/newspaper)
+    _FULL_W    = 210 - pdf.l_margin - pdf.r_margin
 
     pdf.set_text_color(*COLOR_BODY)
-    lines = text.split("\n")
 
-    for raw_line in lines:
-        clean = raw_line.strip()
-
-        # Strip markdown heading markers (# ## ### ####)
+    for raw in text.split("\n"):
+        clean = raw.strip()
         while clean.startswith("#"):
             clean = clean[1:]
         clean = clean.strip()
 
-        # Empty line → paragraph gap
+        # ── Empty line → small gap ────────────────────────────────
         if not clean:
             pdf.ln(_PARA_GAP)
             continue
 
-        # ── Detect bold sub-heading: line is entirely **text** ──────
-        # e.g. "**Заголовок:**" or "**Що сталося сьогодні:**"
-        full_bold = re.fullmatch(r'\*\*(.+?)\*\*:?', clean)
-        if full_bold:
-            pdf.ln(_SUBHD_GAP)
+        # ── Numbered list  "1. body text" ────────────────────────
+        lm = re.match(r'^(\d+)\.\s+(.+)$', clean)
+        if lm:
+            num_str = lm.group(1) + ".  "
+            body    = lm.group(2)
             pdf.set_x(pdf.l_margin)
-            pdf.set_font("DejaVu", style="B", size=10.5)
-            pdf.set_text_color(20, 20, 20)
-            label = full_bold.group(1).rstrip(":") + ":"
-            try:
-                pdf.multi_cell(0, _LINE_H, label, align="L")
-            except Exception:
-                pass
-            pdf.set_text_color(*COLOR_BODY)
-            pdf.set_x(pdf.l_margin)
-            continue
-
-        # ── Detect numbered list item: "1." "2." etc. ───────────────
-        list_match = re.match(r'^(\d+)\.\s+(.+)$', clean)
-        if list_match:
-            num  = list_match.group(1)
-            body = list_match.group(2)
-            pdf.set_x(pdf.l_margin)
-            # Number in bold, body in normal
             pdf.set_font("DejaVu", style="B", size=size)
             pdf.set_text_color(*COLOR_BODY)
-            num_w = pdf.get_string_width(f"{num}.  ")
-            try:
-                pdf.cell(num_w, _LINE_H, f"{num}.")
-            except Exception:
-                pass
-            tokens = _tokenize_line(body)
-            if len(tokens) == 1 and tokens[0][0] == "text":
-                pdf.set_font("DejaVu", size=size)
-                try:
-                    pdf.multi_cell(0, _LINE_H, tokens[0][1], align="J")
-                except Exception:
-                    pass
-            else:
-                _render_line_tokens(pdf, tokens, size)
-                pdf.ln(_LINE_H)
+            num_w = pdf.get_string_width(num_str)
+            pdf.cell(num_w, _LINE_H, num_str,
+                     new_x=XPos.RIGHT, new_y=YPos.TOP)
+            pdf.set_font("DejaVu", size=size)
+            body_budget = _FULL_W - num_w
+            wrapped = _wrap_words(pdf, body, body_budget, _FULL_W)
+            for i, (wds, avail) in enumerate(wrapped):
+                if i > 0:
+                    pdf.set_x(pdf.l_margin)
+                is_last = (i == len(wrapped) - 1)
+                _justify_line(pdf, wds, avail, _LINE_H, is_last, COLOR_BODY)
             pdf.set_x(pdf.l_margin)
-            pdf.ln(1)
+            pdf.ln(0.5)
             continue
 
-        # ── Regular body paragraph ───────────────────────────────────
         tokens = _tokenize_line(clean)
 
-        # Plain text — use multi_cell with justified alignment + first-line indent.
-        # Append a trailing newline so fpdf2 treats the last visual line as a
-        # paragraph end and does NOT stretch it to full width (which would leave
-        # gaps between words on the final short line of each paragraph).
+        # ── Bold label + body on same line ────────────────────────
+        # e.g.  **Заголовок:** body text…
+        #       **Короткий висновок:** body text…
+        if tokens and tokens[0][0] == "bold":
+            bold_raw  = tokens[0][1].rstrip(":")
+            rest_text = "".join(t[1] for t in tokens[1:]).lstrip()
+
+            if rest_text:
+                # Inline bold label → justified body, first line indented
+                label_str = bold_raw + ": "
+                pdf.set_font("DejaVu", style="B", size=size)
+                pdf.set_text_color(20, 20, 20)
+                # First line starts at l_margin + _INDENT
+                # so available width on first line = _FULL_W - _INDENT - label_w
+                label_w = pdf.get_string_width(label_str)
+
+                pdf.set_font("DejaVu", size=size)
+                first_budget = _FULL_W - _INDENT - label_w
+                wrapped = _wrap_words(pdf, rest_text, first_budget, _FULL_W)
+
+                for i, (wds, avail) in enumerate(wrapped):
+                    is_last = (i == len(wrapped) - 1)
+                    if i == 0:
+                        # First line: indent + bold label + body words
+                        pdf.set_x(pdf.l_margin + _INDENT)
+                        pdf.set_font("DejaVu", style="B", size=size)
+                        pdf.set_text_color(20, 20, 20)
+                        pdf.cell(label_w, _LINE_H, label_str,
+                                 new_x=XPos.RIGHT, new_y=YPos.TOP)
+                        pdf.set_font("DejaVu", size=size)
+                        _justify_line(pdf, wds, avail, _LINE_H, is_last, COLOR_BODY)
+                    else:
+                        # Continuation lines: full width from left margin
+                        pdf.set_x(pdf.l_margin)
+                        pdf.set_font("DejaVu", size=size)
+                        _justify_line(pdf, wds, _FULL_W, _LINE_H, is_last, COLOR_BODY)
+                pdf.set_x(pdf.l_margin)
+                pdf.ln(_BLOCK_GAP)
+
+            else:
+                # Standalone bold heading (no body text on same line)
+                # e.g. "**Практичні рекомендації:**"
+                pdf.set_x(pdf.l_margin + _INDENT)
+                pdf.set_font("DejaVu", style="B", size=size)
+                pdf.set_text_color(20, 20, 20)
+                pdf.cell(_FULL_W - _INDENT, _LINE_H, bold_raw + ":",
+                         new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+                pdf.set_text_color(*COLOR_BODY)
+                pdf.ln(_BLOCK_GAP)
+            continue
+
+        # ── Plain paragraph ───────────────────────────────────────
+        # Also handles lines with inline links/bold via token check
         if len(tokens) == 1 and tokens[0][0] == "text":
             pdf.set_font("DejaVu", size=size)
-            pdf.set_x(pdf.l_margin + _INDENT)
-            content_w = 210 - pdf.l_margin - pdf.r_margin - _INDENT
-            try:
-                pdf.multi_cell(content_w, _LINE_H, tokens[0][1] + "\n", align="J")
-            except Exception:
-                pass
+            # First line indented, rest full width
+            first_budget = _FULL_W - _INDENT
+            wrapped = _wrap_words(pdf, clean, first_budget, _FULL_W)
+            for i, (wds, avail) in enumerate(wrapped):
+                is_last = (i == len(wrapped) - 1)
+                if i == 0:
+                    pdf.set_x(pdf.l_margin + _INDENT)
+                    _justify_line(pdf, wds, avail, _LINE_H, is_last, COLOR_BODY)
+                else:
+                    pdf.set_x(pdf.l_margin)
+                    _justify_line(pdf, wds, _FULL_W, _LINE_H, is_last, COLOR_BODY)
             pdf.set_x(pdf.l_margin)
         else:
-            # Mixed bold/link line — render inline, no justified (write() doesn't support it)
-            pdf.set_x(pdf.l_margin + _INDENT)
+            # Fallback: mixed inline bold/links — render with write(), no justify
+            pdf.set_x(pdf.l_margin)
             _render_line_tokens(pdf, tokens, size)
             pdf.ln(_LINE_H)
             pdf.set_font("DejaVu", size=size)
@@ -2629,15 +2716,13 @@ async def generate_daily_pdf_report(mode: str = "daily_brief") -> str | None:
         # ── Common memo structure instructions ──────────────────────
         _memo_b2_structure = (
             "Блок 2 має бути написаний у форматі ONE-PAGE EXECUTIVE MEMO (≈400-600 слів) "
-            "з ОБОВ'ЯЗКОВОЮ орієнтацією на вплив для УКРАЇНИ та ЄВРОПИ. "
-            "Структура: Заголовок (про наслідки для ЄС/України, не про саму подію) → "
-            "Короткий висновок (сценарій: реальне зниження ризику / тимчасова пауза / "
-            "оманливе полегшення / ризик нової ескалації) → Що сталося на Близькому Сході → "
-            "Вплив на енергетику Європи → Вплив на торгівлю та логістику ЄС і України → "
-            "Що це означає для нашої компанії → Практичні рекомендації (5-7 нумерованих) → "
+            "за ОБОВ'ЯЗКОВОЮ структурою з системного промпту: "
+            "Заголовок → Короткий висновок (з явним вибором сценарію: реальне зниження ризику / "
+            "тимчасова пауза / оманливе полегшення / ризик нової ескалації) → Що сталося → "
+            "Вплив на нафту → Вплив на логістику та світову економіку → "
+            "Що це означає для української фармкомпанії → Практичні рекомендації (5-7 нумерованих) → "
             "Фінальний висновок для керівництва (одне речення) → Джерела.\n\n"
-            "ГОЛОВНА ПРИЗМА: кожен факт аналізуй через питання 'як це впливає на бізнес в Україні та ЄС?'\n"
-            "НЕ описуй геополітику заради геополітики — тільки B2B-наслідки.\n"
+            "Стиль — memo для топ-менеджменту: точно, компактно, бізнес-орієнтовано, без води.\n"
             "Розділяй ефект 'сьогодні / кілька днів' та ефект '2-8 тижнів'.\n"
             "Якщо у даних нічого немає — пиши у 'Короткому висновку' одне речення "
             "'Свіжих новин про Близький Схід за вказаний період не зафіксовано...' і пропусти решту секцій крім 'Джерела'."
@@ -2798,15 +2883,13 @@ async def generate_daily_pdf_report(mode: str = "daily_brief") -> str | None:
         # ── Common memo structure for fallback path ─────────────────
         _memo_b2_structure_fb = (
             "Блок 2 пишеться у форматі ONE-PAGE EXECUTIVE MEMO (≈400-600 слів) "
-            "з ОБОВ'ЯЗКОВОЮ орієнтацією на вплив для УКРАЇНИ та ЄВРОПИ. "
-            "Структура: Заголовок (про наслідки для ЄС/України, не про саму подію) → "
-            "Короткий висновок (сценарій: реальне зниження ризику / тимчасова пауза / "
-            "оманливе полегшення / ризик нової ескалації) → Що сталося на Близькому Сході → "
-            "Вплив на енергетику Європи → Вплив на торгівлю та логістику ЄС і України → "
-            "Що це означає для нашої компанії → Практичні рекомендації (5-7 нумерованих) → "
+            "за ОБОВ'ЯЗКОВОЮ структурою: "
+            "Заголовок → Короткий висновок (з явним вибором сценарію: реальне зниження ризику / "
+            "тимчасова пауза / оманливе полегшення / ризик нової ескалації) → Що сталося → "
+            "Вплив на нафту → Вплив на логістику та світову економіку → "
+            "Що це означає для української фармкомпанії → Практичні рекомендації (5-7 нумерованих) → "
             "Фінальний висновок для керівництва (одне речення) → Джерела.\n"
-            "ГОЛОВНА ПРИЗМА: кожен факт — 'як це впливає на бізнес в Україні та ЄС?'\n"
-            "Розділяй ефект 'сьогодні / кілька днів' та '2-8 тижнів'."
+            "Стиль — memo для топ-менеджменту. Розділяй ефект 'сьогодні / кілька днів' та '2-8 тижнів'."
         )
 
         if mode == "daily_brief":
