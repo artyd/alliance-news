@@ -2751,14 +2751,21 @@ async def generate_daily_pdf_report(mode: str = "daily_brief") -> str | None:
                     f"(high:{n_high}, medium:{n_medium}, low:{n_low}):"
                 )
                 if facts:
-                    for i, f in enumerate(facts, 1):
+                    # WEEKLY TPM FIX: cap at 7 facts per category (already sorted high→medium→low)
+                    facts_limited = facts[:7]
+                    for i, f in enumerate(facts_limited, 1):
                         b1_parts.append(fmt_fact(i, f))
+                    if len(facts) > 7:
+                        b1_parts.append(f"  (+ ще {len(facts) - 7} фактів низького пріоритету пропущено)")
                 else:
                     b1_parts.append("  (фактів не зафіксовано)")
             b1_news_text = "\n".join(b1_parts)
 
         # ── Block 2: middle east facts + sources ───────────────────
         me_facts = facts_data["middle_east"]
+        # WEEKLY TPM FIX: cap ME facts at 10 for weekly to keep Block 2 prompt under 25k tokens
+        if mode == "weekly":
+            me_facts = me_facts[:10]
         if me_facts:
             b2_parts = [fmt_fact(i, f) for i, f in enumerate(me_facts, 1)]
             b2_news_text = "\n".join(b2_parts)
@@ -3111,8 +3118,9 @@ async def generate_daily_pdf_report(mode: str = "daily_brief") -> str | None:
             # Split Block 1 by the exact "[КАТЕГОРІЯ:" separator defined earlier
             cat_blocks = [f"[КАТЕГОРІЯ:{c}" for c in b1_news_text.split("[КАТЕГОРІЯ:") if c.strip()]
             
-            # Batch 4 categories max per API call (~10k-15k tokens limit)
-            batch_size = 4
+            # WEEKLY TPM FIX: batch_size=2 (was 4) keeps each request ~12-18k tokens,
+            # safely under the 30k TPM limit. Sleep 65s between calls resets the TPM counter.
+            batch_size = 2
             for i in range(0, len(cat_blocks), batch_size):
                 batch_text = "\n".join(cat_blocks[i:i+batch_size])
                 batch_prompt = (
@@ -3128,9 +3136,11 @@ async def generate_daily_pdf_report(mode: str = "daily_brief") -> str | None:
                 print(f" > Generating Block 1 (Categories {i+1} to {min(i+batch_size, len(cat_blocks))})...")
                 b1_chunk_res = await _call_gpt4o(batch_prompt)
                 report_chunks.append(b1_chunk_res)
-                
-                # SLEEP: Added 25s cooldown to stay below 30k Tokens Per Minute limits
-                await asyncio.sleep(25) 
+
+                # Sleep 65s between batches so TPM counter fully resets (limit = per 60s window)
+                if i + batch_size < len(cat_blocks):
+                    print(f" > Sleeping 65s to reset TPM window before next batch...")
+                    await asyncio.sleep(65)
             
             # Generate Block 2 separately 
             b2_rules = _memo_b2_structure if use_facts_path else _memo_b2_structure_fb
@@ -3150,6 +3160,9 @@ async def generate_daily_pdf_report(mode: str = "daily_brief") -> str | None:
                 f"Форматуй текст як суцільний аналітичний звіт, без нумерації та переліку фактів.\n"
                 f"НЕ додавай події або прогнози, яких немає в тексті.\n"
             )
+            # Sleep before Block 2 to reset TPM after last Block 1 batch
+            print(" > Sleeping 65s to reset TPM window before Block 2...")
+            await asyncio.sleep(65)
             print(" > Generating Block 2 (Middle East)...")
             b2_chunk_res = await _call_gpt4o(b2_prompt)
             
