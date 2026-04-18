@@ -2720,7 +2720,8 @@ async def generate_daily_pdf_report(mode: str = "daily_brief") -> str | None:
         impact = (f.get("supply_chain_impact") or "").strip() if f.get("supply_chain_impact") else ""
         publisher = (f.get("source_publisher") or "").strip()
 
-        lines = [f"  FACT {idx} [type={et} | relevance={rel} | confidence={conf} | source={publisher}]"]
+        # CHANGED: Removed "FACT {idx}" to avoid list-style output.
+        lines = [f"  - [type={et} | relevance={rel} | confidence={conf} | source={publisher}]"]
         lines.append(f"    what:   {what}")
         if who:
             lines.append(f"    who:    {who}")
@@ -2956,8 +2957,9 @@ async def generate_daily_pdf_report(mode: str = "daily_brief") -> str | None:
             title = (item.get("title") or "").strip()
             link  = (item.get("link")  or "").strip()
             body, source_tag = _pick_best_body(item, _B2_FULLTEXT_BUDGET, _B2_SNIPPET_BUDGET)
+            # CHANGED: Removed the ' {idx}. ' number prefix formatting
             return (
-                f"  {idx}. [{source_tag}] TITLE: {title}\n"
+                f"  - [{source_tag}] TITLE: {title}\n"
                 f"     BODY: {body}\n"
                 f"     URL: {link}"
             )
@@ -3082,17 +3084,78 @@ async def generate_daily_pdf_report(mode: str = "daily_brief") -> str | None:
 
     print(f"Generating prompt-based daily report for {report_date}...")
 
-    try:
-        response = await aclient.chat.completions.create(
+    import asyncio
+
+    async def _call_gpt4o(prompt_msg: str) -> str:
+        """Helper to safely invoke the OpenAI API"""
+        resp = await aclient.chat.completions.create(
             model="gpt-4o",
             max_tokens=8000,
             temperature=0.4,
             messages=[
                 {"role": "system", "content": DAILY_REPORT_SYSTEM_PROMPT},
-                {"role": "user",   "content": user_message}
+                {"role": "user",   "content": prompt_msg}
             ]
         )
-        report_text = response.choices[0].message.content.strip()
+        return resp.choices[0].message.content.strip()
+
+    try:
+        if mode != "weekly":
+            # For daily_brief or midday, send standard single prompt (safely under TPM)
+            report_text = await _call_gpt4o(user_message)
+        else:
+            # WEEKLY LIMIT FIX: Chunk data to avoid 30k TPM constraint
+            print("Weekly mode detected: Chunking API requests to prevent TPM rate limits...")
+            report_chunks = []
+            
+            # Split Block 1 by the exact "[КАТЕГОРІЯ:" separator defined earlier
+            cat_blocks = [f"[КАТЕГОРІЯ:{c}" for c in b1_news_text.split("[КАТЕГОРІЯ:") if c.strip()]
+            
+            # Batch 4 categories max per API call (~10k-15k tokens limit)
+            batch_size = 4
+            for i in range(0, len(cat_blocks), batch_size):
+                batch_text = "\n".join(cat_blocks[i:i+batch_size])
+                batch_prompt = (
+                    f"Дата звіту: {report_date} (тижневий звіт).\n"
+                    f"=== СТРУКТУРОВАНІ ФАКТИ ДЛЯ БЛОКУ 1 (Частина {i//batch_size + 1}) ===\n"
+                    f"{batch_text}\n\n"
+                    f"=== ЗАВДАННЯ ===\n"
+                    f"Для кожної з наведених категорій напиши аналітичний 'Огляд тижня' (4-7 речень).\n"
+                    f"Дотримуйся формату Блоку 1 (Тренд тижня, Огляд тижня, Геополітика, Специфіка для України).\n"
+                    f"БЕЗ списків фактів, БЕЗ нумерації подій, БЕЗ згадок 'relevance'.\n"
+                    f"НЕ пиши заголовок 'БЛОК 1', відразу пиши розбір категорій."
+                )
+                print(f" > Generating Block 1 (Categories {i+1} to {min(i+batch_size, len(cat_blocks))})...")
+                b1_chunk_res = await _call_gpt4o(batch_prompt)
+                report_chunks.append(b1_chunk_res)
+                
+                # SLEEP: Added 25s cooldown to stay below 30k Tokens Per Minute limits
+                await asyncio.sleep(25) 
+            
+            # Generate Block 2 separately 
+            b2_rules = _memo_b2_structure if use_facts_path else _memo_b2_structure_fb
+            
+            # Handle sources safely since it's only defined in use_facts_path
+            b2_sources_block = f"--- ДЖЕРЕЛА ---\n{b2_sources_text}\n\n" if use_facts_path else ""
+
+            b2_prompt = (
+                f"Дата звіту: {report_date} (тижневий звіт).\n"
+                f"=== ДАНІ ДЛЯ БЛОКУ 2 — ТИЖНЕВИЙ EXECUTIVE MEMO ПРО БЛИЗЬКИЙ СХІД ===\n"
+                f"{b2_rules}\n\n"
+                f"НОВИНИ ДЛЯ АНАЛІЗУ:\n{b2_news_text}\n\n"
+                f"{b2_sources_block}"
+                f"=== ЗАВДАННЯ ===\n"
+                f"Напиши Блок 2 ВИКЛЮЧНО на основі наведених новин. \n"
+                # STRICT formatting instruction decoupling block 2 from numbered output
+                f"Форматуй текст як суцільний аналітичний звіт, без нумерації та переліку фактів.\n"
+                f"НЕ додавай події або прогнози, яких немає в тексті.\n"
+            )
+            print(" > Generating Block 2 (Middle East)...")
+            b2_chunk_res = await _call_gpt4o(b2_prompt)
+            
+            # Aggregate pieces back into the format expected by your down-the-line regex parser
+            report_text = "БЛОК 1:\n\n" + "\n\n".join(report_chunks) + "\n\nБЛОК 2:\n\n" + b2_chunk_res
+
     except Exception as e:
         print(f"OpenAI report generation error: {e}")
         return None
