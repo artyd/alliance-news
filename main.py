@@ -4866,7 +4866,7 @@ _WEBAPP_HTML = r"""<!DOCTYPE html>
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
 <title>Новинний дайджест</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js" defer></script>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -4884,9 +4884,9 @@ _WEBAPP_HTML = r"""<!DOCTYPE html>
   --green:#16a34a;--red:#dc2626;
   --shadow:0 2px 10px rgba(0,0,0,.08)
 }
-html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:var(--font);-webkit-font-smoothing:antialiased;font-size:15px}
+html,body{height:100%;overflow:hidden;background:#000;color:var(--text);font-family:var(--font);-webkit-font-smoothing:antialiased;font-size:15px}
 /* ── SPLASH ── */
-#splash{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#000;z-index:9999;transition:opacity .5s ease}
+#splash{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#000;z-index:9999;transition:opacity .4s ease}
 .splash-wrap{position:relative;width:min(72vw,72vh);height:min(72vw,72vh);display:flex;align-items:center;justify-content:center}
 .sr{position:absolute;inset:0;border-radius:50%;border:2px solid rgba(255,255,255,.18);animation:sr 2.2s ease-out infinite}
 .sr2{inset:-14%;animation-delay:.7s}.sr3{inset:-30%;animation-delay:1.4s}
@@ -4898,7 +4898,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);fon
 .sdots span:nth-child(2){animation-delay:.2s}.sdots span:nth-child(3){animation-delay:.4s}
 @keyframes dot{0%,80%,100%{opacity:.2;transform:scale(.8)}40%{opacity:.85;transform:scale(1)}}
 /* ── SHELL ── */
-#app{display:none;flex-direction:column;height:100vh;overflow:hidden}
+#app{display:none;flex-direction:column;height:100vh;overflow:hidden;background:var(--bg)}
 #app.on{display:flex}
 header{display:flex;align-items:center;gap:10px;padding:13px 16px;background:var(--bg);border-bottom:1px solid var(--border);flex-shrink:0;z-index:50}
 header img{width:32px;height:32px;object-fit:contain;border-radius:8px}
@@ -4941,27 +4941,42 @@ nav button.on::after{content:'';position:absolute;top:0;left:50%;transform:trans
 .rinfo .rdate{font-size:12px;color:var(--sub);margin-top:4px;line-height:1.4}
 .rpdf-btn{display:flex;align-items:center;justify-content:center;gap:8px;width:calc(100% - 32px);margin:0 16px 16px;padding:13px;border-radius:var(--r);background:var(--accent);border:none;color:var(--bg);font-size:14px;font-weight:700;cursor:pointer;transition:opacity .15s}
 .rpdf-btn:active{opacity:.75}
-/* ── MARKETS ── */
+/* ── MARKETS GRID ── */
 .msec{padding:14px 14px 0}
 .msec h3{font-size:11.5px;font-weight:800;text-transform:uppercase;letter-spacing:.7px;color:var(--sub);margin-bottom:12px}
-.pgrid{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-bottom:18px}
-.pcard{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:12px 13px;box-shadow:var(--shadow)}
+.pgrid{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-bottom:8px}
+.pcard{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:12px 13px;box-shadow:var(--shadow);cursor:pointer;transition:transform .12s,border-color .15s;-webkit-tap-highlight-color:transparent}
+.pcard:active{transform:scale(.97)}
+.pcard:hover{border-color:var(--accent)}
 .pcico{font-size:22px;margin-bottom:4px}
 .pclbl{font-size:11px;color:var(--sub);line-height:1.35;margin-bottom:7px;min-height:28px}
 .pcval{font-size:17px;font-weight:800;letter-spacing:-.3px}
 .pcunit{font-size:10px;font-weight:400;color:var(--sub)}
 .pcchg{font-size:13px;font-weight:700;margin-top:2px}
 .pcchg.up{color:var(--green)}.pcchg.dn{color:var(--red)}.pcchg.fl{color:var(--muted)}
-.chcard{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:14px;box-shadow:var(--shadow);margin-bottom:11px}
+.ptap-hint{text-align:center;font-size:11.5px;color:var(--muted);padding:6px 0 14px}
+/* ── MARKET DETAIL ── */
+#mk-detail{display:none;height:100%;overflow-y:auto;-webkit-overflow-scrolling:touch;flex-direction:column}
+#mk-detail.on{display:flex}
+.mk-back{display:flex;align-items:center;gap:10px;padding:13px 16px;border-bottom:1px solid var(--border);background:var(--bg);position:sticky;top:0;z-index:10}
+.mk-back button{background:none;border:none;color:var(--accent);font-size:15px;font-weight:700;cursor:pointer;padding:4px 8px 4px 0;display:flex;align-items:center;gap:5px}
+.mk-det-label{flex:1;font-size:16px;font-weight:800}
+.mk-det-pct{font-size:15px;font-weight:700}
+.chcard{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:14px;box-shadow:var(--shadow);margin:14px 14px 0}
 .chtitle{font-size:13px;font-weight:700;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center}
 .chtitle .chpct{font-size:12px;font-weight:700}
+.mk-news-hdr{font-size:11.5px;font-weight:800;text-transform:uppercase;letter-spacing:.7px;color:var(--sub);padding:14px 14px 8px}
+.mkncard{background:var(--surface);border-radius:10px;border:1px solid var(--border);padding:11px 13px;margin:0 14px 9px;text-decoration:none;display:block;color:inherit;transition:transform .1s}
+.mkncard:active{transform:scale(.985)}
+.mkn-badge{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:4px;font-size:10.5px;font-weight:700;color:#fff;margin-bottom:5px}
+.mkn-title{font-size:13px;font-weight:700;line-height:1.35;color:var(--text)}
+.mkn-summ{font-size:12px;color:var(--sub);margin-top:4px;line-height:1.5;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.mkn-time{font-size:11px;color:var(--muted);margin-top:5px}
 /* ── SKELETON ── */
 .sk{border-radius:var(--r);background:linear-gradient(90deg,var(--surface) 25%,var(--surface2) 50%,var(--surface) 75%);background-size:200% 100%;animation:sk 1.4s infinite}
 @keyframes sk{0%{background-position:200% 0}100%{background-position:-200% 0}}
-.sk-card{height:175px;margin-bottom:11px}
-.sk-rcard{height:108px;margin-bottom:11px}
-.sk-pcard{height:88px;border-radius:var(--r)}
-.sk-ch{height:185px;border-radius:var(--r);margin-bottom:11px}
+.sk-card{height:175px;margin:0 14px 11px}.sk-rcard{height:108px;margin-bottom:11px}
+.sk-pcard{height:88px;border-radius:var(--r)}.sk-ch{height:185px;border-radius:var(--r)}
 /* ── EMPTY ── */
 .empty{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:56px 20px;text-align:center;gap:8px}
 .empty .ei{font-size:44px}.empty p{font-size:13.5px;color:var(--sub);line-height:1.5}
@@ -4989,11 +5004,21 @@ nav button.on::after{content:'';position:absolute;top:0;left:50%;transform:trans
     </div>
     <div id="preports" class="panel"><div class="rlist" id="rlist"></div></div>
     <div id="pmarkets" class="panel">
-      <div class="msec">
-        <h3>📊 Ціни зараз</h3>
-        <div class="pgrid" id="pgrid"></div>
-        <h3>📈 Графіки (30 днів)</h3>
-        <div id="charts"></div>
+      <div id="mk-grid">
+        <div class="msec">
+          <h3>📊 Ціни зараз — натисніть для деталей</h3>
+          <div class="pgrid" id="pgrid"></div>
+        </div>
+      </div>
+      <div id="mk-detail">
+        <div class="mk-back">
+          <button onclick="closeMkDetail()">← Назад</button>
+          <div class="mk-det-label" id="mk-det-label"></div>
+          <div class="mk-det-pct" id="mk-det-pct"></div>
+        </div>
+        <div id="mk-det-chart"></div>
+        <div class="mk-news-hdr">📰 Повʼязані новини</div>
+        <div id="mk-det-news"></div>
       </div>
     </div>
   </div>
@@ -5011,47 +5036,51 @@ function applyTheme(){
   if(dark)document.documentElement.removeAttribute('data-light');
   else document.documentElement.setAttribute('data-light','');
   document.getElementById('tbtn').textContent=dark?'☀️':'🌙';
-  if(chartInstances.length)redrawCharts();
 }
 function toggleTheme(){dark=!dark;applyTheme();}
 applyTheme();
 const lc=tg?.initDataUnsafe?.user?.language_code||navigator.language||'uk';
 const lang=lc.startsWith('ru')?'ru':(lc.startsWith('uk')||lc.startsWith('ua'))?'ua':'en';
 const CATS={
-  all:{l:'Всі',c:'#64748B',e:'📋'},
-  api:{l:'Фарм API',c:'#3B82F6',e:'💊'},
-  cosmetic:{l:'Косметика',c:'#EC4899',e:'🧴'},
-  herbal:{l:'Трави',c:'#16A34A',e:'🌿'},
-  veterinary:{l:'Ветеринарія',c:'#8B5CF6',e:'🐾'},
-  food:{l:'Харчова',c:'#D97706',e:'🌾'},
-  feed:{l:'Амінокислоти',c:'#92400E',e:'🐄'},
-  capsules:{l:'Капсули',c:'#0891B2',e:'🔬'},
-  pvc:{l:'ПВХ/Пак.',c:'#4F46E5',e:'📦'},
-  logistics:{l:'Логістика',c:'#DC2626',e:'🚢'},
-  global_sources:{l:'Глобально',c:'#475569',e:'🌐'},
-  good_news:{l:'Позитив',c:'#059669',e:'✨'},
+  all:{l:'Всі',c:'#64748B',e:'📋'},api:{l:'Фарм API',c:'#3B82F6',e:'💊'},
+  cosmetic:{l:'Косметика',c:'#EC4899',e:'🧴'},herbal:{l:'Трави',c:'#16A34A',e:'🌿'},
+  veterinary:{l:'Ветеринарія',c:'#8B5CF6',e:'🐾'},food:{l:'Харчова',c:'#D97706',e:'🌾'},
+  feed:{l:'Амінокислоти',c:'#92400E',e:'🐄'},capsules:{l:'Капсули',c:'#0891B2',e:'🔬'},
+  pvc:{l:'ПВХ/Пак.',c:'#4F46E5',e:'📦'},logistics:{l:'Логістика',c:'#DC2626',e:'🚢'},
+  global_sources:{l:'Глобально',c:'#475569',e:'🌐'},good_news:{l:'Позитив',c:'#059669',e:'✨'},
   market_alerts:{l:'Алерти',c:'#EA580C',e:'⚡'}
 };
+// Related news categories per commodity key
+const TICKER_CATS={
+  'НАФТА':'logistics,global_sources','ГАЗ':'logistics,global_sources',
+  'КУКУРУДЗА':'food,feed','ПШЕНИЦЯ':'food,feed',
+  'СОЄВІ_БОБИ':'food,feed','СОЄВА_ОЛІЯ':'food,feed,cosmetic',
+  'ПАЛЬМОВА':'cosmetic,food','ЦУКОР':'food',
+  'ЄВРО':'logistics,global_sources','ЮАНЬ':'logistics,api,cosmetic'
+};
 const RTYPE={
-  daily_brief:{ico:'🌅',lbl:'Ранковий звіт',desc:'Щоденний ранковий огляд'},
-  midday:{ico:'🕑',lbl:'Денне оновлення',desc:'Полуденний підсумок'},
-  weekly:{ico:'📅',lbl:'Тижневий звіт',desc:'Повний тижневий аналіз'}
+  daily_brief:{ico:'🌅',lbl:'Ранковий звіт'},
+  midday:{ico:'🕑',lbl:'Денне оновлення'},
+  weekly:{ico:'📅',lbl:'Тижневий звіт'}
 };
 let activeCat='all',newsOff=0;
-const LIMIT=15;
-let mkData=[],chartInstances=[],cachedCharts={};
+const LIMIT=8;
+let mkData=[],detailChart=null;
+// ── SPLASH: hide after 1.2 s, no waiting for CDN ──────────────
 function hideSplash(){
   const sp=document.getElementById('splash');
-  if(!sp)return;
+  if(!sp||sp.style.display==='none')return;
   sp.style.opacity='0';sp.style.pointerEvents='none';
-  setTimeout(()=>{sp.style.display='none';document.getElementById('app').classList.add('on');},500);
+  setTimeout(()=>{sp.style.display='none';document.getElementById('app').classList.add('on');},400);
 }
-// Hide splash after 2 s regardless of external CDN load status
-const _splashTimer=setTimeout(hideSplash,2000);
-document.addEventListener('DOMContentLoaded',()=>{
-  buildChips();fetchNews(true);
-});
+setTimeout(hideSplash,1200);
+// ── Start fetching news immediately, before splash hides ───────
+fetchNews(true);
+document.addEventListener('DOMContentLoaded',()=>buildChips());
+// ──────────────────────────────────────────────────────────────
 function tab(name,btn){
+  // Close market detail if open when switching tabs
+  if(name!=='markets')closeMkDetailSilent();
   ['news','reports','markets'].forEach(n=>{
     document.getElementById('p'+n).classList.toggle('on',n===name);
     document.getElementById('btn-'+n).classList.toggle('on',n===name);
@@ -5061,10 +5090,10 @@ function tab(name,btn){
 }
 function buildChips(){
   const el=document.getElementById('chips');
+  if(el.children.length)return;
   ['all','api','cosmetic','herbal','veterinary','food','feed','capsules','pvc','logistics','global_sources','good_news'].forEach(k=>{
     const d=document.createElement('div');
-    d.className='chip'+(k==='all'?' on':'');
-    d.dataset.k=k;
+    d.className='chip'+(k==='all'?' on':'');d.dataset.k=k;
     d.textContent=(CATS[k]?.e||'')+' '+(CATS[k]?.l||k);
     d.onclick=()=>{
       activeCat=k;
@@ -5078,8 +5107,7 @@ function ago(pub){
   if(!pub)return'';
   const dt=new Date(pub.replace(' ','T')+(pub.includes('+')?'':'+03:00'));
   const s=(Date.now()-dt)/1000;
-  if(s<60)return'щойно';
-  if(s<3600)return Math.floor(s/60)+' хв';
+  if(s<60)return'щойно';if(s<3600)return Math.floor(s/60)+' хв';
   if(s<86400)return Math.floor(s/3600)+' год';
   return dt.toLocaleDateString('uk-UA',{day:'numeric',month:'short'});
 }
@@ -5089,13 +5117,14 @@ function newsCard(a){
   const el=document.createElement('a');
   el.className='ncard';el.href=a.link;el.target='_blank';el.rel='noopener noreferrer';
   if(tg)el.onclick=ev=>{ev.preventDefault();tg.openLink(a.link);};
-  el.innerHTML=`<img src="${esc(a.image_url||'')}" loading="lazy" alt="" onerror="this.src='';this.style.cssText='display:block;height:56px;background:var(--surface2)'"><div class="ncard-body"><div class="nbadge" style="background:${cfg.c}">${cfg.e} ${cfg.l}</div><div class="ntitle">${esc(a.title)}</div>${summ?`<div class="nsumm">${esc(summ)}</div>`:''}<div class="ntime">🕐 ${ago(a.published)}</div></div>`;
+  el.innerHTML=`<img src="${esc(a.image_url||'')}" loading="lazy" alt="" onerror="this.src='';this.style.cssText='display:block;height:48px;background:var(--surface2)'"><div class="ncard-body"><div class="nbadge" style="background:${cfg.c}">${cfg.e} ${cfg.l}</div><div class="ntitle">${esc(a.title)}</div>${summ?`<div class="nsumm">${esc(summ)}</div>`:''}<div class="ntime">🕐 ${ago(a.published)}</div></div>`;
   return el;
 }
 async function fetchNews(reset){
-  if(reset){newsOff=0;document.getElementById('nlist').innerHTML='';document.getElementById('lmore').style.display='none';}
+  if(reset){newsOff=0;const l=document.getElementById('lmore');if(l)l.style.display='none';}
   const list=document.getElementById('nlist');
-  if(reset)list.innerHTML=[1,2,3].map(()=>'<div class="sk sk-card"></div>').join('');
+  if(!list)return;
+  if(reset)list.innerHTML='<div class="sk sk-card"></div><div class="sk sk-card"></div>';
   try{
     const cat=activeCat==='all'?'':'&category='+activeCat;
     const r=await fetch(`/api/webapp/news?lang=${lang}&limit=${LIMIT}&offset=${newsOff}${cat}`);
@@ -5104,104 +5133,115 @@ async function fetchNews(reset){
     if(!data.length&&reset){list.innerHTML='<div class="empty"><div class="ei">📭</div><p>Новин поки немає</p></div>';return;}
     data.forEach(a=>list.appendChild(newsCard(a)));
     newsOff+=data.length;
-    document.getElementById('lmore').style.display=data.length>=LIMIT?'block':'none';
+    const lm=document.getElementById('lmore');
+    if(lm)lm.style.display=data.length>=LIMIT?'block':'none';
   }catch{
-    if(reset)list.innerHTML='<div class="empty"><div class="ei">⚠️</div><p>Помилка завантаження</p></div>';
+    if(reset&&list)list.innerHTML='<div class="empty"><div class="ei">⚠️</div><p>Помилка завантаження</p></div>';
   }
 }
 function loadMore(){fetchNews(false);}
 async function fetchDigestReports(){
   const el=document.getElementById('rlist');
-  el.innerHTML=[1,2,3].map(()=>'<div class="sk sk-rcard"></div>').join('');
+  el.innerHTML='<div class="sk sk-rcard"></div><div class="sk sk-rcard"></div>';
   try{
-    const r=await fetch('/api/webapp/digest_reports');
+    const r=await fetch('/api/webapp/digest_reports?limit=10');
     const reports=await r.json();
     el.innerHTML='';
-    if(!reports.length){
-      el.innerHTML='<div class="empty"><div class="ei">📭</div><p>Звітів поки немає.<br>Перший зʼявиться після наступної генерації.</p></div>';
-      return;
-    }
+    if(!reports.length){el.innerHTML='<div class="empty"><div class="ei">📭</div><p>Звітів поки немає.<br>Зʼявляться після наступної генерації.</p></div>';return;}
     reports.forEach(rep=>el.appendChild(buildReportCard(rep)));
-  }catch{
-    el.innerHTML='<div class="empty"><div class="ei">⚠️</div><p>Помилка завантаження звітів</p></div>';
-  }
+  }catch{el.innerHTML='<div class="empty"><div class="ei">⚠️</div><p>Помилка завантаження звітів</p></div>';}
 }
 function buildReportCard(rep){
-  const rt=RTYPE[rep.report_type]||{ico:'📊',lbl:'Звіт',desc:rep.report_type};
+  const rt=RTYPE[rep.report_type]||{ico:'📊',lbl:'Звіт'};
   const dt=new Date(rep.created_at);
   const dateStr=dt.toLocaleDateString('uk-UA',{weekday:'long',day:'numeric',month:'long'});
   const timeStr=dt.toLocaleTimeString('uk-UA',{hour:'2-digit',minute:'2-digit'});
   const pdfPath=`/api/webapp/digest_reports/${rep.id}/pdf`;
-  const wrap=document.createElement('div');
-  wrap.className='rcard';
-  wrap.innerHTML=`<div class="rhead"><div class="rtype-ico">${rt.ico}</div><div class="rinfo"><div class="rtitle">${rt.lbl}</div><div class="rdate">${dateStr}<br>${timeStr}</div></div></div><button class="rpdf-btn" onclick="openPdf('${pdfPath}')">📄 Відкрити звіт PDF</button>`;
+  const wrap=document.createElement('div');wrap.className='rcard';
+  wrap.innerHTML=`<div class="rhead"><div class="rtype-ico">${rt.ico}</div><div class="rinfo"><div class="rtitle">${rt.lbl}</div><div class="rdate">${dateStr} · ${timeStr}</div></div></div><button class="rpdf-btn" onclick="openPdf('${pdfPath}')">📄 Відкрити звіт PDF</button>`;
   return wrap;
 }
 function openPdf(path){
   const url=window.location.origin+path;
   if(tg)tg.openLink(url);else window.open(url,'_blank');
 }
+// ── MARKETS ───────────────────────────────────────────────────
 async function fetchMarkets(){
   const grid=document.getElementById('pgrid');
-  const ch=document.getElementById('charts');
   grid.innerHTML=Array(10).fill('<div class="sk sk-pcard"></div>').join('');
-  ch.innerHTML=Array(3).fill('<div class="sk sk-ch"></div>').join('');
   try{
     const r=await fetch('/api/webapp/markets');
     mkData=await r.json();
     renderGrid(mkData);
-    await loadCharts(mkData.slice(0,3).map(m=>m.key));
   }catch{
     grid.innerHTML='<div class="empty" style="grid-column:span 2"><div class="ei">⚠️</div><p>Дані недоступні</p></div>';
-    ch.innerHTML='';
   }
 }
 function renderGrid(data){
-  const grid=document.getElementById('pgrid');
-  grid.innerHTML='';
+  const grid=document.getElementById('pgrid');grid.innerHTML='';
   data.forEach(m=>{
-    const pct=m.change_pct;
-    const sign=pct>=0?'+':'';
+    const pct=m.change_pct;const sign=pct>=0?'+':'';
     const cls=Math.abs(pct)<0.05?'fl':pct>=0?'up':'dn';
-    const card=document.createElement('div');
-    card.className='pcard';
+    const card=document.createElement('div');card.className='pcard';
     card.innerHTML=`<div class="pcico">${m.emoji}</div><div class="pclbl">${m.label}</div><div class="pcval">${m.current} <span class="pcunit">${m.unit}</span></div><div class="pcchg ${cls}">${sign}${pct.toFixed(2)}%</div>`;
+    card.onclick=()=>openMkDetail(m.key);
     grid.appendChild(card);
   });
 }
-async function loadCharts(keys){
-  cachedCharts={};
-  for(const k of keys){
-    try{const r=await fetch('/api/webapp/chart/'+k);cachedCharts[k]=await r.json();}
-    catch{cachedCharts[k]=null;}
-  }
-  redrawCharts();
-}
-function redrawCharts(){
-  const area=document.getElementById('charts');
-  area.innerHTML='';
-  chartInstances.forEach(c=>c.destroy());
-  chartInstances=[];
-  const tc=dark?'#888':'#777';
-  const gc=dark?'#2a2a2a':'#ddd';
-  Object.entries(cachedCharts).forEach(([key,d])=>{
-    if(!d||!d.dates||!d.prices)return;
-    const mkt=mkData.find(m=>m.key===key);
-    const pct=mkt?(mkt.change_pct>=0?'+':'')+mkt.change_pct.toFixed(2)+'%':'';
-    const pctCol=mkt?(mkt.change_pct>=0?(dark?'#4ade80':'#16a34a'):(dark?'#f87171':'#dc2626')):tc;
-    const card=document.createElement('div');
-    card.className='chcard';
-    card.innerHTML=`<div class="chtitle"><span>${d.emoji||''} ${d.label}</span><span class="chpct" style="color:${pctCol}">${pct}</span></div><canvas id="c_${key}" height="110"></canvas>`;
-    area.appendChild(card);
+// ── MARKET DETAIL (chart + news on tap) ───────────────────────
+async function openMkDetail(key){
+  const mkt=mkData.find(m=>m.key===key);
+  if(!mkt)return;
+  document.getElementById('mk-grid').style.display='none';
+  const det=document.getElementById('mk-detail');det.classList.add('on');
+  document.getElementById('pmarkets').scrollTop=0;
+  const pct=(mkt.change_pct>=0?'+':'')+mkt.change_pct.toFixed(2)+'%';
+  const pctCol=mkt.change_pct>=0?(dark?'#4ade80':'#16a34a'):(dark?'#f87171':'#dc2626');
+  document.getElementById('mk-det-label').textContent=mkt.emoji+' '+mkt.label;
+  const pctEl=document.getElementById('mk-det-pct');pctEl.textContent=pct;pctEl.style.color=pctCol;
+  // Load chart
+  const chartArea=document.getElementById('mk-det-chart');
+  chartArea.innerHTML='<div class="sk sk-ch" style="margin:14px 14px 0"></div>';
+  try{
+    const r=await fetch('/api/webapp/chart/'+key);
+    const d=await r.json();
+    chartArea.innerHTML='<div class="chcard"><div class="chtitle"><span>'+esc(d.label)+'</span><span class="chpct" style="color:'+pctCol+'">'+pct+'</span></div><canvas id="mkcv" height="150"></canvas></div>';
+    if(detailChart){detailChart.destroy();detailChart=null;}
+    const tc=dark?'#888':'#777';const gc=dark?'#2a2a2a':'#ddd';
     const prices=d.prices;
     const lineCol=prices[prices.length-1]>=prices[0]?(dark?'#4ade80':'#16a34a'):(dark?'#f87171':'#dc2626');
-    const ctx=document.getElementById('c_'+key).getContext('2d');
-    chartInstances.push(new Chart(ctx,{
-      type:'line',
-      data:{labels:d.dates,datasets:[{data:prices,borderColor:lineCol,backgroundColor:lineCol+'22',borderWidth:2,fill:true,tension:0.35,pointRadius:0,pointHitRadius:10}]},
-      options:{responsive:true,maintainAspectRatio:true,plugins:{legend:{display:false},tooltip:{mode:'index',intersect:false,backgroundColor:dark?'#111':'#fff',borderColor:gc,borderWidth:1,titleColor:tc,bodyColor:tc,callbacks:{label:c=>`${c.parsed.y.toFixed(2)} ${d.unit||''}`}}},scales:{x:{grid:{color:gc},ticks:{color:tc,maxTicksLimit:5,maxRotation:0}},y:{grid:{color:gc},ticks:{color:tc,maxTicksLimit:5,callback:v=>v>=1000?Math.round(v/100)/10+'k':v}}}}
-    }));
-  });
+    const ctx=document.getElementById('mkcv').getContext('2d');
+    detailChart=new Chart(ctx,{type:'line',data:{labels:d.dates,datasets:[{data:prices,borderColor:lineCol,backgroundColor:lineCol+'22',borderWidth:2,fill:true,tension:0.35,pointRadius:0,pointHitRadius:12}]},options:{responsive:true,maintainAspectRatio:true,plugins:{legend:{display:false},tooltip:{mode:'index',intersect:false,backgroundColor:dark?'#111':'#fff',borderColor:gc,borderWidth:1,titleColor:tc,bodyColor:tc,callbacks:{label:c=>`${c.parsed.y.toFixed(2)} ${d.unit||''}`}}},scales:{x:{grid:{color:gc},ticks:{color:tc,maxTicksLimit:6,maxRotation:0}},y:{grid:{color:gc},ticks:{color:tc,maxTicksLimit:5,callback:v=>v>=1000?Math.round(v/100)/10+'k':v}}}}});
+  }catch{chartArea.innerHTML='<div class="empty"><div class="ei">⚠️</div><p>Графік недоступний</p></div>';}
+  // Load related news
+  const newsArea=document.getElementById('mk-det-news');
+  newsArea.innerHTML='<div class="sk sk-card"></div>';
+  const cats=TICKER_CATS[key]||'global_sources';
+  try{
+    const r=await fetch(`/api/webapp/news?category=${cats}&lang=${lang}&limit=8`);
+    const articles=await r.json();
+    newsArea.innerHTML='';
+    if(!articles.length){newsArea.innerHTML='<div class="empty"><div class="ei">📭</div><p>Новин по цьому інструменту поки немає</p></div>';return;}
+    articles.forEach(a=>{
+      const cfg=CATS[a.category]||{l:a.category,c:'#64748B',e:'📌'};
+      const summ=a['summary_'+lang]||a.summary_ua||a.summary_en||'';
+      const el=document.createElement('a');el.className='mkncard';el.href=a.link;el.target='_blank';
+      if(tg)el.onclick=ev=>{ev.preventDefault();tg.openLink(a.link);};
+      el.innerHTML=`<div class="mkn-badge" style="background:${cfg.c}">${cfg.e} ${cfg.l}</div><div class="mkn-title">${esc(a.title)}</div>${summ?`<div class="mkn-summ">${esc(summ)}</div>`:''}<div class="mkn-time">🕐 ${ago(a.published)}</div>`;
+      newsArea.appendChild(el);
+    });
+  }catch{newsArea.innerHTML='<div class="empty"><div class="ei">⚠️</div><p>Помилка завантаження</p></div>';}
+}
+function closeMkDetail(){
+  if(detailChart){detailChart.destroy();detailChart=null;}
+  document.getElementById('mk-detail').classList.remove('on');
+  document.getElementById('mk-grid').style.display='block';
+  document.getElementById('pmarkets').scrollTop=0;
+}
+function closeMkDetailSilent(){
+  if(detailChart){detailChart.destroy();detailChart=null;}
+  document.getElementById('mk-detail').classList.remove('on');
+  document.getElementById('mk-grid').style.display='block';
 }
 function esc(s){return(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 </script>
@@ -5236,11 +5276,21 @@ def api_news(category: str = "all", lang: str = "ua", limit: int = 15, offset: i
                 (limit, offset),
             )
     else:
-        rows = db_fetchall(cursor,
-            f"SELECT {base_cols} FROM articles WHERE category = %s "
-            f"ORDER BY published DESC LIMIT %s OFFSET %s",
-            (category, limit, offset),
-        )
+        # Support comma-separated categories, e.g. "food,feed,cosmetic"
+        cats = [c.strip() for c in category.split(",") if c.strip()]
+        if len(cats) == 1:
+            rows = db_fetchall(cursor,
+                f"SELECT {base_cols} FROM articles WHERE category = %s "
+                f"ORDER BY published DESC LIMIT %s OFFSET %s",
+                (cats[0], limit, offset),
+            )
+        else:
+            ph = ",".join(["%s"] * len(cats))
+            rows = db_fetchall(cursor,
+                f"SELECT {base_cols} FROM articles WHERE category IN ({ph}) "
+                f"ORDER BY published DESC LIMIT %s OFFSET %s",
+                (*cats, limit, offset),
+            )
     conn.close()
     return rows
 
