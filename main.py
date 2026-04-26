@@ -729,17 +729,20 @@ async def poll_telegram_updates():
                                 text = msg["text"]
 
                                 if text.startswith("/start"):
-                                    keyboard = {
-                                        "inline_keyboard": [[
-                                            {"text": "🇷🇺 RU", "callback_data": "lang_ru"},
-                                            {"text": "🇺🇦 UA", "callback_data": "lang_ua"},
-                                            {"text": "🇬🇧 EN", "callback_data": "lang_en"}
-                                        ]]
-                                    }
+                                    lang_row = [
+                                        {"text": "🇷🇺 RU", "callback_data": "lang_ru"},
+                                        {"text": "🇺🇦 UA", "callback_data": "lang_ua"},
+                                        {"text": "🇬🇧 EN", "callback_data": "lang_en"},
+                                    ]
+                                    inline_rows = [lang_row]
+                                    if WEBAPP_URL:
+                                        inline_rows.append([
+                                            {"text": "📱 Відкрити додаток", "web_app": {"url": WEBAPP_URL}}
+                                        ])
                                     await client.post(f"{TELEGRAM_API_URL}/sendMessage", json={
                                         "chat_id": chat_id,
                                         "text": "Welcome to MacroHarvey! / Ласкаво просимо! / Добро пожаловать!\nPlease select your language:",
-                                        "reply_markup": keyboard
+                                        "reply_markup": {"inline_keyboard": inline_rows},
                                     })
                                 elif text.startswith("/generate_report"):
                                     # FIX: Immediate UX feedback so the user knows the command was received.
@@ -843,16 +846,18 @@ async def poll_telegram_updates():
                                         })
 
                                 elif text.startswith("/settings") or text.startswith("/menu"):
-                                    keyboard = {
-                                        "inline_keyboard": [
-                                            [{"text": "🌐 Change Language", "callback_data": "menu_lang"}],
-                                            [{"text": "📋 Change Topics", "callback_data": "menu_topics"}]
-                                        ]
-                                    }
+                                    menu_rows = [
+                                        [{"text": "🌐 Change Language", "callback_data": "menu_lang"}],
+                                        [{"text": "📋 Change Topics",   "callback_data": "menu_topics"}],
+                                    ]
+                                    if WEBAPP_URL:
+                                        menu_rows.append([
+                                            {"text": "📱 Відкрити додаток", "web_app": {"url": WEBAPP_URL}}
+                                        ])
                                     await client.post(f"{TELEGRAM_API_URL}/sendMessage", json={
                                         "chat_id": chat_id,
                                         "text": "Settings Menu / Меню Настроек / Меню Налаштувань:",
-                                        "reply_markup": keyboard
+                                        "reply_markup": {"inline_keyboard": menu_rows},
                                     })
             except Exception:
                 pass
@@ -4547,6 +4552,26 @@ async def cleanup_old_news():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
+
+    # Set bot menu button to open the Mini App (if WEBAPP_URL is configured).
+    # This puts the "Відкрити додаток" button in the chat input bar for every user.
+    if WEBAPP_URL and TELEGRAM_BOT_TOKEN:
+        try:
+            async with httpx.AsyncClient() as _hc:
+                await _hc.post(
+                    f"{TELEGRAM_API_URL}/setChatMenuButton",
+                    json={
+                        "menu_button": {
+                            "type": "web_app",
+                            "text": "📱 Додаток",
+                            "web_app": {"url": WEBAPP_URL},
+                        }
+                    },
+                )
+            print(f"lifespan: bot menu button set → {WEBAPP_URL}")
+        except Exception as _e:
+            print(f"lifespan: failed to set menu button: {_e}")
+
     task_news    = asyncio.create_task(fetch_and_store_news())
     task_tg      = asyncio.create_task(poll_telegram_updates())
     task_cleanup = asyncio.create_task(cleanup_old_news())
@@ -4753,3 +4778,215 @@ async def trigger_midday_report():
     if pdf_path and os.path.exists(pdf_path):
         return FileResponse(pdf_path, media_type="application/pdf", filename="Midday_Report.pdf")
     raise HTTPException(status_code=500, detail="Midday report generation failed")
+
+
+# ═══════════════════════════════════════════════════════════════
+# TELEGRAM MINI APP — webapp routes + API
+# ═══════════════════════════════════════════════════════════════
+
+WEBAPP_URL = os.getenv("WEBAPP_URL", "")
+
+_BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+
+@app.get("/logo.png")
+async def serve_logo():
+    path = os.path.join(_BASE_DIR, "logo.png")
+    if os.path.exists(path):
+        return FileResponse(path, media_type="image/png")
+    raise HTTPException(status_code=404, detail="Logo not found")
+
+
+@app.get("/webapp")
+async def serve_webapp():
+    path = os.path.join(_BASE_DIR, "webapp.html")
+    if os.path.exists(path):
+        return FileResponse(path, media_type="text/html")
+    raise HTTPException(status_code=404, detail="Webapp not found")
+
+
+@app.get("/api/webapp/news")
+def api_news(category: str = "all", lang: str = "ua", limit: int = 15, offset: int = 0):
+    limit = min(limit, 50)
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    excluded = list(INTERNAL_CATEGORIES)
+    base_cols = "id, title, link, published, category, summary_en, summary_ua, summary_ru, image_url"
+    if category == "all":
+        if excluded:
+            ph = ",".join(["%s"] * len(excluded))
+            rows = db_fetchall(cursor,
+                f"SELECT {base_cols} FROM articles "
+                f"WHERE category NOT IN ({ph}) "
+                f"ORDER BY published DESC LIMIT %s OFFSET %s",
+                (*excluded, limit, offset),
+            )
+        else:
+            rows = db_fetchall(cursor,
+                f"SELECT {base_cols} FROM articles ORDER BY published DESC LIMIT %s OFFSET %s",
+                (limit, offset),
+            )
+    else:
+        rows = db_fetchall(cursor,
+            f"SELECT {base_cols} FROM articles WHERE category = %s "
+            f"ORDER BY published DESC LIMIT %s OFFSET %s",
+            (category, limit, offset),
+        )
+    conn.close()
+    return rows
+
+
+@app.get("/api/webapp/report_days")
+def api_report_days():
+    """Return unique dates (last 30 days) with article counts, newest first."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    excluded = list(INTERNAL_CATEGORIES | NON_REPORT_CATEGORIES)
+    cutoff = (datetime.datetime.now() - datetime.timedelta(days=30)).strftime("%Y-%m-%d")
+    ph = ",".join(["%s"] * len(excluded)) if excluded else "'__none__'"
+    params = (*excluded, cutoff) if excluded else (cutoff,)
+    rows = db_fetchall(cursor,
+        f"""
+        SELECT
+            LEFT(published, 10) AS date,
+            COUNT(*) AS count
+        FROM articles
+        WHERE category NOT IN ({ph})
+          AND published >= %s
+        GROUP BY LEFT(published, 10)
+        ORDER BY date DESC
+        LIMIT 30
+        """,
+        params,
+    )
+    conn.close()
+    return rows
+
+
+@app.get("/api/webapp/report/{date}")
+def api_report_date(date: str, lang: str = "ua"):
+    """Return articles for a given date (YYYY-MM-DD) grouped by category."""
+    # Validate date format to prevent injection
+    import re as _re
+    if not _re.match(r'^\d{4}-\d{2}-\d{2}$', date):
+        raise HTTPException(status_code=400, detail="Invalid date format")
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    excluded = list(INTERNAL_CATEGORIES | NON_REPORT_CATEGORIES)
+    ph = ",".join(["%s"] * len(excluded)) if excluded else "'__none__'"
+    params = (*excluded, date, date)
+    rows = db_fetchall(cursor,
+        f"""
+        SELECT title, link, published, category, summary_en, summary_ua, summary_ru
+        FROM articles
+        WHERE category NOT IN ({ph})
+          AND published >= %s
+          AND published < (%s::date + INTERVAL '1 day')::text
+        ORDER BY category, published DESC
+        """,
+        params,
+    )
+    conn.close()
+
+    report_cat_order = ["api","cosmetic","herbal","veterinary","food","feed",
+                        "capsules","pvc","logistics","global_sources"]
+    by_cat: dict[str, list] = {c: [] for c in report_cat_order}
+    for r in rows:
+        cat = r["category"]
+        if cat in by_cat:
+            by_cat[cat].append(r)
+        else:
+            by_cat.setdefault(cat, []).append(r)
+    # Remove empty
+    by_cat = {k: v for k, v in by_cat.items() if v}
+    return {"date": date, "by_category": by_cat}
+
+
+# ── Markets price cache (15 min TTL) ──────────────────────────
+_mk_cache: dict = {"data": None, "ts": 0.0}
+_MK_TTL = 900
+
+
+@app.get("/api/webapp/markets")
+async def api_markets():
+    """Return current intraday prices for all CHART_TICKERS."""
+    import time as _time
+    now = _time.time()
+    if _mk_cache["data"] and (now - _mk_cache["ts"]) < _MK_TTL:
+        return _mk_cache["data"]
+
+    if not CHARTS_AVAILABLE:
+        raise HTTPException(status_code=503, detail="yfinance not available")
+
+    result = []
+    for key, cfg in CHART_TICKERS.items():
+        try:
+            info = await asyncio.to_thread(_get_intraday_price_info, cfg["tickers"])
+        except Exception:
+            info = None
+        result.append({
+            "key":        key,
+            "label":      cfg["label"],
+            "emoji":      cfg["emoji"],
+            "unit":       cfg["unit"],
+            "current":    info["current"] if info else 0,
+            "change_pct": info["change_pct"] if info else 0.0,
+            "as_of":      info["as_of"] if info else "",
+        })
+
+    _mk_cache["data"] = result
+    _mk_cache["ts"] = now
+    return result
+
+
+# ── Chart history cache (1 h TTL) ─────────────────────────────
+_ch_cache: dict = {}
+_CH_TTL = 3600
+
+
+@app.get("/api/webapp/chart/{key}")
+async def api_chart(key: str, days: int = 30):
+    """Return daily close prices (last `days` days) for a CHART_TICKERS key."""
+    import time as _time
+    if key not in CHART_TICKERS:
+        raise HTTPException(status_code=404, detail="Unknown commodity key")
+
+    now = _time.time()
+    cached = _ch_cache.get(key)
+    if cached and (now - cached["ts"]) < _CH_TTL:
+        return cached["data"]
+
+    if not CHARTS_AVAILABLE:
+        raise HTTPException(status_code=503, detail="yfinance not available")
+
+    cfg = CHART_TICKERS[key]
+
+    def _fetch():
+        for sym in cfg["tickers"]:
+            try:
+                import yfinance as yf
+                tk = yf.Ticker(sym)
+                df = tk.history(period=f"{days+5}d", interval="1d")
+                if df is not None and not df.empty:
+                    df = df.tail(days)
+                    dates  = [d.strftime("%d.%m") for d in df.index]
+                    prices = [round(float(v), 2) for v in df["Close"].values]
+                    return {"dates": dates, "prices": prices}
+            except Exception:
+                continue
+        return None
+
+    raw = await asyncio.to_thread(_fetch)
+    if raw is None:
+        raise HTTPException(status_code=503, detail="No data available")
+
+    data = {
+        "key":    key,
+        "label":  cfg["label"],
+        "emoji":  cfg["emoji"],
+        "unit":   cfg["unit"],
+        "dates":  raw["dates"],
+        "prices": raw["prices"],
+    }
+    _ch_cache[key] = {"data": data, "ts": now}
+    return data
