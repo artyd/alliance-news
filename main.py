@@ -203,30 +203,89 @@ GLOBAL_SOURCES = urllib.parse.quote_plus(GLOBAL_SOURCES_RAW)
 # (trade publications, industry sites, regional outlets), which is what
 # actually covers B2B topics like "capsule manufacturing" or "amino acids".
 RSS_FEEDS = {
-    "api":        "https://news.google.com/rss/search?q=pharmaceutical+ingredients+OR+%22API+manufacturing%22+OR+%22generic+drugs%22+OR+%22active+pharmaceutical+ingredient%22+when:7d&hl=en-US&gl=US&ceid=US:en",
-    "cosmetic":   "https://news.google.com/rss/search?q=%22cosmetic+ingredients%22+OR+%22beauty+industry%22+OR+%22personal+care+market%22+OR+%22skincare+ingredients%22+when:7d&hl=en-US&gl=US&ceid=US:en",
-    "herbal":     "https://news.google.com/rss/search?q=%22botanical+extracts%22+OR+%22herbal+supplements%22+OR+%22medicinal+plants%22+OR+%22plant-based+ingredients%22+when:7d&hl=en-US&gl=US&ceid=US:en",
-    "veterinary": "https://news.google.com/rss/search?q=%22veterinary+pharmaceuticals%22+OR+%22animal+health%22+OR+%22livestock+medicine%22+OR+%22veterinary+drugs%22+when:7d&hl=en-US&gl=US&ceid=US:en",
-    "food":       "https://news.google.com/rss/search?q=%22food+ingredients%22+OR+%22food+supply+chain%22+OR+%22commodity+prices%22+OR+%22food+industry%22+when:7d&hl=en-US&gl=US&ceid=US:en",
-    "feed":       "https://news.google.com/rss/search?q=%22animal+feed%22+OR+lysine+OR+methionine+OR+%22soybean+meal%22+OR+%22feed+additives%22+when:7d&hl=en-US&gl=US&ceid=US:en",
-    "capsules":   "https://news.google.com/rss/search?q=%22gelatin+capsules%22+OR+%22capsule+manufacturing%22+OR+%22drug+delivery%22+OR+%22pharmaceutical+excipients%22+when:7d&hl=en-US&gl=US&ceid=US:en",
-    "pvc":        "https://news.google.com/rss/search?q=%22PVC+market%22+OR+%22plastic+packaging%22+OR+%22polymer+prices%22+OR+%22PVC+film%22+when:7d&hl=en-US&gl=US&ceid=US:en",
-    "logistics":  "https://news.google.com/rss/search?q=%22container+freight%22+OR+%22global+shipping%22+OR+%22supply+chain%22+OR+%22ocean+freight+rates%22+when:7d&hl=en-US&gl=US&ceid=US:en",
-    # Tier-1 wire service / institutional feed. Wide-topic capture on global
-    # economy, trade, sanctions — restricted to top publishers via the
-    # GLOBAL_SOURCES site: filter. Shown as Block 1 category #10 in the daily
-    # report AND visible to Telegram subscribers (not in INTERNAL_CATEGORIES).
-    "global_sources": f"https://news.google.com/rss/search?q=%22global+economy%22+OR+trade+OR+sanctions+OR+%22supply+chain%22+{GLOBAL_SOURCES}+when:7d&hl=en-US&gl=US&ceid=US:en",
-    # Service category — used only for the daily report's Block 2 (Middle East).
-    # Hidden from Telegram subscription UI via INTERNAL_CATEGORIES below.
-    # Simplified to broad OR-union without site: filter so it actually returns
-    # results on quiet days.
-    "middle_east":    "https://news.google.com/rss/search?q=Iran+OR+Israel+OR+%22Red+Sea%22+OR+Hormuz+OR+Houthi+OR+Gaza+OR+Lebanon+OR+%22Persian+Gulf%22+when:7d&hl=en-US&gl=US&ceid=US:en",
-    # Uplifting / heartwarming news. Aggregated from several positive-news
-    # publishers via Google News site: filter. NOT used in the daily report
-    # — listed in NON_REPORT_CATEGORIES so it skips extraction/facts pipeline.
-    # Purely mood content for Telegram subscribers.
-    "good_news":      "https://news.google.com/rss/search?q=(site:goodnewsnetwork.org+OR+site:positive.news+OR+site:reasonstobecheerful.world+OR+%22uplifting+news%22+OR+%22heartwarming%22+OR+%22good+news%22)+when:3d&hl=en-US&gl=US&ceid=US:en",
+    # Pharma active ingredients: price moves, shortages, API manufacturing news.
+    # Sources include pharma trade press (pharmiweb, fiercepharma, icis) + Google News.
+    "api": (
+        "https://news.google.com/rss/search?q=%22active+pharmaceutical+ingredient%22+OR+"
+        "%22API+price%22+OR+%22pharma+raw+material%22+OR+%22drug+shortage%22+OR+"
+        "%22generic+drug+supply%22+OR+(site:pharmiweb.com)+OR+(site:fiercepharma.com)"
+        "+when:5d&hl=en-US&gl=US&ceid=US:en"
+    ),
+    # Cosmetic ingredients: raw material prices, new regulations (EU Cosmetics), brand launches.
+    "cosmetic": (
+        "https://news.google.com/rss/search?q=%22cosmetic+ingredients%22+OR+"
+        "%22personal+care+raw+materials%22+OR+%22cosmetic+regulation%22+OR+"
+        "%22skincare+ingredients%22+OR+(site:cosmeticsdesign.com)+OR+(site:cosmeticsandtoiletries.com)"
+        "+when:5d&hl=en-US&gl=US&ceid=US:en"
+    ),
+    # Herbal extracts: harvest outlooks, export restrictions, demand from nutraceuticals.
+    "herbal": (
+        "https://news.google.com/rss/search?q=%22botanical+extracts%22+OR+"
+        "%22herbal+extract+price%22+OR+%22plant+extract+supply%22+OR+"
+        "%22medicinal+herbs%22+OR+(site:nutraceuticalsworld.com)+OR+(site:naturalproductsinsider.com)"
+        "+when:5d&hl=en-US&gl=US&ceid=US:en"
+    ),
+    # Veterinary pharma: regulatory approvals, API availability, disease outbreaks.
+    "veterinary": (
+        "https://news.google.com/rss/search?q=%22veterinary+pharmaceuticals%22+OR+"
+        "%22animal+health+ingredients%22+OR+%22veterinary+API%22+OR+"
+        "%22livestock+medicine%22+OR+(site:vetscite.co)+OR+(site:animalhealthmedia.com)"
+        "+when:5d&hl=en-US&gl=US&ceid=US:en"
+    ),
+    # Food ingredients: commodity price moves, food-grade additives, supply disruptions.
+    "food": (
+        "https://news.google.com/rss/search?q=%22food+ingredients%22+OR+"
+        "%22food+additives+price%22+OR+%22food+grade%22+OR+"
+        "%22food+raw+materials%22+OR+(site:foodingredientsfirst.com)+OR+(site:foodnavigator.com)"
+        "+when:5d&hl=en-US&gl=US&ceid=US:en"
+    ),
+    # Feed amino acids: lysine, methionine, threonine price and supply from China/EU.
+    "feed": (
+        "https://news.google.com/rss/search?q=lysine+price+OR+methionine+price+OR+"
+        "threonine+price+OR+%22feed+amino+acids%22+OR+%22soybean+meal+price%22+OR+"
+        "%22feed+additives+supply%22+when:5d&hl=en-US&gl=US&ceid=US:en"
+    ),
+    # Pharmaceutical capsules: gelatin prices, HPMC capacity, excipient supply.
+    "capsules": (
+        "https://news.google.com/rss/search?q=%22hard+gelatin+capsule%22+OR+"
+        "%22HPMC+capsule%22+OR+%22pharmaceutical+excipients%22+OR+"
+        "%22gelatin+price%22+OR+%22capsule+manufacturer%22"
+        "+when:5d&hl=en-US&gl=US&ceid=US:en"
+    ),
+    # PVC film & blister packaging: polymer prices, packaging regulations, supply.
+    "pvc": (
+        "https://news.google.com/rss/search?q=%22PVC+film%22+OR+"
+        "%22blister+packaging%22+OR+%22pharmaceutical+packaging+material%22+OR+"
+        "%22PVC+price%22+OR+%22polymer+packaging%22"
+        "+when:5d&hl=en-US&gl=US&ceid=US:en"
+    ),
+    # Logistics: freight rates, port congestion, route disruptions — very fresh (3d).
+    "logistics": (
+        "https://news.google.com/rss/search?q=%22ocean+freight+rates%22+OR+"
+        "%22container+shipping%22+OR+%22supply+chain+disruption%22+OR+"
+        "%22port+congestion%22+OR+%22air+cargo+rates%22+OR+(site:theloadstar.com)"
+        "+when:3d&hl=en-US&gl=US&ceid=US:en"
+    ),
+    # Tier-1 macro/trade news from Reuters, Bloomberg, FT, WTO, IMF etc.
+    "global_sources": (
+        f"https://news.google.com/rss/search?q=%22global+trade%22+OR+tariffs+OR+"
+        f"sanctions+OR+%22supply+chain%22+OR+%22trade+war%22+{GLOBAL_SOURCES}"
+        f"+when:5d&hl=en-US&gl=US&ceid=US:en"
+    ),
+    # Middle East geopolitics — internal category for daily report Block 2 only.
+    "middle_east": (
+        "https://news.google.com/rss/search?q=Iran+OR+Israel+OR+%22Red+Sea%22+OR+"
+        "Hormuz+OR+Houthi+OR+Gaza+OR+%22Persian+Gulf%22"
+        "+when:5d&hl=en-US&gl=US&ceid=US:en"
+    ),
+    # Good news — uplifting stories to boost morale. Freshest possible (2d).
+    "good_news": (
+        "https://news.google.com/rss/search?q=(site:goodnewsnetwork.org+OR+"
+        "site:positive.news+OR+site:reasonstobecheerful.world+OR+"
+        "site:goodnews.com+OR+%22rescued%22+OR+%22breakthrough%22+OR+"
+        "%22record+achievement%22+OR+%22uplifting+story%22)"
+        "+when:2d&hl=en-US&gl=US&ceid=US:en"
+    ),
 }
 
 # Categories that are fetched into DB but NOT shown as subscription options to users.
@@ -800,26 +859,146 @@ async def poll_telegram_updates():
             await asyncio.sleep(2)
 
 
-SYSTEM_PROMPT = """You are a senior B2B market intelligence analyst for a Ukrainian pharmaceutical and chemical raw materials importer.
+# Per-category B2B analysis prompts. Each generates 4-5 sentence summaries
+# in three languages tailored to the specific commodity/sector.
+CAT_SYSTEM_PROMPTS = {
+    "api": """You are a senior B2B market intelligence analyst for a Ukrainian pharma raw materials importer.
+Analyze the article and return ONLY a raw JSON object with keys: summary_en, summary_ua, summary_ru. No markdown, no code blocks — only valid JSON.
+RULES: Each summary 60-80 words, 4-5 sentences.
+1. EVENT: what happened, who, where, numbers.
+2. CAUSE: why it happened (regulation, shortage, price move, new capacity).
+3. GLOBAL MARKET IMPACT: effect on API/pharma ingredient supply globally.
+4. UKRAINE PROCUREMENT IMPACT: price direction, availability, lead times for pharma ingredient sourcing.
+5. ACTION: what procurement should do now (stock up, find alternative supplier, fix price, monitor).
+Direct, specific, no vague phrases. summary_en: English. summary_ua: Ukrainian. summary_ru: Russian.""",
 
-Analyze the article and return ONLY a raw JSON object with keys: summary_en, summary_ua, summary_ru.
-No markdown, no code blocks — only valid JSON.
+    "cosmetic": """You are a senior B2B market intelligence analyst for a Ukrainian cosmetic ingredients importer.
+Analyze the article and return ONLY a raw JSON object with keys: summary_en, summary_ua, summary_ru. No markdown, no code blocks — only valid JSON.
+RULES: Each summary 60-80 words, 4-5 sentences.
+1. EVENT: what happened, who, where, numbers.
+2. CAUSE: regulation, ingredient ban, demand shift, production change.
+3. GLOBAL MARKET IMPACT: effect on cosmetic raw materials (hyaluronic acid, retinol, peptides, surfactants, emollients, etc.).
+4. UKRAINE PROCUREMENT IMPACT: price, availability, supplier landscape for cosmetic ingredients.
+5. ACTION: what procurement should do (find alternatives, fix price, expand supplier base).
+Direct, specific. summary_en: English. summary_ua: Ukrainian. summary_ru: Russian.""",
 
-STRICT RULES:
-- Each summary: 40-50 words.
-- Write 3 sentences:
-  1. THE EVENT: What happened, where, who. Include numbers/% if available.
-  2. GLOBAL IMPACT: How does this affect global markets, supply chains, or trade policy.
-  3. UKRAINE B2B IMPACT: How does this affect a Ukrainian importer of pharma ingredients, cosmetic raw materials, packaging, or food-grade materials. What should procurement do now.
-- Professional B2B tone. Be direct and specific. No vague phrases like "could affect" or "may have impact".
-- If no B2B impact: write "Direct procurement impact not identified; monitoring recommended."
-- summary_en: English. summary_ua: Ukrainian. summary_ru: Russian. Same content translated."""
+    "herbal": """You are a senior B2B market intelligence analyst for a Ukrainian importer of herbal extracts and botanical raw materials.
+Analyze the article and return ONLY a raw JSON object with keys: summary_en, summary_ua, summary_ru. No markdown, no code blocks — only valid JSON.
+RULES: Each summary 60-80 words, 4-5 sentences.
+1. EVENT: what happened, who, where, numbers.
+2. CAUSE: harvest failure, export ban, demand surge, new clinical study.
+3. GLOBAL MARKET IMPACT: effect on botanical extracts, herbal ingredients, medicinal plant materials.
+4. UKRAINE PROCUREMENT IMPACT: price, availability, key growing regions affected.
+5. ACTION: diversify sourcing, build safety stock, lock in contracts.
+Direct, specific. summary_en: English. summary_ua: Ukrainian. summary_ru: Russian.""",
+
+    "veterinary": """You are a senior B2B market intelligence analyst for a Ukrainian importer of veterinary pharmaceutical ingredients.
+Analyze the article and return ONLY a raw JSON object with keys: summary_en, summary_ua, summary_ru. No markdown, no code blocks — only valid JSON.
+RULES: Each summary 60-80 words, 4-5 sentences.
+1. EVENT: what happened, who, where, numbers.
+2. CAUSE: regulation change, disease outbreak, API shortage, new drug approval.
+3. GLOBAL MARKET IMPACT: effect on veterinary drug ingredients and animal health products globally.
+4. UKRAINE PROCUREMENT IMPACT: price, availability, supplier options for vet ingredients.
+5. ACTION: what procurement should do now.
+Direct, specific. summary_en: English. summary_ua: Ukrainian. summary_ru: Russian.""",
+
+    "food": """You are a senior B2B market intelligence analyst for a Ukrainian importer of food-grade ingredients and commodities.
+Analyze the article and return ONLY a raw JSON object with keys: summary_en, summary_ua, summary_ru. No markdown, no code blocks — only valid JSON.
+RULES: Each summary 60-80 words, 4-5 sentences.
+1. EVENT: what happened, who, where, numbers.
+2. CAUSE: weather, tariff, export restriction, supply chain disruption.
+3. GLOBAL MARKET IMPACT: effect on food ingredient prices/supply (sugars, starches, oils, additives, flavors).
+4. UKRAINE PROCUREMENT IMPACT: price direction, availability, key suppliers.
+5. ACTION: forward contracts, alternative suppliers, stock up.
+Direct, specific. summary_en: English. summary_ua: Ukrainian. summary_ru: Russian.""",
+
+    "feed": """You are a senior B2B market intelligence analyst for a Ukrainian importer of animal feed ingredients and amino acids.
+Analyze the article and return ONLY a raw JSON object with keys: summary_en, summary_ua, summary_ru. No markdown, no code blocks — only valid JSON.
+RULES: Each summary 60-80 words, 4-5 sentences.
+1. EVENT: what happened, who, where, numbers.
+2. CAUSE: production change, export policy, crop yields, demand shift from China.
+3. GLOBAL MARKET IMPACT: effect on feed amino acids (lysine, methionine, threonine), soybean meal, feed additives.
+4. UKRAINE PROCUREMENT IMPACT: price direction, key suppliers (China, EU), lead times.
+5. ACTION: what procurement should do now.
+Direct, specific. summary_en: English. summary_ua: Ukrainian. summary_ru: Russian.""",
+
+    "capsules": """You are a senior B2B market intelligence analyst for a Ukrainian importer of pharmaceutical capsules and excipients.
+Analyze the article and return ONLY a raw JSON object with keys: summary_en, summary_ua, summary_ru. No markdown, no code blocks — only valid JSON.
+RULES: Each summary 60-80 words, 4-5 sentences.
+1. EVENT: what happened, who, where, numbers.
+2. CAUSE: gelatin price change, HPMC capacity, regulatory shift, new capacity.
+3. GLOBAL MARKET IMPACT: effect on hard gelatin capsules, HPMC capsules, pharmaceutical excipients globally.
+4. UKRAINE PROCUREMENT IMPACT: price, availability, lead times for capsules/excipients.
+5. ACTION: what procurement should do now.
+Direct, specific. summary_en: English. summary_ua: Ukrainian. summary_ru: Russian.""",
+
+    "pvc": """You are a senior B2B market intelligence analyst for a Ukrainian importer of PVC film and pharmaceutical packaging materials.
+Analyze the article and return ONLY a raw JSON object with keys: summary_en, summary_ua, summary_ru. No markdown, no code blocks — only valid JSON.
+RULES: Each summary 60-80 words, 4-5 sentences.
+1. EVENT: what happened, who, where, numbers.
+2. CAUSE: polymer price change, energy costs, new capacity, regulation.
+3. GLOBAL MARKET IMPACT: effect on PVC film, blister packaging, pharmaceutical packaging materials.
+4. UKRAINE PROCUREMENT IMPACT: price, availability, key suppliers.
+5. ACTION: what procurement should do now.
+Direct, specific. summary_en: English. summary_ua: Ukrainian. summary_ru: Russian.""",
+
+    "logistics": """You are a senior B2B market intelligence analyst for a Ukrainian pharma/cosmetics importer managing global supply chains.
+Analyze the article and return ONLY a raw JSON object with keys: summary_en, summary_ua, summary_ru. No markdown, no code blocks — only valid JSON.
+RULES: Each summary 60-80 words, 4-5 sentences.
+1. EVENT: what happened (freight rates, route closures, port delays), who, where, numbers.
+2. CAUSE: geopolitical, weather, strike, capacity issue, new route.
+3. GLOBAL LOGISTICS IMPACT: effect on ocean/air freight, container availability, trade routes.
+4. UKRAINE PROCUREMENT IMPACT: import lead times, freight costs, insurance for pharma/cosmetics shipments.
+5. ACTION: re-route, book earlier, factor costs into pricing, diversify carriers.
+Direct, specific. summary_en: English. summary_ua: Ukrainian. summary_ru: Russian.""",
+
+    "global_sources": """You are a senior B2B market intelligence analyst for a Ukrainian pharma and cosmetics raw materials importer.
+Analyze the article and return ONLY a raw JSON object with keys: summary_en, summary_ua, summary_ru. No markdown, no code blocks — only valid JSON.
+RULES: Each summary 60-80 words, 4-5 sentences.
+1. EVENT: what happened (trade policy, sanctions, tariff, IMF/WTO decision), who, where.
+2. CONTEXT: why it matters in global trade.
+3. GLOBAL MARKET IMPACT: effect on global trade, supply chains, commodity markets relevant to pharma/chemicals/cosmetics.
+4. UKRAINE PROCUREMENT IMPACT: effect on sourcing from China, India, EU, US or on import costs.
+5. ACTION: what procurement should do in light of this macro development.
+Direct, specific. summary_en: English. summary_ua: Ukrainian. summary_ru: Russian.""",
+
+    "middle_east": """You are a senior B2B market intelligence analyst for a Ukrainian pharma and cosmetics raw materials importer.
+Analyze the article and return ONLY a raw JSON object with keys: summary_en, summary_ua, summary_ru. No markdown, no code blocks — only valid JSON.
+RULES: Each summary 60-80 words, 4-5 sentences.
+1. EVENT: what happened in the Middle East, who, where.
+2. GEOPOLITICAL CONTEXT: Suez Canal, Hormuz Strait, oil supply, regional stability.
+3. GLOBAL IMPACT: effect on oil prices, freight insurance, shipping routes.
+4. UKRAINE PROCUREMENT IMPACT: import costs, energy surcharges, war-risk freight insurance for pharma/cosmetics.
+5. ACTION: what logistics/procurement should do now.
+Direct, specific. summary_en: English. summary_ua: Ukrainian. summary_ru: Russian.""",
+
+    "good_news": """You are a warm, uplifting news curator.
+Analyze the article and return ONLY a raw JSON object with keys: summary_en, summary_ua, summary_ru. No markdown, no code blocks — only valid JSON.
+RULES: Each summary 50-70 words, 3-4 sentences.
+Focus on the POSITIVE CORE: a breakthrough, a rescue, a record, a heartwarming act, a scientific win, an environmental success, a community triumph.
+Tone: warm, enthusiastic, uplifting — this should make the reader smile or feel hopeful.
+Do NOT add business context. End with a short inspiring takeaway.
+summary_en: English. summary_ua: Ukrainian. summary_ru: Russian.""",
+}
+
+# Fallback for unknown categories
+_DEFAULT_SYSTEM_PROMPT = """You are a senior B2B market intelligence analyst for a Ukrainian pharmaceutical and chemical raw materials importer.
+Analyze the article and return ONLY a raw JSON object with keys: summary_en, summary_ua, summary_ru. No markdown, no code blocks — only valid JSON.
+RULES: Each summary 60-80 words, 4-5 sentences.
+1. EVENT: what happened, where, who. Include numbers/% if available.
+2. CAUSE: why it happened.
+3. GLOBAL MARKET IMPACT: effect on global markets, supply chains, or trade.
+4. UKRAINE B2B IMPACT: effect on a Ukrainian importer of pharma ingredients, cosmetic raw materials, packaging, or food-grade materials.
+5. ACTION: what procurement should do now.
+Direct, specific. No vague phrases. summary_en: English. summary_ua: Ukrainian. summary_ru: Russian."""
 
 
-async def generate_summary(text: str):
+async def generate_summary(text: str, category: str = ""):
     """Generate 3-language B2B summaries via OpenAI GPT-4o-mini (Gemini fallback)."""
     if not text:
         return {"summary_en": text, "summary_ua": text, "summary_ru": text}
+
+    prompt = CAT_SYSTEM_PROMPTS.get(category, _DEFAULT_SYSTEM_PROMPT)
 
     # Primary: OpenAI GPT-4o-mini
     if aclient:
@@ -828,11 +1007,11 @@ async def generate_summary(text: str):
             try:
                 response = await aclient.chat.completions.create(
                     model="gpt-4o-mini",
-                    max_tokens=400,
+                    max_tokens=500,
                     temperature=0.2,
                     response_format={"type": "json_object"},
                     messages=[
-                        {"role": "system", "content": SYSTEM_PROMPT},
+                        {"role": "system", "content": prompt},
                         {"role": "user",   "content": f"Article:\n{truncated}"},
                     ],
                 )
@@ -858,7 +1037,7 @@ async def generate_summary(text: str):
         try:
             model = genai.GenerativeModel("gemini-2.5-flash")
             response = await model.generate_content_async(
-                f"{SYSTEM_PROMPT}\n\nArticle:\n{text[:2000]}",
+                f"{prompt}\n\nArticle:\n{text[:2000]}",
                 request_options={"timeout": 60}
             )
             raw = response.text.strip()
@@ -2026,30 +2205,85 @@ def draw_footer(pdf: FPDF, report_date: str):
 # Ticker map: key → (yfinance ticker(s), display label, unit, TradingEconomics URL, TradingView URL)
 # The first ticker is primary; the rest are fallbacks (yfinance sometimes returns empty).
 CHART_TICKERS = {
-    "КУКУРУДЗА": {
-        "tickers": ("ZC=F",),
-        "label": "Кукурудза (CBOT Corn Futures)",
-        "unit": "¢/bushel",
-        "te_url": "https://tradingeconomics.com/commodity/corn",
-        "tv_url": "https://www.tradingview.com/chart/?symbol=CBOT%3AZC1!",
-        "emoji": "🌽",
-    },
     "НАФТА": {
         "tickers": ("BZ=F",),
-        "label": "Нафта Brent (ICE Brent Crude Futures)",
+        "label": "Нафта Brent",
         "unit": "$/barrel",
         "te_url": "https://tradingeconomics.com/commodity/crude-oil",
         "tv_url": "https://www.tradingview.com/chart/?symbol=TVC%3AUKOIL",
         "emoji": "🛢️",
     },
+    "ГАЗ": {
+        "tickers": ("NG=F",),
+        "label": "Природний газ (Henry Hub)",
+        "unit": "$/MMBtu",
+        "te_url": "https://tradingeconomics.com/commodity/natural-gas",
+        "tv_url": "https://www.tradingview.com/chart/?symbol=NYMEX%3ANG1!",
+        "emoji": "🔥",
+    },
+    "КУКУРУДЗА": {
+        "tickers": ("ZC=F",),
+        "label": "Кукурудза (CBOT Corn)",
+        "unit": "¢/bushel",
+        "te_url": "https://tradingeconomics.com/commodity/corn",
+        "tv_url": "https://www.tradingview.com/chart/?symbol=CBOT%3AZC1!",
+        "emoji": "🌽",
+    },
+    "ПШЕНИЦЯ": {
+        "tickers": ("ZW=F",),
+        "label": "Пшениця (CBOT Wheat)",
+        "unit": "¢/bushel",
+        "te_url": "https://tradingeconomics.com/commodity/wheat",
+        "tv_url": "https://www.tradingview.com/chart/?symbol=CBOT%3AZW1!",
+        "emoji": "🌾",
+    },
+    "СОЄВІ_БОБИ": {
+        "tickers": ("ZS=F",),
+        "label": "Соєві боби (CBOT Soybeans)",
+        "unit": "¢/bushel",
+        "te_url": "https://tradingeconomics.com/commodity/soybeans",
+        "tv_url": "https://www.tradingview.com/chart/?symbol=CBOT%3AZS1!",
+        "emoji": "🫘",
+    },
+    "СОЄВА_ОЛІЯ": {
+        "tickers": ("ZL=F",),
+        "label": "Соєва олія (CBOT Soybean Oil)",
+        "unit": "¢/lb",
+        "te_url": "https://tradingeconomics.com/commodity/soybean-oil",
+        "tv_url": "https://www.tradingview.com/chart/?symbol=CBOT%3AZL1!",
+        "emoji": "🍶",
+    },
     "ПАЛЬМОВА": {
-        # Palm oil has spotty yfinance coverage; try multiple tickers.
         "tickers": ("POO=F", "FCPO=F", "CPO=F"),
         "label": "Пальмова олія (Crude Palm Oil)",
         "unit": "$/MT",
         "te_url": "https://tradingeconomics.com/commodity/palm-oil",
         "tv_url": "https://www.tradingview.com/chart/?symbol=MYX%3AKPO1!",
         "emoji": "🌴",
+    },
+    "ЦУКОР": {
+        "tickers": ("SB=F",),
+        "label": "Цукор №11 (ICE Sugar)",
+        "unit": "¢/lb",
+        "te_url": "https://tradingeconomics.com/commodity/sugar",
+        "tv_url": "https://www.tradingview.com/chart/?symbol=ICEUS%3ASB1!",
+        "emoji": "🍬",
+    },
+    "ЄВРО": {
+        "tickers": ("EURUSD=X",),
+        "label": "EUR/USD (курс євро)",
+        "unit": "USD",
+        "te_url": "https://tradingeconomics.com/eurusd:cur",
+        "tv_url": "https://www.tradingview.com/chart/?symbol=FX%3AEURUSD",
+        "emoji": "💶",
+    },
+    "ЮАНЬ": {
+        "tickers": ("CNY=X",),
+        "label": "USD/CNY (курс юаня)",
+        "unit": "CNY",
+        "te_url": "https://tradingeconomics.com/usdcny:cur",
+        "tv_url": "https://www.tradingview.com/chart/?symbol=FX%3AUSDCNY",
+        "emoji": "🇨🇳",
     },
 }
 
@@ -4155,7 +4389,7 @@ async def fetch_and_store_news():
                     if not image_url:
                         image_url = "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?q=80&w=1200&auto=format&fit=crop"
 
-                    summaries = await generate_summary(description)
+                    summaries = await generate_summary(description, category=category)
                     sum_en = summaries.get("summary_en", description)
                     sum_ua = summaries.get("summary_ua", description)
                     sum_ru = summaries.get("summary_ru", description)
