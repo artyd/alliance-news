@@ -5040,13 +5040,16 @@ const RTYPE={
 let activeCat='all',newsOff=0;
 const LIMIT=15;
 let mkData=[],chartInstances=[],cachedCharts={};
-window.addEventListener('load',()=>{
+function hideSplash(){
+  const sp=document.getElementById('splash');
+  if(!sp)return;
+  sp.style.opacity='0';sp.style.pointerEvents='none';
+  setTimeout(()=>{sp.style.display='none';document.getElementById('app').classList.add('on');},500);
+}
+// Hide splash after 2 s regardless of external CDN load status
+const _splashTimer=setTimeout(hideSplash,2000);
+document.addEventListener('DOMContentLoaded',()=>{
   buildChips();fetchNews(true);
-  setTimeout(()=>{
-    const sp=document.getElementById('splash');
-    sp.style.opacity='0';sp.style.pointerEvents='none';
-    setTimeout(()=>{sp.style.display='none';document.getElementById('app').classList.add('on');},500);
-  },2200);
 });
 function tab(name,btn){
   ['news','reports','markets'].forEach(n=>{
