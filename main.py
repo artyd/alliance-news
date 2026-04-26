@@ -845,6 +845,27 @@ async def poll_telegram_updates():
                                             "text": "❌ Не вдалося згенерувати полуденне оновлення. Перевірте логи сервера."
                                         })
 
+                                elif text.startswith("/app"):
+                                    if WEBAPP_URL:
+                                        await client.post(f"{TELEGRAM_API_URL}/sendMessage", json={
+                                            "chat_id": chat_id,
+                                            "text": "📱 Натисни кнопку нижче, щоб відкрити додаток:",
+                                            "reply_markup": {"inline_keyboard": [[
+                                                {"text": "📱 Відкрити MacroHarvey", "web_app": {"url": WEBAPP_URL}}
+                                            ]]},
+                                        })
+                                    else:
+                                        await client.post(f"{TELEGRAM_API_URL}/sendMessage", json={
+                                            "chat_id": chat_id,
+                                            "text": (
+                                                "⚠️ Mini App не налаштовано.\n\n"
+                                                "Адміністратору потрібно додати до .env:\n"
+                                                "<code>WEBAPP_URL=https://ваш-домен.com/webapp</code>\n\n"
+                                                "URL має бути HTTPS та публічно доступним."
+                                            ),
+                                            "parse_mode": "HTML",
+                                        })
+
                                 elif text.startswith("/settings") or text.startswith("/menu"):
                                     menu_rows = [
                                         [{"text": "🌐 Change Language", "callback_data": "menu_lang"}],
