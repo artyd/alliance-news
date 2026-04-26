@@ -3,7 +3,7 @@ import os
 import json
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 import feedparser
 from dotenv import load_dotenv
@@ -4818,12 +4818,166 @@ async def serve_logo():
     raise HTTPException(status_code=404, detail="Logo not found")
 
 
+_WEBAPP_HTML = r"""<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
+<title>MacroHarvey</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{--bg:#FFFFFF;--surface:#F4F7FB;--surface2:#EAEFF7;--border:#DDE4F0;--accent:#1B4FD8;--accent-soft:#EEF2FF;--accent2:#1340B0;--text:#0F1728;--sub:#5A6478;--muted:#9AA3B2;--green:#16A34A;--red:#DC2626;--shadow:0 2px 10px rgba(15,23,40,.07);--r:14px;--font:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif}
+[data-dark]{--bg:#0D1117;--surface:#161B27;--surface2:#1E2535;--border:#252D3D;--accent:#4F80FF;--accent-soft:#1A2744;--accent2:#6B96FF;--text:#E8ECF5;--sub:#8899B0;--muted:#506070;--green:#22C55E;--red:#F87171;--shadow:0 2px 14px rgba(0,0,0,.5)}
+html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:var(--font);-webkit-font-smoothing:antialiased;font-size:15px}
+#splash{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:0;background:var(--bg);z-index:9999;transition:opacity .45s ease}
+.splash-ring{position:absolute;width:130px;height:130px;border-radius:50%;border:2px solid var(--accent);opacity:.5;animation:ring 1.8s ease-out infinite}
+.splash-ring2{animation-delay:.6s}
+@keyframes ring{0%{transform:scale(.8);opacity:.5}100%{transform:scale(1.9);opacity:0}}
+#splash img{width:76px;height:76px;object-fit:contain;z-index:1;border-radius:16px}
+#splash .sname{margin-top:18px;font-size:21px;font-weight:800;letter-spacing:-.3px;color:var(--text)}
+#splash .stag{margin-top:5px;font-size:12px;color:var(--sub);letter-spacing:.3px;text-transform:uppercase}
+.dots{display:flex;gap:6px;margin-top:28px}
+.dots span{width:7px;height:7px;border-radius:50%;background:var(--accent);opacity:.3;animation:dot 1.2s ease-in-out infinite}
+.dots span:nth-child(2){animation-delay:.2s}.dots span:nth-child(3){animation-delay:.4s}
+@keyframes dot{0%,80%,100%{opacity:.3;transform:scale(.8)}40%{opacity:1;transform:scale(1)}}
+#app{display:none;flex-direction:column;height:100vh;overflow:hidden}
+#app.on{display:flex}
+header{display:flex;align-items:center;gap:10px;padding:11px 16px;background:var(--bg);border-bottom:1px solid var(--border);flex-shrink:0;position:relative;z-index:50}
+header img{width:30px;height:30px;object-fit:contain;border-radius:8px}
+header .htitle{flex:1;font-size:16px;font-weight:800;letter-spacing:-.2px}
+header .htitle span{color:var(--accent)}
+.tbtn{background:var(--surface);border:1px solid var(--border);border-radius:9px;width:34px;height:34px;font-size:15px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background .15s}
+.tbtn:active{background:var(--surface2)}
+nav{display:flex;background:var(--bg);border-top:1px solid var(--border);flex-shrink:0;padding-bottom:env(safe-area-inset-bottom,0)}
+nav button{flex:1;display:flex;flex-direction:column;align-items:center;padding:9px 4px 8px;background:none;border:none;font-size:10px;font-weight:500;color:var(--sub);cursor:pointer;gap:3px;transition:color .15s;position:relative}
+nav button .ico{font-size:19px;display:block}
+nav button.on{color:var(--accent)}
+nav button.on::after{content:'';position:absolute;bottom:0;left:50%;transform:translateX(-50%);width:24px;height:3px;border-radius:2px 2px 0 0;background:var(--accent)}
+#content{flex:1;overflow:hidden;position:relative}
+.panel{display:none;height:100%;overflow-y:auto;-webkit-overflow-scrolling:touch;padding-bottom:16px}
+.panel.on{display:block}
+.chips{padding:12px 16px 6px;overflow-x:auto;white-space:nowrap;scrollbar-width:none}
+.chips::-webkit-scrollbar{display:none}
+.chip{display:inline-flex;align-items:center;gap:5px;padding:6px 13px;border-radius:20px;font-size:12.5px;font-weight:600;margin-right:7px;border:1.5px solid var(--border);color:var(--sub);background:var(--surface);cursor:pointer;transition:all .15s;user-select:none}
+.chip.on{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
+.nlist{padding:10px 14px;display:flex;flex-direction:column;gap:11px}
+.ncard{background:var(--surface);border-radius:var(--r);overflow:hidden;border:1px solid var(--border);box-shadow:var(--shadow);text-decoration:none;display:block;color:inherit;transition:transform .12s,box-shadow .12s}
+.ncard:active{transform:scale(.985);box-shadow:none}
+.ncard img{width:100%;height:150px;object-fit:cover;background:var(--surface2);display:block}
+.ncard-body{padding:11px 13px 13px}
+.nbadge{display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:5px;font-size:11px;font-weight:700;color:#fff;margin-bottom:7px;letter-spacing:.2px}
+.ntitle{font-size:13.5px;font-weight:700;line-height:1.4;margin-bottom:6px;color:var(--text)}
+.nsumm{font-size:12.5px;color:var(--sub);line-height:1.55;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.ntime{font-size:11px;color:var(--muted);margin-top:8px;display:flex;align-items:center;gap:4px}
+.lmore{display:block;margin:4px 14px 0;padding:13px;border-radius:var(--r);background:var(--surface);border:1px solid var(--border);color:var(--accent);font-size:13.5px;font-weight:700;cursor:pointer;text-align:center;transition:background .15s}
+.lmore:active{background:var(--surface2)}
+.rlist{padding:12px 14px;display:flex;flex-direction:column;gap:10px}
+.rcard{background:var(--surface);border-radius:var(--r);border:1px solid var(--border);box-shadow:var(--shadow);overflow:hidden}
+.rhead{display:flex;align-items:center;gap:10px;padding:14px 16px;cursor:pointer;user-select:none}
+.rhead .rdlabel{flex:1;font-weight:700;font-size:13.5px}
+.rhead .rcnt{font-size:11.5px;color:var(--sub);background:var(--surface2);border-radius:10px;padding:2px 9px}
+.rchev{color:var(--muted);font-size:16px;transition:transform .2s;line-height:1}
+.rhead.exp .rchev{transform:rotate(90deg)}
+.rbody{display:none;padding:0 16px 14px}
+.rbody.exp{display:block}
+.rcatsec{margin-bottom:10px}
+.rcattitle{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.6px;color:var(--sub);margin-bottom:6px;padding-top:10px;border-top:1px solid var(--border);display:flex;align-items:center;gap:5px}
+.rart{padding:5px 0;border-bottom:1px solid var(--border)}
+.rart:last-child{border:none}
+.rart a{font-size:13px;font-weight:600;color:var(--text);text-decoration:none;line-height:1.4}
+.rart .rsumm{font-size:12px;color:var(--sub);line-height:1.5;margin-top:3px}
+.rart .rtime{font-size:11px;color:var(--muted);margin-top:2px}
+.msec{padding:14px 14px 0}
+.msec h3{font-size:11.5px;font-weight:800;text-transform:uppercase;letter-spacing:.6px;color:var(--sub);margin-bottom:12px}
+.pgrid{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-bottom:18px}
+.pcard{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:12px 13px;box-shadow:var(--shadow)}
+.pcico{font-size:22px;margin-bottom:4px}
+.pclbl{font-size:11px;color:var(--sub);line-height:1.35;margin-bottom:7px;min-height:28px}
+.pcval{font-size:17px;font-weight:800;letter-spacing:-.3px}
+.pcunit{font-size:10px;font-weight:400;color:var(--sub)}
+.pcchg{font-size:13px;font-weight:700;margin-top:2px}
+.pcchg.up{color:var(--green)}.pcchg.dn{color:var(--red)}.pcchg.fl{color:var(--muted)}
+.chcard{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:14px;box-shadow:var(--shadow);margin-bottom:11px}
+.chtitle{font-size:13px;font-weight:700;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center}
+.chtitle .chpct{font-size:12px;font-weight:700}
+.sk{border-radius:var(--r);background:linear-gradient(90deg,var(--surface) 25%,var(--surface2) 50%,var(--surface) 75%);background-size:200% 100%;animation:shimmer 1.4s infinite}
+@keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
+.sk-card{height:175px;margin-bottom:11px}.sk-pcard{height:88px;border-radius:var(--r)}.sk-ch{height:185px;border-radius:var(--r);margin-bottom:11px}
+.empty{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:56px 20px;text-align:center;gap:8px}
+.empty .ei{font-size:44px}.empty p{font-size:13.5px;color:var(--sub)}
+</style>
+</head>
+<body>
+<div id="splash">
+  <div class="splash-ring"></div><div class="splash-ring splash-ring2"></div>
+  <img src="/logo.png" alt="M" onerror="this.outerHTML='<div style=\'width:76px;height:76px;background:var(--accent);border-radius:16px;display:flex;align-items:center;justify-content:center;font-size:32px;color:#fff;font-weight:800;z-index:1\'>M</div>'">
+  <div class="sname">MacroHarvey</div>
+  <div class="stag">B2B Market Intelligence</div>
+  <div class="dots"><span></span><span></span><span></span></div>
+</div>
+<div id="app">
+  <header>
+    <img src="/logo.png" alt="M" onerror="this.style.display='none'">
+    <div class="htitle">Macro<span>Harvey</span></div>
+    <button class="tbtn" id="tbtn" onclick="toggleTheme()">🌙</button>
+  </header>
+  <div id="content">
+    <div id="pnews" class="panel on">
+      <div class="chips" id="chips"></div>
+      <div class="nlist" id="nlist"></div>
+      <button class="lmore" id="lmore" onclick="loadMore()" style="display:none">Завантажити ще →</button>
+    </div>
+    <div id="preports" class="panel"><div class="rlist" id="rlist"></div></div>
+    <div id="pmarkets" class="panel">
+      <div class="msec">
+        <h3>📊 Ціни зараз</h3>
+        <div class="pgrid" id="pgrid"></div>
+        <h3>📈 Графіки (30 днів)</h3>
+        <div id="charts"></div>
+      </div>
+    </div>
+  </div>
+  <nav>
+    <button class="on" id="btn-news" onclick="tab('news',this)"><span class="ico">📰</span>Новини</button>
+    <button id="btn-reports" onclick="tab('reports',this)"><span class="ico">📋</span>Звіти</button>
+    <button id="btn-markets" onclick="tab('markets',this)"><span class="ico">📈</span>Ринки</button>
+  </nav>
+</div>
+<script>
+const tg=window.Telegram?.WebApp;
+if(tg){tg.ready();tg.expand();}
+let dark=tg?.colorScheme==='dark'||window.matchMedia('(prefers-color-scheme:dark)').matches;
+function applyTheme(){if(dark)document.documentElement.setAttribute('data-dark','');else document.documentElement.removeAttribute('data-dark');document.getElementById('tbtn').textContent=dark?'☀️':'🌙';}
+function toggleTheme(){dark=!dark;applyTheme();if(chartInstances.length)redrawCharts();}
+applyTheme();
+const lc=tg?.initDataUnsafe?.user?.language_code||navigator.language||'uk';
+const lang=lc.startsWith('ru')?'ru':(lc.startsWith('uk')||lc.startsWith('ua'))?'ua':'en';
+const CATS={all:{l:'Всі',c:'#64748B',e:'📋'},api:{l:'Фарм API',c:'#3B82F6',e:'💊'},cosmetic:{l:'Косметика',c:'#EC4899',e:'🧴'},herbal:{l:'Трави',c:'#16A34A',e:'🌿'},veterinary:{l:'Ветеринарія',c:'#8B5CF6',e:'🐾'},food:{l:'Харчова',c:'#D97706',e:'🌾'},feed:{l:'Амінокислоти',c:'#92400E',e:'🐄'},capsules:{l:'Капсули',c:'#0891B2',e:'🔬'},pvc:{l:'ПВХ / Пак.',c:'#4F46E5',e:'📦'},logistics:{l:'Логістика',c:'#DC2626',e:'🚢'},global_sources:{l:'Глобально',c:'#475569',e:'🌐'},good_news:{l:'Позитив',c:'#059669',e:'✨'},market_alerts:{l:'Алерти',c:'#EA580C',e:'⚡'}};
+let activeCat='all',newsOff=0;const LIMIT=15;let mkData=[],chartInstances=[],cachedCharts={};
+window.addEventListener('load',()=>{buildChips();fetchNews(true);setTimeout(()=>{const sp=document.getElementById('splash');sp.style.opacity='0';sp.style.pointerEvents='none';setTimeout(()=>{sp.style.display='none';document.getElementById('app').classList.add('on');},450);},2000);});
+function tab(name,btn){['news','reports','markets'].forEach(n=>{document.getElementById('p'+n).classList.toggle('on',n===name);document.getElementById('btn-'+n).classList.toggle('on',n===name);});if(name==='markets'&&mkData.length===0)fetchMarkets();if(name==='reports'&&document.getElementById('rlist').children.length===0)fetchReports();}
+function buildChips(){const el=document.getElementById('chips');['all','api','cosmetic','herbal','veterinary','food','feed','capsules','pvc','logistics','global_sources','good_news'].forEach(k=>{const d=document.createElement('div');d.className='chip'+(k==='all'?' on':'');d.dataset.k=k;d.textContent=(CATS[k]?.e||'')+' '+(CATS[k]?.l||k);d.onclick=()=>{activeCat=k;el.querySelectorAll('.chip').forEach(c=>c.classList.toggle('on',c.dataset.k===k));fetchNews(true);};el.appendChild(d);});}
+function ago(pub){if(!pub)return'';const dt=new Date(pub.replace(' ','T')+(pub.includes('+')?'':'+03:00'));const s=(Date.now()-dt)/1000;if(s<60)return'щойно';if(s<3600)return Math.floor(s/60)+' хв';if(s<86400)return Math.floor(s/3600)+' год';return dt.toLocaleDateString('uk-UA',{day:'numeric',month:'short'});}
+function newsCard(a){const cfg=CATS[a.category]||{l:a.category,c:'#64748B',e:'📌'};const summ=a['summary_'+lang]||a.summary_ua||a.summary_en||'';const el=document.createElement('a');el.className='ncard';el.href=a.link;el.target='_blank';el.rel='noopener noreferrer';if(tg)el.onclick=ev=>{ev.preventDefault();tg.openLink(a.link);};el.innerHTML=`<img src="${esc(a.image_url||'')}" loading="lazy" alt="" onerror="this.src='';this.style.cssText='display:block;height:60px;background:var(--surface2)'"><div class="ncard-body"><div class="nbadge" style="background:${cfg.c}">${cfg.e} ${cfg.l}</div><div class="ntitle">${esc(a.title)}</div>${summ?`<div class="nsumm">${esc(summ)}</div>`:''}<div class="ntime">🕐 ${ago(a.published)}</div></div>`;return el;}
+async function fetchNews(reset){if(reset){newsOff=0;document.getElementById('nlist').innerHTML='';document.getElementById('lmore').style.display='none';}const list=document.getElementById('nlist');if(reset){list.innerHTML=[1,2,3].map(()=>'<div class="sk sk-card"></div>').join('');}try{const cat=activeCat==='all'?'':'&category='+activeCat;const r=await fetch(`/api/webapp/news?lang=${lang}&limit=${LIMIT}&offset=${newsOff}${cat}`);const data=await r.json();if(reset)list.innerHTML='';if(!data.length&&reset){list.innerHTML='<div class="empty"><div class="ei">📭</div><p>Новин поки немає</p></div>';return;}data.forEach(a=>list.appendChild(newsCard(a)));newsOff+=data.length;document.getElementById('lmore').style.display=data.length>=LIMIT?'block':'none';}catch{if(reset)list.innerHTML='<div class="empty"><div class="ei">⚠️</div><p>Помилка завантаження</p></div>';}}
+function loadMore(){fetchNews(false);}
+async function fetchReports(){const el=document.getElementById('rlist');el.innerHTML='<div class="sk sk-card"></div><div class="sk sk-card"></div>';try{const r=await fetch('/api/webapp/report_days');const days=await r.json();el.innerHTML='';if(!days.length){el.innerHTML='<div class="empty"><div class="ei">📭</div><p>Даних поки немає</p></div>';return;}days.forEach(day=>el.appendChild(buildDayCard(day)));}catch{el.innerHTML='<div class="empty"><div class="ei">⚠️</div><p>Помилка завантаження</p></div>';}}
+function buildDayCard(day){const wrap=document.createElement('div');wrap.className='rcard';const dt=new Date(day.date+'T00:00:00');const dlbl=dt.toLocaleDateString('uk-UA',{weekday:'short',day:'numeric',month:'long'});const head=document.createElement('div');head.className='rhead';head.innerHTML=`<span style="font-size:22px">📊</span><div class="rdlabel">${dlbl}</div><div class="rcnt">${day.count} новин</div><div class="rchev">›</div>`;const body=document.createElement('div');body.className='rbody';head.onclick=async()=>{const open=head.classList.toggle('exp');body.classList.toggle('exp',open);if(open&&!body.dataset.loaded){body.dataset.loaded='1';body.innerHTML='<div style="padding:10px 0;color:var(--sub);font-size:13px">Завантаження…</div>';try{const r=await fetch(`/api/webapp/report/${day.date}?lang=${lang}`);const d=await r.json();body.innerHTML='';const cats=Object.entries(d.by_category||{}).filter(([,arts])=>arts.length);if(!cats.length){body.innerHTML='<div style="font-size:13px;color:var(--sub);padding:8px 0">Немає даних</div>';return;}cats.forEach(([cat,arts])=>{const cfg=CATS[cat]||{l:cat,e:'📌'};const sec=document.createElement('div');sec.className='rcatsec';sec.innerHTML=`<div class="rcattitle">${cfg.e} ${cfg.l}</div>`;arts.forEach(a=>{const s=a['summary_'+lang]||a.summary_ua||'';const div=document.createElement('div');div.className='rart';const href=esc(a.link);div.innerHTML=`<a href="${href}" target="_blank" ${tg?`onclick="event.preventDefault();tg.openLink('${href}')"`:''}>${esc(a.title)}</a>${s?`<div class="rsumm">${esc(s)}</div>`:''}<div class="rtime">🕐 ${ago(a.published)}</div>`;sec.appendChild(div);});body.appendChild(sec);});}catch{body.innerHTML='<div style="font-size:13px;color:var(--sub);padding:8px 0">Помилка</div>';}}};wrap.appendChild(head);wrap.appendChild(body);return wrap;}
+async function fetchMarkets(){const grid=document.getElementById('pgrid');const ch=document.getElementById('charts');grid.innerHTML=Array(10).fill('<div class="sk sk-pcard"></div>').join('');ch.innerHTML=Array(3).fill('<div class="sk sk-ch"></div>').join('');try{const r=await fetch('/api/webapp/markets');mkData=await r.json();renderGrid(mkData);await loadCharts(mkData.slice(0,3).map(m=>m.key));}catch{grid.innerHTML='<div class="empty" style="grid-column:span 2"><div class="ei">⚠️</div><p>Дані недоступні</p></div>';ch.innerHTML='';}}
+function renderGrid(data){const grid=document.getElementById('pgrid');grid.innerHTML='';data.forEach(m=>{const pct=m.change_pct;const sign=pct>=0?'+':'';const cls=Math.abs(pct)<0.05?'fl':pct>=0?'up':'dn';const card=document.createElement('div');card.className='pcard';card.innerHTML=`<div class="pcico">${m.emoji}</div><div class="pclbl">${m.label}</div><div class="pcval">${m.current} <span class="pcunit">${m.unit}</span></div><div class="pcchg ${cls}">${sign}${pct.toFixed(2)}%</div>`;grid.appendChild(card);});}
+async function loadCharts(keys){cachedCharts={};for(const k of keys){try{const r=await fetch('/api/webapp/chart/'+k);cachedCharts[k]=await r.json();}catch{cachedCharts[k]=null;}}redrawCharts();}
+function redrawCharts(){const area=document.getElementById('charts');area.innerHTML='';chartInstances.forEach(c=>c.destroy());chartInstances=[];const tc=dark?'#8899B0':'#5A6478';const gc=dark?'#252D3D':'#DDE4F0';Object.entries(cachedCharts).forEach(([key,d])=>{if(!d||!d.dates||!d.prices)return;const mkt=mkData.find(m=>m.key===key);const pct=mkt?(mkt.change_pct>=0?'+':'')+mkt.change_pct.toFixed(2)+'%':'';const pctCol=mkt?(mkt.change_pct>=0?(dark?'#22C55E':'#16A34A'):(dark?'#F87171':'#DC2626')):tc;const card=document.createElement('div');card.className='chcard';card.innerHTML=`<div class="chtitle"><span>${d.emoji||''} ${d.label}</span><span class="chpct" style="color:${pctCol}">${pct}</span></div><canvas id="c_${key}" height="110"></canvas>`;area.appendChild(card);const prices=d.prices;const lineCol=prices[prices.length-1]>=prices[0]?(dark?'#22C55E':'#16A34A'):(dark?'#F87171':'#DC2626');const ctx=document.getElementById('c_'+key).getContext('2d');chartInstances.push(new Chart(ctx,{type:'line',data:{labels:d.dates,datasets:[{data:prices,borderColor:lineCol,backgroundColor:lineCol+'22',borderWidth:2,fill:true,tension:0.35,pointRadius:0,pointHitRadius:10}]},options:{responsive:true,maintainAspectRatio:true,plugins:{legend:{display:false},tooltip:{mode:'index',intersect:false,backgroundColor:dark?'#1E2535':'#fff',borderColor:gc,borderWidth:1,titleColor:tc,bodyColor:tc,callbacks:{label:c=>`${c.parsed.y.toFixed(2)} ${d.unit||''}`}}},scales:{x:{grid:{color:gc},ticks:{color:tc,maxTicksLimit:5,maxRotation:0}},y:{grid:{color:gc},ticks:{color:tc,maxTicksLimit:5,callback:v=>v>=1000?Math.round(v/100)/10+'k':v}}}}}));});}
+function esc(s){return(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+</script>
+</body>
+</html>"""
+
+
 @app.get("/webapp")
 async def serve_webapp():
-    path = os.path.join(_BASE_DIR, "webapp.html")
-    if os.path.exists(path):
-        return FileResponse(path, media_type="text/html")
-    raise HTTPException(status_code=404, detail="Webapp not found")
+    return HTMLResponse(content=_WEBAPP_HTML, status_code=200)
 
 
 @app.get("/api/webapp/news")
