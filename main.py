@@ -4887,28 +4887,39 @@ _WEBAPP_HTML = r"""<!DOCTYPE html>
 
 html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:var(--font);-webkit-font-smoothing:antialiased;font-size:15px}
 
-/* ── SPLASH ── grey water rings ── */
+/* ── SPLASH ── large logo + grey water rings, no text ── */
 #splash{
-  position:fixed;inset:0;display:flex;flex-direction:column;
+  position:fixed;inset:0;display:flex;
   align-items:center;justify-content:center;
   background:var(--bg);z-index:9999;transition:opacity .5s ease;
+  overflow:hidden;
 }
+/* Rings expand from center around the logo */
 .splash-ring{
-  position:absolute;width:130px;height:130px;border-radius:50%;
-  border:1.5px solid #808080;opacity:.6;
-  animation:ring 2s ease-out infinite;
+  position:absolute;
+  width:72vw;height:72vw;
+  max-width:340px;max-height:340px;
+  border-radius:50%;
+  border:1.5px solid #808080;
+  animation:ring-exp 2.2s ease-out infinite;
 }
-.splash-ring2{animation-delay:.7s}
-.splash-ring3{animation-delay:1.4s}
-@keyframes ring{0%{transform:scale(.7);opacity:.6}100%{transform:scale(2.2);opacity:0}}
-#splash .sp-logo{
-  width:72px;height:72px;border-radius:18px;z-index:1;
-  background:var(--surface2);border:1px solid var(--border);
-  display:flex;align-items:center;justify-content:center;font-size:30px;
+.splash-ring2{animation-delay:.75s}
+.splash-ring3{animation-delay:1.5s}
+@keyframes ring-exp{
+  0%{transform:scale(.55);opacity:.55}
+  100%{transform:scale(2.6);opacity:0}
 }
-#splash .sp-logo img{width:100%;height:100%;object-fit:contain;border-radius:18px}
-#splash .sname{margin-top:16px;font-size:18px;font-weight:800;letter-spacing:-.2px;color:var(--text);z-index:1}
-#splash .stag{margin-top:4px;font-size:11px;color:var(--sub);letter-spacing:.6px;text-transform:uppercase;z-index:1}
+/* Logo — 85% screen width, no background, pulsing */
+.sp-logo-img{
+  width:85vw;max-width:420px;height:auto;
+  object-fit:contain;
+  z-index:2;position:relative;
+  animation:logo-pulse 2s ease-in-out infinite;
+}
+@keyframes logo-pulse{
+  0%,100%{transform:scale(1);opacity:1}
+  50%{transform:scale(1.06);opacity:.85}
+}
 
 /* ── APP SHELL ── */
 #app{display:none;flex-direction:column;height:100vh;overflow:hidden}
@@ -4920,8 +4931,8 @@ header{
   background:var(--bg);border-bottom:1px solid var(--border);
   flex-shrink:0;z-index:50;
 }
-.h-logo{width:28px;height:28px;border-radius:8px;background:var(--surface2);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0}
-.h-logo img{width:100%;height:100%;object-fit:contain;border-radius:7px}
+/* Header logo — no background box */
+.h-logo-img{width:28px;height:28px;object-fit:contain;flex-shrink:0}
 header .htitle{flex:1;font-size:15px;font-weight:800;letter-spacing:-.2px;color:var(--text)}
 .hbtn{
   background:var(--surface);border:1px solid var(--border);border-radius:9px;
@@ -5086,25 +5097,19 @@ nav button.on::after{
 </head>
 <body>
 
-<!-- SPLASH: grey water rings, no dots -->
+<!-- SPLASH: logo 85% screen, pulse + grey rings, no text, no box -->
 <div id="splash">
   <div class="splash-ring"></div>
   <div class="splash-ring splash-ring2"></div>
   <div class="splash-ring splash-ring3"></div>
-  <div class="sp-logo" id="sp-logo">
-    <img src="/logo.png" alt="" onerror="this.parentElement.textContent='📰'">
-  </div>
-  <div class="sname">Новинний Дайджест</div>
-  <div class="stag">B2B Market Intelligence</div>
+  <img class="sp-logo-img" src="/logo.png" alt="" onerror="this.style.display='none'">
 </div>
 
 <!-- APP -->
 <div id="app">
 
   <header>
-    <div class="h-logo">
-      <img src="/logo.png" alt="" onerror="this.parentElement.textContent='📰'">
-    </div>
+    <img class="h-logo-img" src="/logo.png" alt="" onerror="this.style.display='none'">
     <div class="htitle">Новинний Дайджест</div>
     <button class="hbtn" id="lbtn" onclick="cycleLang()" title="Мова / Language">🇺🇦</button>
     <button class="hbtn" id="tbtn" onclick="toggleTheme()">☀️</button>
