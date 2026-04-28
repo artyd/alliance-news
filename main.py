@@ -5251,6 +5251,9 @@ function esc(s){return(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace
 
 @app.get("/webapp")
 async def serve_webapp():
+    path = os.path.join(_BASE_DIR, "webapp.html")
+    if os.path.exists(path):
+        return FileResponse(path, media_type="text/html")
     return HTMLResponse(content=_WEBAPP_HTML, status_code=200)
 
 
