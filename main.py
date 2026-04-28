@@ -2,7 +2,7 @@ import asyncio
 import os
 import json
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 import feedparser
@@ -183,6 +183,25 @@ def init_db():
         )
     ''')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_digest_reports_created ON digest_reports(created_at DESC)')
+
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS tracked_shipments (
+            id SERIAL PRIMARY KEY,
+            user_id BIGINT NOT NULL,
+            number VARCHAR(60) NOT NULL,
+            carrier VARCHAR(50) NOT NULL DEFAULT 'auto',
+            type VARCHAR(20) NOT NULL DEFAULT 'parcel',
+            carrier_name VARCHAR(150) DEFAULT '',
+            status_text TEXT DEFAULT '',
+            tracking_url TEXT DEFAULT '',
+            is_delivered BOOLEAN DEFAULT FALSE,
+            added_at TIMESTAMPTZ DEFAULT NOW(),
+            delivered_at TIMESTAMPTZ,
+            last_checked TIMESTAMPTZ,
+            UNIQUE(user_id, number)
+        )
+    ''')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_tsv_user ON tracked_shipments(user_id, is_delivered)')
 
     conn.commit()
     cursor.close()
@@ -4685,6 +4704,7 @@ async def lifespan(app: FastAPI):
     scheduler.add_job(backfill_missing_facts, 'cron', hour=8, minute=45, id='backfill_facts_morning')
     # Same pattern before the midday report: 13:45 = 15 min before 14:00.
     scheduler.add_job(backfill_missing_facts, 'cron', hour=13, minute=45, id='backfill_facts_midday')
+    scheduler.add_job(refresh_tracked_shipments, 'interval', hours=3, id='refresh_tracking')
     scheduler.start()
 
     yield
@@ -5081,19 +5101,17 @@ nav button.on::after{
 
 /* ── TRACKING ── */
 .trk-wrap{padding:14px}
-/* Mode toggle */
-.trk-mode-row{display:flex;gap:8px;margin-bottom:12px}
+/* Step 1: Mode picker — two big cards */
+.trk-mode-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px}
 .trk-mode-btn{
-  flex:1;padding:10px 8px;border-radius:var(--r);
+  padding:22px 8px;border-radius:var(--r);
   background:var(--surface);border:1.5px solid var(--border);
-  font-size:13px;font-weight:700;color:var(--sub);cursor:pointer;transition:all .15s;
+  font-size:13px;font-weight:700;color:var(--sub);cursor:pointer;
+  transition:all .2s;display:flex;flex-direction:column;align-items:center;gap:8px;
 }
-.trk-mode-btn.on{border-color:var(--text);color:var(--text);background:var(--surface2)}
-/* Container hint bar */
-.trk-cnt-hint{
-  background:var(--surface);border:1px solid var(--border);border-radius:var(--r);
-  padding:10px 14px;margin-bottom:10px;font-size:12px;color:var(--sub);line-height:1.5;
-}
+.trk-mode-ico{font-size:34px;line-height:1}
+.trk-mode-btn.on{border-color:var(--green);color:var(--text);background:var(--surface2)}
+/* Step 2: Carrier grid — hidden until parcel chosen */
 .trk-carriers{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px}
 .trk-car-btn{
   padding:12px 8px;border-radius:var(--r);
@@ -5102,21 +5120,40 @@ nav button.on::after{
   transition:all .15s;text-align:center;
 }
 .trk-car-btn.on{border-color:var(--text);color:var(--text);background:var(--surface2)}
-.trk-input-row{display:flex;gap:8px;margin-bottom:4px}
+.trk-input-row{display:flex;flex-direction:column;gap:10px;margin-bottom:4px}
 .trk-input{
-  flex:1;padding:11px 14px;border-radius:var(--r);
+  width:100%;padding:13px 16px;border-radius:var(--r);
   background:var(--surface);border:1px solid var(--border);
-  color:var(--text);font-size:14px;font-family:var(--font);
-  outline:none;transition:border-color .15s;
+  color:var(--text);font-size:15px;font-family:var(--font);
+  outline:none;transition:border-color .2s;
 }
-.trk-input:focus{border-color:var(--sub)}
+.trk-input:focus{border-color:var(--green)}
 .trk-go{
-  padding:11px 16px;border-radius:var(--r);
+  width:100%;padding:15px;border-radius:var(--r);
   background:var(--green);border:none;color:#000;
-  font-size:14px;font-weight:800;cursor:pointer;white-space:nowrap;
-  transition:opacity .15s;
+  font-size:15px;font-weight:800;cursor:pointer;letter-spacing:.3px;
+  transition:opacity .15s,transform .1s;
 }
-.trk-go:active{opacity:.8}
+.trk-go:active{opacity:.85;transform:scale(.98)}
+/* Loading radar animation */
+.trk-loading{display:flex;flex-direction:column;align-items:center;padding:44px 20px 32px;gap:20px}
+.trk-radar{position:relative;width:80px;height:80px}
+.trk-radar-ring{
+  position:absolute;inset:0;border-radius:50%;
+  border:1.5px solid var(--green);
+  animation:trk-ping 1.8s ease-out infinite;
+}
+.trk-radar-ring:nth-child(2){animation-delay:.6s}
+.trk-radar-ring:nth-child(3){animation-delay:1.2s}
+@keyframes trk-ping{
+  0%{transform:scale(.3);opacity:.9}
+  100%{transform:scale(2.6);opacity:0}
+}
+.trk-radar-center{
+  position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+  font-size:26px;z-index:2;
+}
+.trk-loading-txt{font-size:13.5px;font-weight:600;color:var(--sub)}
 .trk-result{margin-top:14px}
 .trk-error{
   background:var(--surface);border:1px solid var(--border);border-radius:var(--r);
@@ -5159,6 +5196,45 @@ nav button.on::after{
 .trk-step-title.dim{color:var(--muted)}
 .trk-step-desc{font-size:12px;color:var(--sub);line-height:1.5}
 
+/* ── SAVED SHIPMENTS ── */
+.trk-saved-wrap{margin-top:22px;border-top:1px solid var(--border);padding-top:18px}
+.trk-sec-hdr{
+  font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:1.2px;
+  color:var(--sub);margin-bottom:10px;display:flex;align-items:center;gap:6px;
+}
+.trk-sec-cnt{font-size:11px;font-weight:700;background:var(--surface2);
+  padding:2px 7px;border-radius:20px;color:var(--muted)}
+.trk-saved-list{display:flex;flex-direction:column;gap:8px;margin-bottom:18px}
+.trk-sv-card{
+  background:var(--surface);border:1px solid var(--border);border-radius:var(--r);
+  padding:11px 12px;display:flex;align-items:center;gap:11px;
+  cursor:pointer;transition:background .15s;
+}
+.trk-sv-card:active{background:var(--surface2)}
+.trk-sv-card.arc{opacity:.65}
+.trk-sv-ico{font-size:22px;flex-shrink:0}
+.trk-sv-info{flex:1;min-width:0}
+.trk-sv-num{font-size:13px;font-weight:700;color:var(--text);margin-bottom:2px}
+.trk-sv-stat{
+  font-size:11.5px;color:var(--sub);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.trk-sv-time{font-size:10px;color:var(--muted);margin-top:2px}
+.trk-sv-del{
+  background:none;border:none;font-size:18px;color:var(--muted);
+  cursor:pointer;padding:4px 2px;flex-shrink:0;line-height:1;
+  transition:color .15s;
+}
+.trk-sv-del:active{color:var(--red)}
+.trk-save-btn{
+  display:block;width:100%;margin-top:14px;padding:13px;border-radius:var(--r);
+  background:var(--surface);border:1.5px solid var(--green);
+  color:var(--green);font-size:14px;font-weight:700;cursor:pointer;text-align:center;
+  transition:background .15s,opacity .15s;
+}
+.trk-save-btn:active{background:var(--surface2)}
+.trk-save-btn:disabled{opacity:.5;cursor:default;border-color:var(--border);color:var(--sub)}
+
 /* ── WIDGETS (Add tab) ── */
 .wgt-header{padding:16px 14px 10px}
 .wgt-title{font-size:16px;font-weight:800;color:var(--text);margin-bottom:3px}
@@ -5178,6 +5254,91 @@ nav button.on::after{
 .wgt-badge{display:inline-block;font-size:11px;font-weight:700;padding:3px 8px;border-radius:5px}
 .wgt-badge.wgt-on{background:#22C55E22;color:var(--green)}
 .wgt-badge.wgt-off{background:var(--surface2);color:var(--muted)}
+
+/* ── DESKTOP LAYOUT (≥ 768 px) ─────────────────────────────────────────────── */
+@media (min-width:768px){
+  /* Grid: header top row, sidebar nav left, content right */
+  #app.on{
+    display:grid;
+    grid-template-areas:"hdr hdr" "nav cnt";
+    grid-template-columns:220px 1fr;
+    grid-template-rows:auto 1fr;
+    height:100vh;
+  }
+  header{grid-area:hdr;padding:14px 28px}
+  header .htitle{font-size:17px}
+
+  /* Sidebar nav */
+  nav{
+    grid-area:nav;
+    flex-direction:column;
+    align-items:stretch;
+    border-top:none;
+    border-right:1px solid var(--border);
+    padding:16px 0 24px;
+    overflow-y:auto;
+    height:100%;
+  }
+  nav button{
+    flex-direction:row;
+    justify-content:flex-start;
+    padding:14px 22px;
+    font-size:14px;
+    font-weight:600;
+    gap:14px;
+    border-radius:0;
+  }
+  nav button .ico{font-size:20px}
+  /* Active indicator: left border strip instead of bottom line */
+  nav button.on::after{
+    bottom:auto;left:0;top:50%;transform:translateY(-50%);
+    width:3px;height:26px;border-radius:0 3px 3px 0;background:var(--green);
+  }
+  nav button.on{color:var(--text)}
+  nav button#btn-add{order:3} /* keep + in its slot */
+
+  /* Content fills right column */
+  #content{grid-area:cnt;overflow-y:auto;height:100%}
+
+  /* News: 2-column card grid */
+  .nlist{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:12px;
+    padding:16px 24px;
+    align-items:start;
+  }
+  .chips{padding:14px 24px 8px}
+
+  /* Markets: 3-column */
+  .pgrid{grid-template-columns:repeat(3,1fr);gap:12px}
+  .msec{padding:16px 24px 0}
+
+  /* Reports: 2-column */
+  .rlist{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:12px;
+    padding:16px 24px;
+  }
+
+  /* Tracking: centered, limited width */
+  .trk-wrap{max-width:520px;padding:24px}
+
+  /* Widgets: 4-column on desktop */
+  .wgt-grid{grid-template-columns:repeat(4,1fr);gap:12px;padding:0 24px 28px}
+  .wgt-header{padding:20px 24px 12px}
+
+  /* Panels extra padding */
+  .panel{padding-bottom:24px}
+
+  /* Charts: market detail wider */
+  .chcard{margin:10px 24px 6px}
+  .mk-back-row{padding:14px 24px 6px}
+  .mk-news-hdr{padding:12px 24px 6px}
+  #mk-news{padding:0 24px !important;gap:12px !important;
+    display:grid;grid-template-columns:1fr 1fr;align-items:start}
+}
 </style>
 </head>
 <body>
@@ -5282,28 +5443,32 @@ nav button.on::after{
     <!-- TRACKING -->
     <div id="ptracking" class="panel">
       <div class="trk-wrap">
-        <!-- Mode toggle: Parcel / Container -->
+        <!-- Step 1: Mode selection — always visible -->
         <div class="trk-mode-row">
-          <button class="trk-mode-btn on" id="trk-mode-parcel" onclick="setTrkMode('parcel')">📦 Посилка</button>
-          <button class="trk-mode-btn" id="trk-mode-container" onclick="setTrkMode('container')">🚢 Контейнер</button>
+          <button class="trk-mode-btn" id="trk-mode-parcel" onclick="setTrkMode('parcel')">
+            <span class="trk-mode-ico">📦</span>
+            <span id="trk-lbl-parcel">Посилка</span>
+          </button>
+          <button class="trk-mode-btn" id="trk-mode-container" onclick="setTrkMode('container')">
+            <span class="trk-mode-ico">🚢</span>
+            <span id="trk-lbl-container">Контейнер</span>
+          </button>
         </div>
-        <!-- Carrier selector (parcel mode) -->
-        <div class="trk-carriers" id="trk-carriers-wrap">
-          <button class="trk-car-btn on" data-car="nova" onclick="selectCarrier(this)">📦 Нова Пошта</button>
+        <!-- Step 2a: Carrier grid (parcel only) — hidden until parcel chosen -->
+        <div class="trk-carriers" id="trk-carriers-wrap" style="display:none">
+          <button class="trk-car-btn" data-car="nova" onclick="selectCarrier(this)">📦 Нова Пошта</button>
           <button class="trk-car-btn" data-car="meest" onclick="selectCarrier(this)">🚚 Meest Express</button>
           <button class="trk-car-btn" data-car="dhl" onclick="selectCarrier(this)">✈️ DHL</button>
           <button class="trk-car-btn" data-car="ems" onclick="selectCarrier(this)">📮 EMS</button>
         </div>
-        <!-- Container hint (container mode) -->
-        <div class="trk-cnt-hint" id="trk-cnt-hint" style="display:none">
-          <span id="trk-cnt-hint-txt">Введіть номер контейнера (напр. MSCU1234567)</span>
-        </div>
-        <!-- Input row -->
-        <div class="trk-input-row">
+        <!-- Step 2b / 3: Input row — hidden until carrier/mode chosen -->
+        <div class="trk-input-row" id="trk-input-wrap" style="display:none">
           <input class="trk-input" id="trk-num" type="text" autocomplete="off" spellcheck="false">
           <button class="trk-go" id="trk-go" onclick="doTrack()">Знайти</button>
         </div>
         <div class="trk-result" id="trk-result"></div>
+        <!-- Saved shipments (active + archive) -->
+        <div id="trk-saved"></div>
       </div>
     </div>
 
@@ -5377,9 +5542,14 @@ const UI = {
     openPdf:'📄 Відкрити PDF', newsCnt:' новин',
     wgtTitle:'Мої віджети', wgtSub:'Натисни, щоб перейти',
     wgtActive:'✓ Активно', wgtSoon:'Незабаром',
+    trkParcel:'Посилка', trkContainer:'Контейнер',
     trkFind:'Знайти', trkPlaceholder:'Номер відправлення…',
     trkDelivery:'Очікувана дата доставки',
-    trkCntHint:'Введіть номер контейнера (напр. MSCU1234567)',
+    trkCntHint:'Номер контейнера (напр. MSCU1234567)',
+    trkSearching:'Шукаємо вантаж…',
+    trkSave:'📌 Зберегти в мій список', trkSaved:'✓ Збережено',
+    trkActive:'🟢 Активні', trkArchive:'📦 Архів', trkNoSaved:'Немає збережених відправлень',
+    trkUpdated:'Оновлено',
   },
   ru:{
     loadMore:'Загрузить ещё', noNews:'Новостей пока нет', loadError:'Ошибка загрузки',
@@ -5390,9 +5560,14 @@ const UI = {
     openPdf:'📄 Открыть PDF', newsCnt:' новостей',
     wgtTitle:'Мои виджеты', wgtSub:'Нажми, чтобы перейти',
     wgtActive:'✓ Активно', wgtSoon:'Скоро',
+    trkParcel:'Посылка', trkContainer:'Контейнер',
     trkFind:'Найти', trkPlaceholder:'Номер отправления…',
     trkDelivery:'Ожидаемая дата доставки',
-    trkCntHint:'Введите номер контейнера (напр. MSCU1234567)',
+    trkCntHint:'Номер контейнера (напр. MSCU1234567)',
+    trkSearching:'Ищем груз…',
+    trkSave:'📌 Сохранить в мой список', trkSaved:'✓ Сохранено',
+    trkActive:'🟢 Активные', trkArchive:'📦 Архив', trkNoSaved:'Нет сохранённых отправлений',
+    trkUpdated:'Обновлено',
   },
   en:{
     loadMore:'Load more', noNews:'No news yet', loadError:'Loading error',
@@ -5403,9 +5578,14 @@ const UI = {
     openPdf:'📄 Open PDF', newsCnt:' news',
     wgtTitle:'My Widgets', wgtSub:'Tap to navigate',
     wgtActive:'✓ Active', wgtSoon:'Coming soon',
+    trkParcel:'Parcel', trkContainer:'Container',
     trkFind:'Find', trkPlaceholder:'Tracking number…',
     trkDelivery:'Expected delivery',
-    trkCntHint:'Enter container number (e.g. MSCU1234567)',
+    trkCntHint:'Container number (e.g. MSCU1234567)',
+    trkSearching:'Searching shipment…',
+    trkSave:'📌 Save to my list', trkSaved:'✓ Saved',
+    trkActive:'🟢 Active', trkArchive:'📦 Archive', trkNoSaved:'No saved shipments',
+    trkUpdated:'Updated',
   },
 };
 
@@ -5438,14 +5618,16 @@ function updateStaticText(){
   document.getElementById('wgt-n-reports').textContent   = u.reports;
   document.getElementById('wgt-n-markets').textContent   = u.markets;
   document.getElementById('wgt-n-tracking').textContent  = u.tracking;
-  // Tracking tab
-  const trkInput = document.getElementById('trk-num');
-  if(trkInput) trkInput.placeholder = trkMode==='container'
-    ? u.trkCntHint.split('(')[0].trim() : u.trkPlaceholder;
+  // Tracking tab labels
+  const trkLblP = document.getElementById('trk-lbl-parcel');
+  if(trkLblP) trkLblP.textContent = u.trkParcel;
+  const trkLblC = document.getElementById('trk-lbl-container');
+  if(trkLblC) trkLblC.textContent = u.trkContainer;
   const trkGo = document.getElementById('trk-go');
   if(trkGo) trkGo.textContent = u.trkFind;
-  const cntHintEl = document.getElementById('trk-cnt-hint-txt');
-  if(cntHintEl) cntHintEl.textContent = u.trkCntHint;
+  const trkInput = document.getElementById('trk-num');
+  if(trkInput && trkMode==='container') trkInput.placeholder = u.trkCntHint;
+  else if(trkInput && trkCarrier) trkInput.placeholder = u.trkPlaceholder;
   document.getElementById('trk-result').innerHTML = '';
 }
 
@@ -5480,10 +5662,6 @@ let mkData = [], detailChart = null, currentMkKey = null;
 // ── Boot ──────────────────────────────────────────────────────
 window.addEventListener('load', () => {
   document.getElementById('lbtn').textContent = FLAGS[langIdx];
-  const trkInput = document.getElementById('trk-num');
-  if(trkInput) trkInput.placeholder = UI[lang].trkPlaceholder;
-  const cntHintEl = document.getElementById('trk-cnt-hint-txt');
-  if(cntHintEl) cntHintEl.textContent = UI[lang].trkCntHint;
   buildChips();
   fetchNews(true);
   setTimeout(() => {
@@ -5502,6 +5680,7 @@ function tab(name, btn){
   });
   if(name==='markets' && mkData.length===0) fetchMarkets();
   if(name==='reports' && document.getElementById('rlist').children.length===0) fetchReports();
+  if(name==='tracking') loadSavedShipments();
 }
 
 // ── Chips ─────────────────────────────────────────────────────
@@ -5742,28 +5921,49 @@ function closeMkDetailSilent(){
 }
 
 // ── Tracking ──────────────────────────────────────────────────
-let trkCarrier = 'nova';
-let trkMode = 'parcel'; // 'parcel' | 'container'
+let trkCarrier = null;  // null = not yet chosen
+let trkMode = null;     // null = not yet chosen
+
+function _trkReset(){
+  document.getElementById('trk-num').value = '';
+  document.getElementById('trk-result').innerHTML = '';
+}
 
 function setTrkMode(mode){
   trkMode = mode;
+  trkCarrier = null;
+
+  // Highlight chosen mode button
   document.getElementById('trk-mode-parcel').classList.toggle('on', mode==='parcel');
   document.getElementById('trk-mode-container').classList.toggle('on', mode==='container');
-  document.getElementById('trk-carriers-wrap').style.display = mode==='parcel' ? '' : 'none';
-  document.getElementById('trk-cnt-hint').style.display = mode==='container' ? '' : 'none';
-  document.getElementById('trk-num').value = '';
-  document.getElementById('trk-result').innerHTML = '';
-  const u = UI[lang];
-  document.getElementById('trk-num').placeholder = mode==='container'
-    ? (lang==='en'?'Container number (e.g. MSCU1234567)':lang==='ru'?'Номер контейнера (напр. MSCU1234567)':'Номер контейнера (напр. MSCU1234567)')
-    : u.trkPlaceholder;
+
+  // Reset carrier buttons
+  document.querySelectorAll('.trk-car-btn').forEach(b => b.classList.remove('on'));
+
+  if(mode === 'parcel'){
+    // Show carrier grid, hide input until carrier chosen
+    document.getElementById('trk-carriers-wrap').style.display = '';
+    document.getElementById('trk-input-wrap').style.display = 'none';
+  } else {
+    // Container: no carrier step, show input directly
+    document.getElementById('trk-carriers-wrap').style.display = 'none';
+    document.getElementById('trk-input-wrap').style.display = '';
+    const u = UI[lang];
+    document.getElementById('trk-num').placeholder = u.trkCntHint;
+    setTimeout(() => document.getElementById('trk-num').focus(), 80);
+  }
+  _trkReset();
 }
 
 function selectCarrier(btn){
   document.querySelectorAll('.trk-car-btn').forEach(b => b.classList.remove('on'));
   btn.classList.add('on');
   trkCarrier = btn.dataset.car;
-  document.getElementById('trk-result').innerHTML = '';
+  // Reveal input field
+  document.getElementById('trk-input-wrap').style.display = '';
+  document.getElementById('trk-num').placeholder = UI[lang].trkPlaceholder;
+  _trkReset();
+  setTimeout(() => document.getElementById('trk-num').focus(), 80);
 }
 
 async function doTrack(){
@@ -5771,9 +5971,18 @@ async function doTrack(){
   if(!raw){ document.getElementById('trk-num').focus(); return; }
   const num = raw.toUpperCase().replace(/[\s\-]/g,'');
   const res = document.getElementById('trk-result');
+  const ico = trkMode==='container' ? '🚢' : '📦';
+  const searchTxt = UI[lang].trkSearching;
   res.innerHTML =
-    '<div class="sk sk-card" style="height:80px;margin-bottom:10px"></div>' +
-    '<div class="sk sk-card" style="height:220px"></div>';
+    `<div class="trk-loading">
+       <div class="trk-radar">
+         <div class="trk-radar-ring"></div>
+         <div class="trk-radar-ring"></div>
+         <div class="trk-radar-ring"></div>
+         <div class="trk-radar-center">${ico}</div>
+       </div>
+       <div class="trk-loading-txt">${esc(searchTxt)}</div>
+     </div>`;
 
   const carrier = trkMode==='container' ? 'auto' : trkCarrier;
   try{
@@ -5786,6 +5995,7 @@ async function doTrack(){
 }
 
 function renderTrackResult(d, num){
+  _lastTrkData = d.ok ? d : null;
   if(!d.ok){
     const hint = d.hint ? `<code>${esc(d.hint)}</code>` : '';
     return `<div class="trk-error"><strong>⚠️ ${esc(d.error||'Помилка')}</strong>${esc(d.hint||'')}${hint}</div>`;
@@ -5851,12 +6061,146 @@ function renderTrackResult(d, num){
     html += '</div>';
   }
 
+  // Save button
+  html += `<button class="trk-save-btn" onclick="saveTrkShipment()">${UI[lang].trkSave}</button>`;
+
   return html;
 }
 
 function openTrkUrl(url){
   if(tg) tg.openLink(url);
   else window.open(url, '_blank');
+}
+
+// ── Saved shipments ───────────────────────────────────────────
+let _lastTrkData = null; // last successful tracking result
+
+function getTrkUserId(){
+  const uid = tg?.initDataUnsafe?.user?.id;
+  if(uid) return uid;
+  let luid = localStorage.getItem('trk_uid');
+  if(!luid){ luid = String(Date.now()); localStorage.setItem('trk_uid', luid); }
+  return parseInt(luid);
+}
+
+async function saveTrkShipment(){
+  if(!_lastTrkData?.ok) return;
+  const d = _lastTrkData;
+  const uid = getTrkUserId();
+  const body = {
+    user_id: uid,
+    number: d.number || '',
+    carrier: trkCarrier || 'auto',
+    type: trkMode || 'parcel',
+    carrier_name: d.carrier || d.line || '',
+    status_text: d.status || '',
+    tracking_url: d.tracking_url || '',
+  };
+  const btn = document.querySelector('.trk-save-btn');
+  if(btn){ btn.disabled = true; btn.textContent = '…'; }
+  try{
+    const r = await fetch('/api/webapp/track/save',{
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(body),
+    });
+    const resp = await r.json();
+    if(resp.ok){
+      if(btn){ btn.textContent = UI[lang].trkSaved; }
+      loadSavedShipments();
+    } else {
+      if(btn){ btn.disabled=false; btn.textContent=UI[lang].trkSave; }
+    }
+  } catch {
+    if(btn){ btn.disabled=false; btn.textContent=UI[lang].trkSave; }
+  }
+}
+
+async function removeTrkShipment(number, ev){
+  ev.stopPropagation();
+  const uid = getTrkUserId();
+  try{
+    await fetch(`/api/webapp/track/remove?user_id=${uid}&number=${encodeURIComponent(number)}`,
+      {method:'DELETE'});
+    loadSavedShipments();
+  } catch {}
+}
+
+async function loadSavedShipments(){
+  const uid = getTrkUserId();
+  try{
+    const r = await fetch(`/api/webapp/track/list?user_id=${uid}`);
+    const data = await r.json();
+    renderSavedShipments(data);
+  } catch { document.getElementById('trk-saved').innerHTML = ''; }
+}
+
+function renderSavedShipments(data){
+  const el = document.getElementById('trk-saved');
+  const active  = data.active  || [];
+  const archive = data.archive || [];
+  if(!active.length && !archive.length){ el.innerHTML=''; return; }
+
+  const u = UI[lang];
+  function fmtAgo(iso){
+    if(!iso) return '';
+    const s = (Date.now() - new Date(iso)) / 1000;
+    if(s < 60)    return u.trkUpdated+': щойно';
+    if(s < 3600)  return u.trkUpdated+': '+Math.floor(s/60)+' хв';
+    if(s < 86400) return u.trkUpdated+': '+Math.floor(s/3600)+' год';
+    return u.trkUpdated+': '+new Date(iso).toLocaleDateString(
+      lang==='en'?'en-US':lang==='ru'?'ru-RU':'uk-UA',{day:'numeric',month:'short'});
+  }
+  function card(s, isArchive){
+    const ico = s.type==='container' ? '🚢' : '📦';
+    const cls = isArchive ? ' arc' : '';
+    const stat = s.status_text || '—';
+    const time = isArchive
+      ? (s.delivered_at ? '✅ '+new Date(s.delivered_at).toLocaleDateString(
+          lang==='en'?'en-US':lang==='ru'?'ru-RU':'uk-UA',{day:'numeric',month:'short'}) : '')
+      : fmtAgo(s.last_checked);
+    const cname = s.carrier_name || '';
+    const numLabel = cname ? `${esc(s.number)} · ${esc(cname)}` : esc(s.number);
+    return `<div class="trk-sv-card${cls}" onclick="quickTrack('${esc(s.number)}','${esc(s.carrier)}','${esc(s.type)}')">
+      <div class="trk-sv-ico">${ico}</div>
+      <div class="trk-sv-info">
+        <div class="trk-sv-num">${numLabel}</div>
+        <div class="trk-sv-stat">${esc(stat)}</div>
+        ${time?`<div class="trk-sv-time">${esc(time)}</div>`:''}
+      </div>
+      <button class="trk-sv-del" onclick="removeTrkShipment('${esc(s.number)}',event)" title="Видалити">✕</button>
+    </div>`;
+  }
+
+  let html = '<div class="trk-saved-wrap">';
+  if(active.length){
+    html += `<div class="trk-sec-hdr">${u.trkActive}<span class="trk-sec-cnt">${active.length}</span></div>`;
+    html += '<div class="trk-saved-list">'+active.map(s=>card(s,false)).join('')+'</div>';
+  }
+  if(archive.length){
+    html += `<div class="trk-sec-hdr">${u.trkArchive}<span class="trk-sec-cnt">${archive.length}</span></div>`;
+    html += '<div class="trk-saved-list">'+archive.map(s=>card(s,true)).join('')+'</div>';
+  }
+  html += '</div>';
+  el.innerHTML = html;
+}
+
+async function quickTrack(number, carrier, type){
+  // Re-run tracking for a saved shipment
+  trkMode = type;
+  trkCarrier = carrier === 'auto' ? null : carrier;
+  document.getElementById('trk-mode-parcel').classList.toggle('on', type==='parcel');
+  document.getElementById('trk-mode-container').classList.toggle('on', type==='container');
+  document.getElementById('trk-carriers-wrap').style.display = type==='parcel' ? '' : 'none';
+  document.getElementById('trk-input-wrap').style.display = '';
+  document.getElementById('trk-num').value = number;
+  document.getElementById('trk-result').scrollIntoView({behavior:'smooth',block:'start'});
+  // highlight carrier btn if parcel
+  if(type==='parcel' && carrier && carrier!=='auto'){
+    document.querySelectorAll('.trk-car-btn').forEach(b=>{
+      b.classList.toggle('on', b.dataset.car===carrier);
+    });
+  }
+  await doTrack();
 }
 
 // ── Escape ─────────────────────────────────────────────────────
@@ -6348,3 +6692,194 @@ async def api_webapp_track(number: str, carrier: str = "auto"):
             "Для DHL/EMS/Meest та контейнерів: SEVENTEEN_TRACK_KEY (безкоштовно на 17track.net/en/apiDoc)"
         ),
     }
+
+
+# ─── SAVED SHIPMENTS (per-user tracking list) ────────────────────────────────
+
+@app.post("/api/webapp/track/save")
+async def api_track_save(request: Request):
+    """Save a tracking number to the user's personal list."""
+    body = await request.json()
+    user_id  = int(body.get("user_id", 0))
+    number   = str(body.get("number", "")).upper().strip()[:60]
+    carrier  = str(body.get("carrier", "auto"))[:50]
+    type_    = str(body.get("type", "parcel"))[:20]
+    cname    = str(body.get("carrier_name", ""))[:150]
+    status   = str(body.get("status_text", ""))[:500]
+    turl     = str(body.get("tracking_url", ""))[:500]
+
+    if not number or not user_id:
+        raise HTTPException(status_code=400, detail="number and user_id required")
+
+    conn = None
+    try:
+        conn = get_db_connection()
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO tracked_shipments
+                    (user_id, number, carrier, type, carrier_name, status_text, tracking_url, last_checked)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, NOW())
+                ON CONFLICT (user_id, number) DO UPDATE SET
+                    carrier      = EXCLUDED.carrier,
+                    carrier_name = EXCLUDED.carrier_name,
+                    status_text  = EXCLUDED.status_text,
+                    tracking_url = EXCLUDED.tracking_url,
+                    last_checked = NOW()
+                RETURNING id
+                """,
+                (user_id, number, carrier, type_, cname, status, turl),
+            )
+            row = cur.fetchone()
+            conn.commit()
+        return {"ok": True, "id": row[0]}
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if conn:
+            conn.close()
+
+
+@app.get("/api/webapp/track/list")
+async def api_track_list(user_id: int):
+    """Return active (≤15) and archived (≤15) shipments for a user."""
+    conn = None
+    try:
+        conn = get_db_connection()
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                """
+                SELECT id, number, carrier, type, carrier_name, status_text,
+                       tracking_url, added_at, last_checked
+                FROM tracked_shipments
+                WHERE user_id=%s AND is_delivered=FALSE
+                ORDER BY added_at DESC LIMIT 15
+                """,
+                (user_id,),
+            )
+            active = [dict(r) for r in cur.fetchall()]
+
+            cur.execute(
+                """
+                SELECT id, number, carrier, type, carrier_name, status_text,
+                       tracking_url, added_at, delivered_at, last_checked
+                FROM tracked_shipments
+                WHERE user_id=%s AND is_delivered=TRUE
+                ORDER BY delivered_at DESC LIMIT 15
+                """,
+                (user_id,),
+            )
+            archive = [dict(r) for r in cur.fetchall()]
+
+        def _fmt(d):
+            return d.isoformat() if d else None
+
+        for row in active + archive:
+            for k in ("added_at", "last_checked", "delivered_at"):
+                if k in row and row[k]:
+                    row[k] = _fmt(row[k])
+
+        return {"active": active, "archive": archive}
+    finally:
+        if conn:
+            conn.close()
+
+
+@app.delete("/api/webapp/track/remove")
+async def api_track_remove(user_id: int, number: str):
+    """Remove a shipment from the user's tracking list."""
+    conn = None
+    try:
+        conn = get_db_connection()
+        with conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM tracked_shipments WHERE user_id=%s AND number=%s",
+                (user_id, number.upper()),
+            )
+            conn.commit()
+        return {"ok": True}
+    finally:
+        if conn:
+            conn.close()
+
+
+async def refresh_tracked_shipments():
+    """Background job: re-query every non-delivered shipment, mark delivered ones."""
+    conn = None
+    try:
+        conn = get_db_connection()
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                """
+                SELECT DISTINCT ON (number) id, number, carrier, type
+                FROM tracked_shipments
+                WHERE is_delivered = FALSE
+                  AND (last_checked IS NULL
+                       OR last_checked < NOW() - INTERVAL '2 hours')
+                ORDER BY number, last_checked ASC NULLS FIRST
+                LIMIT 40
+                """
+            )
+            rows = [dict(r) for r in cur.fetchall()]
+    except Exception as e:
+        print(f"[refresh_tracking] DB read error: {e}")
+        return
+    finally:
+        if conn:
+            conn.close()
+
+    _delivered_kw = {"отримано", "доставлено", "delivered", "получено", "вручено", "видано"}
+
+    for row in rows:
+        await asyncio.sleep(0.8)
+        try:
+            result = await api_webapp_track(row["number"], row["carrier"])
+            if not result.get("ok"):
+                continue
+
+            status_text  = result.get("status", "")
+            carrier_name = result.get("carrier", "") or result.get("line", "")
+            tracking_url = result.get("tracking_url", "")
+
+            is_delivered = any(kw in status_text.lower() for kw in _delivered_kw)
+            if not is_delivered:
+                for step in result.get("steps", []):
+                    if any(kw in step.get("title", "").lower() for kw in _delivered_kw):
+                        is_delivered = True
+                        break
+
+            conn2 = None
+            try:
+                conn2 = get_db_connection()
+                with conn2.cursor() as cur2:
+                    if is_delivered:
+                        cur2.execute(
+                            """
+                            UPDATE tracked_shipments SET
+                                status_text=%(s)s, carrier_name=%(c)s, tracking_url=%(u)s,
+                                is_delivered=TRUE, delivered_at=NOW(), last_checked=NOW()
+                            WHERE number=%(n)s AND is_delivered=FALSE
+                            """,
+                            {"s": status_text, "c": carrier_name, "u": tracking_url, "n": row["number"]},
+                        )
+                    else:
+                        cur2.execute(
+                            """
+                            UPDATE tracked_shipments SET
+                                status_text=%(s)s, carrier_name=%(c)s, last_checked=NOW()
+                            WHERE number=%(n)s AND is_delivered=FALSE
+                            """,
+                            {"s": status_text, "c": carrier_name, "n": row["number"]},
+                        )
+                    conn2.commit()
+            except Exception as e2:
+                if conn2:
+                    conn2.rollback()
+                print(f"[refresh_tracking] update {row['number']}: {e2}")
+            finally:
+                if conn2:
+                    conn2.close()
+        except Exception as e:
+            print(f"[refresh_tracking] check {row['number']}: {e}")
