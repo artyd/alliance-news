@@ -4870,23 +4870,26 @@ _WEBAPP_HTML = r"""<!DOCTYPE html>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 
+/* ── DARK DEFAULT THEME ── */
 :root{
-  --bg:#FFFFFF;--surface:#F4F7FB;--surface2:#EAEFF7;--border:#DDE4F0;
-  --accent:#1B4FD8;--accent-soft:#EEF2FF;--accent2:#1340B0;
-  --text:#0F1728;--sub:#5A6478;--muted:#9AA3B2;
-  --green:#16A34A;--red:#DC2626;--shadow:0 2px 10px rgba(15,23,40,.07);
+  --bg:#09090F;--surface:#111118;--surface2:#1A1A24;--border:#242430;
+  --accent:#6366F1;--accent-soft:#1E1F3D;--accent2:#4F52D1;
+  --text:#E4E8F4;--sub:#7880A0;--muted:#42485E;
+  --green:#22C55E;--red:#F87171;
+  --shadow:0 2px 14px rgba(0,0,0,.7);
   --r:14px;--font:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
 }
-[data-dark]{
-  --bg:#0D1117;--surface:#161B27;--surface2:#1E2535;--border:#252D3D;
-  --accent:#4F80FF;--accent-soft:#1A2744;--accent2:#6B96FF;
-  --text:#E8ECF5;--sub:#8899B0;--muted:#506070;
-  --green:#22C55E;--red:#F87171;--shadow:0 2px 14px rgba(0,0,0,.5);
+[data-light]{
+  --bg:#F4F7FB;--surface:#FFFFFF;--surface2:#EAEFF7;--border:#DDE4F0;
+  --accent:#1B4FD8;--accent-soft:#EEF2FF;--accent2:#1340B0;
+  --text:#0F1728;--sub:#5A6478;--muted:#9AA3B2;
+  --green:#16A34A;--red:#DC2626;
+  --shadow:0 2px 10px rgba(15,23,40,.07);
 }
 
 html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:var(--font);-webkit-font-smoothing:antialiased;font-size:15px}
 
-/* ── SPLASH ─────────────────────────────── */
+/* ── SPLASH ── */
 #splash{
   position:fixed;inset:0;display:flex;flex-direction:column;
   align-items:center;justify-content:center;
@@ -4900,91 +4903,78 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);fon
 .splash-ring2{animation-delay:.6s}
 @keyframes ring{0%{transform:scale(.8);opacity:.5}100%{transform:scale(1.9);opacity:0}}
 #splash img{width:76px;height:76px;object-fit:contain;z-index:1;border-radius:16px}
-#splash .sname{margin-top:18px;font-size:21px;font-weight:800;letter-spacing:-.3px;color:var(--text);z-index:1}
-#splash .stag{margin-top:5px;font-size:12px;color:var(--sub);letter-spacing:.3px;text-transform:uppercase;z-index:1}
+#splash .sname{margin-top:18px;font-size:20px;font-weight:800;letter-spacing:-.3px;color:var(--text);z-index:1}
+#splash .stag{margin-top:5px;font-size:11px;color:var(--sub);letter-spacing:.5px;text-transform:uppercase;z-index:1}
 
-/* ── APP SHELL ──────────────────────────── */
+/* ── APP ── */
 #app{display:none;flex-direction:column;height:100vh;overflow:hidden}
 #app.on{display:flex}
 
-/* ── HEADER ─────────────────────────────── */
+/* ── HEADER ── */
 header{
   display:flex;align-items:center;gap:10px;padding:11px 16px;
   background:var(--bg);border-bottom:1px solid var(--border);
-  flex-shrink:0;position:relative;z-index:50;
+  flex-shrink:0;z-index:50;
 }
-header img{width:30px;height:30px;object-fit:contain;border-radius:8px}
-header .htitle{flex:1;font-size:16px;font-weight:800;letter-spacing:-.2px}
+header img{width:28px;height:28px;object-fit:contain;border-radius:8px}
+header .htitle{flex:1;font-size:15px;font-weight:800;letter-spacing:-.2px}
 header .htitle span{color:var(--accent)}
-.tbtn{
-  background:var(--surface);border:1px solid var(--border);
-  border-radius:9px;width:36px;height:34px;
-  font-size:12px;font-weight:700;cursor:pointer;
+.hbtn{
+  background:var(--surface);border:1px solid var(--border);border-radius:9px;
+  width:36px;height:32px;font-size:12px;font-weight:700;cursor:pointer;
   display:flex;align-items:center;justify-content:center;
   transition:background .15s;color:var(--text);letter-spacing:.3px;
 }
-.tbtn:active{background:var(--surface2)}
+.hbtn:active{background:var(--surface2)}
 
-/* ── BOTTOM NAV ─────────────────────────── */
+/* ── BOTTOM NAV — all buttons same size ── */
 nav{
-  display:flex;align-items:flex-end;
-  background:var(--bg);border-top:1px solid var(--border);
+  display:flex;background:var(--bg);border-top:1px solid var(--border);
   flex-shrink:0;padding-bottom:env(safe-area-inset-bottom,0);
 }
 nav button{
   flex:1;display:flex;flex-direction:column;align-items:center;
-  padding:9px 4px 8px;background:none;border:none;
-  font-size:10px;font-weight:500;color:var(--sub);cursor:pointer;gap:3px;
+  padding:9px 2px 8px;background:none;border:none;
+  font-size:9.5px;font-weight:500;color:var(--sub);cursor:pointer;gap:3px;
   transition:color .15s;position:relative;
 }
-nav button .ico{font-size:19px;display:block}
+nav button .ico{font-size:20px;display:block;line-height:1}
 nav button.on{color:var(--accent)}
 nav button.on::after{
   content:'';position:absolute;bottom:0;left:50%;transform:translateX(-50%);
-  width:24px;height:3px;border-radius:2px 2px 0 0;background:var(--accent);
+  width:22px;height:2.5px;border-radius:2px 2px 0 0;background:var(--accent);
 }
-/* Centre + button */
-nav button.add-btn{padding:4px 4px 8px;position:relative;top:-4px}
-nav button.add-btn .add-ico{
-  width:40px;height:40px;border-radius:50%;
-  background:var(--accent);color:#fff;
-  display:flex;align-items:center;justify-content:center;
-  font-size:20px;box-shadow:0 4px 14px rgba(27,79,216,.4);
-  transition:background .15s;
-}
-nav button.add-btn.on .add-ico{background:var(--accent2)}
-nav button.add-btn.on::after{display:none}
 
-/* ── CONTENT ─────────────────────────────── */
+/* ── CONTENT ── */
 #content{flex:1;overflow:hidden;position:relative}
 .panel{display:none;height:100%;overflow-y:auto;-webkit-overflow-scrolling:touch;padding-bottom:16px}
 .panel.on{display:block}
 
-/* ── CATEGORY CHIPS ─────────────────────── */
-.chips{padding:12px 16px 6px;overflow-x:auto;white-space:nowrap;scrollbar-width:none}
+/* ── CHIPS ── */
+.chips{padding:12px 14px 6px;overflow-x:auto;white-space:nowrap;scrollbar-width:none}
 .chips::-webkit-scrollbar{display:none}
 .chip{
   display:inline-flex;align-items:center;gap:5px;
-  padding:6px 13px;border-radius:20px;font-size:12.5px;font-weight:600;
-  margin-right:7px;border:1.5px solid var(--border);color:var(--sub);
+  padding:6px 12px;border-radius:20px;font-size:12px;font-weight:600;
+  margin-right:6px;border:1.5px solid var(--border);color:var(--sub);
   background:var(--surface);cursor:pointer;transition:all .15s;user-select:none;
 }
 .chip.on{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
 
-/* ── NEWS CARDS ─────────────────────────── */
-.nlist{padding:10px 14px;display:flex;flex-direction:column;gap:11px}
+/* ── NEWS CARDS (no image) ── */
+.nlist{padding:10px 14px;display:flex;flex-direction:column;gap:10px}
 .ncard{
-  background:var(--surface);border-radius:var(--r);overflow:hidden;
-  border:1px solid var(--border);box-shadow:var(--shadow);display:block;color:inherit;
+  background:var(--surface);border-radius:var(--r);
+  border:1px solid var(--border);box-shadow:var(--shadow);
 }
-.ncard-body{padding:12px 13px 13px}
+.ncard-body{padding:12px 13px 12px}
 .nbadge{
   display:inline-flex;align-items:center;gap:4px;
   padding:3px 8px;border-radius:5px;font-size:11px;font-weight:700;
   color:#fff;margin-bottom:7px;letter-spacing:.2px;
 }
 .ntitle{
-  font-size:13.5px;font-weight:700;line-height:1.4;margin-bottom:2px;
+  font-size:13.5px;font-weight:700;line-height:1.4;
   color:var(--text);text-decoration:none;display:block;
 }
 .ntitle:active{color:var(--accent)}
@@ -5003,16 +4993,16 @@ nav button.add-btn.on::after{display:none}
   background:none;border:none;padding:0;cursor:pointer;flex-shrink:0;
 }
 
-/* ── LOAD MORE ───────────────────────────── */
+/* ── LOAD MORE ── */
 .lmore{
-  display:block;margin:4px 14px 0;padding:13px;border-radius:var(--r);
+  display:block;margin:4px 14px 0;padding:12px;border-radius:var(--r);
   background:var(--surface);border:1px solid var(--border);
-  color:var(--accent);font-size:13.5px;font-weight:700;
+  color:var(--accent);font-size:13px;font-weight:700;
   cursor:pointer;text-align:center;transition:background .15s;
 }
 .lmore:active{background:var(--surface2)}
 
-/* ── REPORTS ─────────────────────────────── */
+/* ── REPORTS ── */
 .rlist{padding:12px 14px;display:flex;flex-direction:column;gap:10px}
 .rcard{background:var(--surface);border-radius:var(--r);border:1px solid var(--border);box-shadow:var(--shadow);overflow:hidden}
 .rhead{display:flex;align-items:center;gap:10px;padding:14px 16px;cursor:pointer;user-select:none}
@@ -5030,40 +5020,55 @@ nav button.add-btn.on::after{display:none}
 .rart .rsumm{font-size:12px;color:var(--sub);line-height:1.5;margin-top:3px}
 .rart .rtime{font-size:11px;color:var(--muted);margin-top:2px}
 
-/* ── MARKETS ─────────────────────────────── */
+/* ── MARKETS ── */
 .msec{padding:14px 14px 0}
-.msec h3{font-size:11.5px;font-weight:800;text-transform:uppercase;letter-spacing:.6px;color:var(--sub);margin-bottom:12px}
-.pgrid{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-bottom:18px}
-.pcard{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:12px 13px;box-shadow:var(--shadow)}
+.msec h3{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.8px;color:var(--sub);margin-bottom:12px}
+.pgrid{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-bottom:4px}
+.pcard{
+  background:var(--surface);border:1px solid var(--border);border-radius:var(--r);
+  padding:12px 13px;box-shadow:var(--shadow);cursor:pointer;
+  transition:border-color .15s,transform .12s;
+}
+.pcard:active{border-color:var(--accent);transform:scale(.97)}
 .pcico{font-size:22px;margin-bottom:4px}
 .pclbl{font-size:11px;color:var(--sub);line-height:1.35;margin-bottom:7px;min-height:28px}
-.pcval{font-size:17px;font-weight:800;letter-spacing:-.3px}
+.pcval{font-size:17px;font-weight:800;letter-spacing:-.3px;color:var(--text)}
 .pcunit{font-size:10px;font-weight:400;color:var(--sub)}
 .pcchg{font-size:13px;font-weight:700;margin-top:2px}
 .pcchg.up{color:var(--green)}.pcchg.dn{color:var(--red)}.pcchg.fl{color:var(--muted)}
-.chcard{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:14px;box-shadow:var(--shadow);margin-bottom:11px}
-.chtitle{font-size:13px;font-weight:700;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center}
-.chtitle .chpct{font-size:12px;font-weight:700}
 
-/* ── SKELETON ─────────────────────────────── */
+/* ── MARKET DETAIL ── */
+.mk-detail{display:none;flex-direction:column;gap:0}
+.mk-detail.on{display:flex}
+.mk-back{
+  display:flex;align-items:center;gap:6px;padding:12px 14px 8px;
+  font-size:13px;font-weight:700;color:var(--accent);
+  background:none;border:none;cursor:pointer;
+}
+.chcard{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:14px;box-shadow:var(--shadow);margin:0 14px 12px}
+.chtitle{font-size:13px;font-weight:700;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;color:var(--text)}
+.chtitle .chpct{font-size:12px;font-weight:700}
+.mk-news-hdr{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.8px;color:var(--sub);padding:4px 14px 8px}
+
+/* ── SKELETON ── */
 .sk{border-radius:var(--r);background:linear-gradient(90deg,var(--surface) 25%,var(--surface2) 50%,var(--surface) 75%);background-size:200% 100%;animation:shimmer 1.4s infinite}
 @keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
-.sk-card{height:90px;margin-bottom:11px}
+.sk-card{height:90px;margin-bottom:10px}
 .sk-pcard{height:88px;border-radius:var(--r)}
-.sk-ch{height:185px;border-radius:var(--r);margin-bottom:11px}
+.sk-ch{height:185px;border-radius:var(--r);margin-bottom:12px}
 
-/* ── EMPTY / PLACEHOLDER ─────────────────── */
+/* ── EMPTY ── */
 .empty{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:56px 20px;text-align:center;gap:8px}
 .empty .ei{font-size:44px}.empty p{font-size:13.5px;color:var(--sub)}
 </style>
 </head>
 <body>
 
-<!-- SPLASH (no dots) -->
+<!-- SPLASH (без точок) -->
 <div id="splash">
   <div class="splash-ring"></div>
   <div class="splash-ring splash-ring2"></div>
-  <img id="slogo" src="/logo.png" alt="M" onerror="this.outerHTML='<div style=\'width:76px;height:76px;background:var(--accent);border-radius:16px;display:flex;align-items:center;justify-content:center;font-size:32px;color:#fff;font-weight:800;z-index:1\'>M</div>'">
+  <img src="/logo.png" alt="" onerror="this.outerHTML='<div style=\'width:76px;height:76px;background:var(--accent);border-radius:16px;display:flex;align-items:center;justify-content:center;font-size:32px;color:#fff;font-weight:800;z-index:1\'>M</div>'">
   <div class="sname">MacroHarvey</div>
   <div class="stag">B2B Market Intelligence</div>
 </div>
@@ -5072,27 +5077,27 @@ nav button.add-btn.on::after{display:none}
 <div id="app">
 
   <header>
-    <img src="/logo.png" alt="M" onerror="this.style.display='none'">
+    <img src="/logo.png" alt="" onerror="this.style.display='none'">
     <div class="htitle">Macro<span>Harvey</span></div>
-    <button class="tbtn" id="lbtn" onclick="cycleLang()">UA</button>
-    <button class="tbtn" id="tbtn" onclick="toggleTheme()">🌙</button>
+    <button class="hbtn" id="lbtn" onclick="cycleLang()">UA</button>
+    <button class="hbtn" id="tbtn" onclick="toggleTheme()">☀️</button>
   </header>
 
   <div id="content">
 
-    <!-- TAB: NEWS -->
+    <!-- NEWS -->
     <div id="pnews" class="panel on">
       <div class="chips" id="chips"></div>
       <div class="nlist" id="nlist"></div>
-      <button class="lmore" id="lmore" onclick="loadMore()" style="display:none">Завантажити ще →</button>
+      <button class="lmore" id="lmore" onclick="loadMore()" style="display:none">Завантажити ще</button>
     </div>
 
-    <!-- TAB: REPORTS -->
+    <!-- REPORTS -->
     <div id="preports" class="panel">
       <div class="rlist" id="rlist"></div>
     </div>
 
-    <!-- TAB: ADD (centre +) -->
+    <!-- ADD -->
     <div id="padd" class="panel">
       <div class="empty">
         <div class="ei">➕</div>
@@ -5100,17 +5105,25 @@ nav button.add-btn.on::after{display:none}
       </div>
     </div>
 
-    <!-- TAB: MARKETS -->
+    <!-- MARKETS -->
     <div id="pmarkets" class="panel">
-      <div class="msec">
-        <h3 id="h-prices">📊 Ціни зараз</h3>
-        <div class="pgrid" id="pgrid"></div>
-        <h3 id="h-charts">📈 Графіки (30 днів)</h3>
-        <div id="charts"></div>
+      <!-- Grid view -->
+      <div id="mk-grid-wrap">
+        <div class="msec">
+          <h3 id="h-prices">📊 ЦІНИ ЗАРАЗ</h3>
+          <div class="pgrid" id="mk-grid"></div>
+        </div>
+      </div>
+      <!-- Detail view (chart + news) -->
+      <div class="mk-detail" id="mk-detail">
+        <button class="mk-back" onclick="closeMkDetail()">‹ <span id="back-lbl">Назад</span></button>
+        <div id="mk-chart-wrap"></div>
+        <div class="mk-news-hdr" id="mk-news-hdr">📰 ПОВ'ЯЗАНІ НОВИНИ</div>
+        <div class="nlist" id="mk-news" style="padding:0 14px;gap:10px"></div>
       </div>
     </div>
 
-    <!-- TAB: TRACKING -->
+    <!-- TRACKING -->
     <div id="ptracking" class="panel">
       <div class="empty">
         <div class="ei">📡</div>
@@ -5120,6 +5133,7 @@ nav button.add-btn.on::after{display:none}
 
   </div>
 
+  <!-- 5 рівних вкладок -->
   <nav>
     <button class="on" id="btn-news" onclick="tab('news',this)">
       <span class="ico">📰</span><span id="nav-news">Новини</span>
@@ -5127,9 +5141,8 @@ nav button.add-btn.on::after{display:none}
     <button id="btn-reports" onclick="tab('reports',this)">
       <span class="ico">📋</span><span id="nav-reports">Звіти</span>
     </button>
-    <button class="add-btn" id="btn-add" onclick="tab('add',this)">
-      <span class="add-ico">➕</span>
-      <span id="nav-add" style="font-size:9px;color:var(--sub)">Додати</span>
+    <button id="btn-add" onclick="tab('add',this)">
+      <span class="ico">➕</span><span id="nav-add">Додати</span>
     </button>
     <button id="btn-markets" onclick="tab('markets',this)">
       <span class="ico">📈</span><span id="nav-markets">Ринки</span>
@@ -5142,19 +5155,21 @@ nav button.add-btn.on::after{display:none}
 </div>
 
 <script>
-// ── Telegram SDK ──────────────────────────────────────────────
+// ── Telegram ──────────────────────────────────────────────────
 const tg = window.Telegram?.WebApp;
-if (tg) { tg.ready(); tg.expand(); }
+if(tg){tg.ready();tg.expand();}
 
-// ── Theme ─────────────────────────────────────────────────────
-let dark = tg?.colorScheme === 'dark' ||
-           window.matchMedia('(prefers-color-scheme:dark)').matches;
-function applyTheme() {
-  if (dark) document.documentElement.setAttribute('data-dark','');
-  else document.documentElement.removeAttribute('data-dark');
-  document.getElementById('tbtn').textContent = dark ? '☀️' : '🌙';
+// ── Theme — dark by default ───────────────────────────────────
+let light = false;
+function applyTheme(){
+  if(light) document.documentElement.setAttribute('data-light','');
+  else document.documentElement.removeAttribute('data-light');
+  document.getElementById('tbtn').textContent = light ? '🌙' : '☀️';
 }
-function toggleTheme() { dark=!dark; applyTheme(); if(chartInstances.length) redrawCharts(); }
+function toggleTheme(){
+  light = !light; applyTheme();
+  if(currentMkKey) redrawDetailChart(currentMkKey);
+}
 applyTheme();
 
 // ── Language ──────────────────────────────────────────────────
@@ -5163,7 +5178,7 @@ const lc = tg?.initDataUnsafe?.user?.language_code || navigator.language || 'uk'
 let langIdx = lc.startsWith('ru') ? 1 : (lc.startsWith('uk')||lc.startsWith('ua')) ? 0 : 2;
 let lang = LANGS[langIdx];
 
-function cycleLang() {
+function cycleLang(){
   langIdx = (langIdx+1) % LANGS.length;
   lang = LANGS[langIdx];
   document.getElementById('lbtn').textContent = lang.toUpperCase();
@@ -5171,370 +5186,353 @@ function cycleLang() {
   buildChips();
   fetchNews(true);
   document.getElementById('rlist').innerHTML = '';
-  mkData = [];
+  mkData = []; closeMkDetailSilent();
 }
 
 // ── UI strings ────────────────────────────────────────────────
 const UI = {
   ua:{
-    loadMore:'Завантажити ще →', noNews:'Новин поки немає', loadError:'Помилка завантаження',
-    readFull:'Читати повністю', collapse:'Згорнути', loading:'Завантаження…',
-    error:'Помилка', noData:'Немає даних', noDataYet:'Даних поки немає',
-    addSoon:'Додати ринки — скоро', trackSoon:'Трекінг — скоро',
-    news:'Новини', reports:'Звіти', add:'Додати', markets:'Ринки', tracking:'Трекінг',
-    pricesNow:'📊 Ціни зараз', charts30:'📈 Графіки (30 днів)', newsCnt:' новин',
+    loadMore:'Завантажити ще',noNews:'Новин поки немає',loadError:'Помилка завантаження',
+    readFull:'Читати повністю',collapse:'Згорнути',loading:'Завантаження…',
+    error:'Помилка',noData:'Немає даних',noDataYet:'Даних поки немає',
+    addSoon:'Додати ринки — скоро',trackSoon:'Трекінг — скоро',
+    news:'Новини',reports:'Звіти',add:'Додати',markets:'Ринки',tracking:'Трекінг',
+    pricesNow:'📊 ЦІНИ ЗАРАЗ',relNews:"📰 ПОВ'ЯЗАНІ НОВИНИ",back:'Назад',newsCnt:' новин',
   },
   ru:{
-    loadMore:'Загрузить ещё →', noNews:'Новостей пока нет', loadError:'Ошибка загрузки',
-    readFull:'Читать полностью', collapse:'Свернуть', loading:'Загрузка…',
-    error:'Ошибка', noData:'Нет данных', noDataYet:'Данных пока нет',
-    addSoon:'Добавить рынки — скоро', trackSoon:'Трекинг — скоро',
-    news:'Новости', reports:'Отчёты', add:'Добавить', markets:'Рынки', tracking:'Трекинг',
-    pricesNow:'📊 Цены сейчас', charts30:'📈 Графики (30 дней)', newsCnt:' новостей',
+    loadMore:'Загрузить ещё',noNews:'Новостей пока нет',loadError:'Ошибка загрузки',
+    readFull:'Читать полностью',collapse:'Свернуть',loading:'Загрузка…',
+    error:'Ошибка',noData:'Нет данных',noDataYet:'Данных пока нет',
+    addSoon:'Добавить рынки — скоро',trackSoon:'Трекинг — скоро',
+    news:'Новости',reports:'Отчёты',add:'Добавить',markets:'Рынки',tracking:'Трекинг',
+    pricesNow:'📊 ЦЕНЫ СЕЙЧАС',relNews:'📰 СВЯЗАННЫЕ НОВОСТИ',back:'Назад',newsCnt:' новостей',
   },
   en:{
-    loadMore:'Load more →', noNews:'No news yet', loadError:'Loading error',
-    readFull:'Read more', collapse:'Collapse', loading:'Loading…',
-    error:'Error', noData:'No data', noDataYet:'No data yet',
-    addSoon:'Add markets — coming soon', trackSoon:'Tracking — coming soon',
-    news:'News', reports:'Reports', add:'Add', markets:'Markets', tracking:'Tracking',
-    pricesNow:'📊 Current Prices', charts30:'📈 Charts (30 days)', newsCnt:' news',
-  }
+    loadMore:'Load more',noNews:'No news yet',loadError:'Loading error',
+    readFull:'Read more',collapse:'Collapse',loading:'Loading…',
+    error:'Error',noData:'No data',noDataYet:'No data yet',
+    addSoon:'Add markets — coming soon',trackSoon:'Tracking — coming soon',
+    news:'News',reports:'Reports',add:'Add',markets:'Markets',tracking:'Tracking',
+    pricesNow:'📊 CURRENT PRICES',relNews:'📰 RELATED NEWS',back:'Back',newsCnt:' news',
+  },
 };
 
-function updateStaticText() {
+function updateStaticText(){
   const u = UI[lang];
-  document.getElementById('nav-news').textContent     = u.news;
-  document.getElementById('nav-reports').textContent  = u.reports;
-  document.getElementById('nav-add').textContent      = u.add;
-  document.getElementById('nav-markets').textContent  = u.markets;
-  document.getElementById('nav-tracking').textContent = u.tracking;
-  document.getElementById('add-text').textContent     = u.addSoon;
-  document.getElementById('track-text').textContent   = u.trackSoon;
-  document.getElementById('h-prices').textContent     = u.pricesNow;
-  document.getElementById('h-charts').textContent     = u.charts30;
+  document.getElementById('nav-news').textContent      = u.news;
+  document.getElementById('nav-reports').textContent   = u.reports;
+  document.getElementById('nav-add').textContent       = u.add;
+  document.getElementById('nav-markets').textContent   = u.markets;
+  document.getElementById('nav-tracking').textContent  = u.tracking;
+  document.getElementById('add-text').textContent      = u.addSoon;
+  document.getElementById('track-text').textContent    = u.trackSoon;
+  document.getElementById('h-prices').textContent      = u.pricesNow;
+  document.getElementById('mk-news-hdr').textContent   = u.relNews;
+  document.getElementById('back-lbl').textContent      = u.back;
   const lm = document.getElementById('lmore');
-  if (lm.style.display !== 'none') lm.textContent = u.loadMore;
+  if(lm.style.display !== 'none') lm.textContent = u.loadMore;
 }
 
 // ── Category config ───────────────────────────────────────────
 const CATS = {
-  all:           {ua:'Всі',          ru:'Все',            en:'All',           c:'#64748B',e:'📋'},
-  api:           {ua:'Фарм API',     ru:'Фарм API',       en:'Pharm API',     c:'#3B82F6',e:'💊'},
-  cosmetic:      {ua:'Косметика',    ru:'Косметика',      en:'Cosmetics',     c:'#EC4899',e:'🧴'},
-  herbal:        {ua:'Трави',        ru:'Травы',          en:'Herbal',        c:'#16A34A',e:'🌿'},
-  veterinary:    {ua:'Ветеринарія',  ru:'Ветеринария',    en:'Veterinary',    c:'#8B5CF6',e:'🐾'},
-  food:          {ua:'Харчова',      ru:'Пищевая',        en:'Food',          c:'#D97706',e:'🌾'},
-  feed:          {ua:'Амінокислоти', ru:'Аминокислоты',   en:'Amino',         c:'#92400E',e:'🐄'},
-  capsules:      {ua:'Капсули',      ru:'Капсулы',        en:'Capsules',      c:'#0891B2',e:'🔬'},
-  pvc:           {ua:'ПВХ / Пак.',   ru:'ПВХ / Упак.',    en:'PVC / Pack.',   c:'#4F46E5',e:'📦'},
-  logistics:     {ua:'Логістика',    ru:'Логистика',      en:'Logistics',     c:'#DC2626',e:'🚢'},
-  global_sources:{ua:'Глобально',    ru:'Глобально',      en:'Global',        c:'#475569',e:'🌐'},
-  good_news:     {ua:'Позитив',      ru:'Позитив',        en:'Positive',      c:'#059669',e:'✨'},
-  market_alerts: {ua:'Алерти',       ru:'Алерты',         en:'Alerts',        c:'#EA580C',e:'⚡'},
+  all:           {ua:'Всі',          ru:'Все',           en:'All',          c:'#64748B',e:'📋'},
+  api:           {ua:'Фарм API',     ru:'Фарм API',      en:'Pharm API',    c:'#3B82F6',e:'💊'},
+  cosmetic:      {ua:'Косметика',    ru:'Косметика',     en:'Cosmetics',    c:'#EC4899',e:'🧴'},
+  herbal:        {ua:'Трави',        ru:'Травы',         en:'Herbal',       c:'#16A34A',e:'🌿'},
+  veterinary:    {ua:'Ветеринарія',  ru:'Ветеринария',   en:'Veterinary',   c:'#8B5CF6',e:'🐾'},
+  food:          {ua:'Харчова',      ru:'Пищевая',       en:'Food',         c:'#D97706',e:'🌾'},
+  feed:          {ua:'Амінокислоти', ru:'Аминокислоты',  en:'Amino',        c:'#92400E',e:'🐄'},
+  capsules:      {ua:'Капсули',      ru:'Капсулы',       en:'Capsules',     c:'#0891B2',e:'🔬'},
+  pvc:           {ua:'ПВХ / Пак.',   ru:'ПВХ / Упак.',   en:'PVC / Pack.',  c:'#4F46E5',e:'📦'},
+  logistics:     {ua:'Логістика',    ru:'Логистика',     en:'Logistics',    c:'#DC2626',e:'🚢'},
+  global_sources:{ua:'Глобально',    ru:'Глобально',     en:'Global',       c:'#475569',e:'🌐'},
+  good_news:     {ua:'Позитив',      ru:'Позитив',       en:'Positive',     c:'#059669',e:'✨'},
+  market_alerts: {ua:'Алерти',       ru:'Алерты',        en:'Alerts',       c:'#EA580C',e:'⚡'},
+};
+
+const TICKER_CATS = {
+  citric_acid:'api', menthol:'herbal', magnesium_citrate:'api',
+  glycerin:'cosmetic', ethanol:'api', sorbitol:'food',
+  ascorbic_acid:'api', inositol:'api', dextrose:'food', lactic_acid:'api',
 };
 
 // ── State ─────────────────────────────────────────────────────
-let activeCat = 'all';
-let newsOff = 0;
+let activeCat = 'all', newsOff = 0;
 const LIMIT = 15;
-let mkData = [];
-let chartInstances = [];
-let cachedCharts = {};
+let mkData = [], detailChart = null, currentMkKey = null;
 
 // ── Splash → App ──────────────────────────────────────────────
 window.addEventListener('load', () => {
   document.getElementById('lbtn').textContent = lang.toUpperCase();
-  buildChips();
-  fetchNews(true);
+  buildChips(); fetchNews(true);
   setTimeout(() => {
     const sp = document.getElementById('splash');
-    sp.style.opacity = '0';
-    sp.style.pointerEvents = 'none';
-    setTimeout(() => {
-      sp.style.display = 'none';
-      document.getElementById('app').classList.add('on');
-    }, 450);
+    sp.style.opacity = '0'; sp.style.pointerEvents = 'none';
+    setTimeout(() => { sp.style.display='none'; document.getElementById('app').classList.add('on'); }, 450);
   }, 2000);
 });
 
-// ── Tab switch ────────────────────────────────────────────────
+// ── Tabs ──────────────────────────────────────────────────────
 const ALL_TABS = ['news','reports','add','markets','tracking'];
-function tab(name, btn) {
+function tab(name, btn){
   ALL_TABS.forEach(n => {
     document.getElementById('p'+n).classList.toggle('on', n===name);
     document.getElementById('btn-'+n).classList.toggle('on', n===name);
   });
-  if (name==='markets' && mkData.length===0) fetchMarkets();
-  if (name==='reports' && document.getElementById('rlist').children.length===0) fetchReports();
+  if(name==='markets' && mkData.length===0) fetchMarkets();
+  if(name==='reports' && document.getElementById('rlist').children.length===0) fetchReports();
 }
 
 // ── Chips ─────────────────────────────────────────────────────
-function buildChips() {
+function buildChips(){
   const el = document.getElementById('chips');
   el.innerHTML = '';
-  const list = ['all','api','cosmetic','herbal','veterinary','food','feed','capsules','pvc','logistics','global_sources','good_news'];
-  list.forEach(k => {
+  ['all','api','cosmetic','herbal','veterinary','food','feed','capsules','pvc','logistics','global_sources','good_news'].forEach(k => {
     const d = document.createElement('div');
     d.className = 'chip'+(k===activeCat?' on':'');
     d.dataset.k = k;
-    const cat = CATS[k];
-    d.textContent = (cat?.e||'') + ' ' + (cat?.[lang] || cat?.ua || k);
+    const c = CATS[k];
+    d.textContent = (c?.e||'')+' '+(c?.[lang]||c?.ua||k);
     d.onclick = () => {
       activeCat = k;
-      el.querySelectorAll('.chip').forEach(c => c.classList.toggle('on', c.dataset.k===k));
+      el.querySelectorAll('.chip').forEach(x => x.classList.toggle('on', x.dataset.k===k));
       fetchNews(true);
     };
     el.appendChild(d);
   });
 }
 
-// ── News ──────────────────────────────────────────────────────
-function ago(pub) {
-  if (!pub) return '';
-  const dt = new Date(pub.replace(' ','T')+(pub.includes('+') ? '' : '+03:00'));
+// ── Time ──────────────────────────────────────────────────────
+function ago(pub){
+  if(!pub) return '';
+  const dt = new Date(pub.replace(' ','T')+(pub.includes('+')?'':'+03:00'));
   const s = (Date.now()-dt)/1000;
   const t = {ua:['щойно','хв','год'],ru:['только что','мин','ч'],en:['just now','min','h']}[lang];
-  if (s<60) return t[0];
-  if (s<3600) return Math.floor(s/60)+' '+t[1];
-  if (s<86400) return Math.floor(s/3600)+' '+t[2];
+  if(s<60) return t[0];
+  if(s<3600) return Math.floor(s/60)+' '+t[1];
+  if(s<86400) return Math.floor(s/3600)+' '+t[2];
   return dt.toLocaleDateString(lang==='en'?'en-US':lang==='ru'?'ru-RU':'uk-UA',{day:'numeric',month:'short'});
 }
 
-function newsCard(a) {
-  const cfg = CATS[a.category] || {ua:a.category,ru:a.category,en:a.category,c:'#64748B',e:'📌'};
-  const catLabel = cfg[lang] || cfg.ua || a.category;
-  const summ = a['summary_'+lang] || a.summary_ua || a.summary_en || '';
+// ── News card (no image, with expand) ────────────────────────
+function newsCard(a){
+  const cfg = CATS[a.category]||{ua:a.category,ru:a.category,en:a.category,c:'#64748B',e:'📌'};
+  const catLabel = cfg[lang]||cfg.ua||a.category;
+  const summ = a['summary_'+lang]||a.summary_ua||a.summary_en||'';
   const u = UI[lang];
-
   const el = document.createElement('div');
   el.className = 'ncard';
-
   el.innerHTML =
     `<div class="ncard-body">
        <div class="nbadge" style="background:${cfg.c}">${cfg.e} ${catLabel}</div>
        <a class="ntitle" href="${esc(a.link)}" target="_blank" rel="noopener noreferrer">${esc(a.title)}</a>
-       ${summ ? `<div class="nsumm-full">${esc(summ)}</div>` : ''}
+       ${summ?`<div class="nsumm-full">${esc(summ)}</div>`:''}
        <div class="ncard-footer">
          <div class="ntime">🕐 ${ago(a.published)}</div>
-         ${summ ? `<button class="read-btn" onclick="toggleSumm(this)">${u.readFull}</button>` : ''}
+         ${summ?`<button class="read-btn" onclick="toggleSumm(this)">${u.readFull}</button>`:''}
        </div>
      </div>`;
-
-  if (tg) {
-    el.querySelector('.ntitle').addEventListener('click', ev => {
-      ev.preventDefault();
-      tg.openLink(a.link);
-    });
-  }
+  if(tg) el.querySelector('.ntitle').addEventListener('click', ev => { ev.preventDefault(); tg.openLink(a.link); });
   return el;
 }
 
-function toggleSumm(btn) {
+function toggleSumm(btn){
   const summ = btn.closest('.ncard').querySelector('.nsumm-full');
-  if (!summ) return;
+  if(!summ) return;
   const exp = summ.classList.toggle('exp');
   btn.textContent = exp ? UI[lang].collapse : UI[lang].readFull;
 }
 
-async function fetchNews(reset) {
+async function fetchNews(reset){
   const u = UI[lang];
-  if (reset) {
-    newsOff = 0;
-    document.getElementById('nlist').innerHTML = '';
-    document.getElementById('lmore').style.display = 'none';
-  }
+  if(reset){ newsOff=0; document.getElementById('nlist').innerHTML=''; document.getElementById('lmore').style.display='none'; }
   const list = document.getElementById('nlist');
-  if (reset) list.innerHTML = [1,2,3].map(()=>'<div class="sk sk-card"></div>').join('');
-  try {
-    const cat = activeCat==='all' ? '' : '&category='+activeCat;
+  if(reset) list.innerHTML = [1,2,3].map(()=>'<div class="sk sk-card"></div>').join('');
+  try{
+    const cat = activeCat==='all'?'':'&category='+activeCat;
     const r = await fetch(`/api/webapp/news?lang=${lang}&limit=${LIMIT}&offset=${newsOff}${cat}`);
     const data = await r.json();
-    if (reset) list.innerHTML = '';
-    if (!data.length && reset) {
-      list.innerHTML = `<div class="empty"><div class="ei">📭</div><p>${u.noNews}</p></div>`;
-      return;
-    }
+    if(reset) list.innerHTML = '';
+    if(!data.length && reset){ list.innerHTML=`<div class="empty"><div class="ei">📭</div><p>${u.noNews}</p></div>`; return; }
     data.forEach(a => list.appendChild(newsCard(a)));
     newsOff += data.length;
     const lm = document.getElementById('lmore');
-    lm.style.display = data.length>=LIMIT ? 'block' : 'none';
-    if (data.length>=LIMIT) lm.textContent = u.loadMore;
+    lm.style.display = data.length>=LIMIT?'block':'none';
+    if(data.length>=LIMIT) lm.textContent = u.loadMore;
   } catch {
-    if (reset) list.innerHTML = `<div class="empty"><div class="ei">⚠️</div><p>${u.loadError}</p></div>`;
+    if(reset) list.innerHTML = `<div class="empty"><div class="ei">⚠️</div><p>${u.loadError}</p></div>`;
   }
 }
-function loadMore() { fetchNews(false); }
+function loadMore(){ fetchNews(false); }
 
 // ── Reports ───────────────────────────────────────────────────
-async function fetchReports() {
+async function fetchReports(){
   const u = UI[lang];
   const el = document.getElementById('rlist');
   el.innerHTML = '<div class="sk sk-card"></div><div class="sk sk-card"></div>';
-  try {
+  try{
     const r = await fetch('/api/webapp/report_days');
     const days = await r.json();
     el.innerHTML = '';
-    if (!days.length) {
-      el.innerHTML = `<div class="empty"><div class="ei">📭</div><p>${u.noDataYet}</p></div>`;
-      return;
-    }
+    if(!days.length){ el.innerHTML=`<div class="empty"><div class="ei">📭</div><p>${u.noDataYet}</p></div>`; return; }
     days.forEach(day => el.appendChild(buildDayCard(day)));
-  } catch {
-    el.innerHTML = `<div class="empty"><div class="ei">⚠️</div><p>${u.loadError}</p></div>`;
-  }
+  } catch { el.innerHTML=`<div class="empty"><div class="ei">⚠️</div><p>${u.loadError}</p></div>`; }
 }
 
-function buildDayCard(day) {
+function buildDayCard(day){
   const u = UI[lang];
-  const wrap = document.createElement('div');
-  wrap.className = 'rcard';
+  const wrap = document.createElement('div'); wrap.className='rcard';
   const dt = new Date(day.date+'T00:00:00');
-  const dlbl = dt.toLocaleDateString(
-    lang==='en'?'en-US':lang==='ru'?'ru-RU':'uk-UA',
-    {weekday:'short',day:'numeric',month:'long'}
-  );
-  const head = document.createElement('div');
-  head.className = 'rhead';
-  head.innerHTML =
-    `<span style="font-size:22px">📊</span>
-     <div class="rdlabel">${dlbl}</div>
-     <div class="rcnt">${day.count}${u.newsCnt}</div>
-     <div class="rchev">›</div>`;
-  const body = document.createElement('div');
-  body.className = 'rbody';
+  const dlbl = dt.toLocaleDateString(lang==='en'?'en-US':lang==='ru'?'ru-RU':'uk-UA',{weekday:'short',day:'numeric',month:'long'});
+  const head = document.createElement('div'); head.className='rhead';
+  head.innerHTML=`<span style="font-size:22px">📊</span><div class="rdlabel">${dlbl}</div><div class="rcnt">${day.count}${u.newsCnt}</div><div class="rchev">›</div>`;
+  const body = document.createElement('div'); body.className='rbody';
   head.onclick = async () => {
     const open = head.classList.toggle('exp');
     body.classList.toggle('exp', open);
-    if (open && !body.dataset.loaded) {
-      body.dataset.loaded = '1';
-      body.innerHTML = `<div style="padding:10px 0;color:var(--sub);font-size:13px">${u.loading}</div>`;
-      try {
+    if(open && !body.dataset.loaded){
+      body.dataset.loaded='1';
+      body.innerHTML=`<div style="padding:10px 0;color:var(--sub);font-size:13px">${u.loading}</div>`;
+      try{
         const r = await fetch(`/api/webapp/report/${day.date}?lang=${lang}`);
         const d = await r.json();
-        body.innerHTML = '';
+        body.innerHTML='';
         const cats = Object.entries(d.by_category||{}).filter(([,arts])=>arts.length);
-        if (!cats.length) {
-          body.innerHTML = `<div style="font-size:13px;color:var(--sub);padding:8px 0">${u.noData}</div>`;
-          return;
-        }
-        cats.forEach(([cat, arts]) => {
-          const cfg = CATS[cat] || {ua:cat,e:'📌'};
-          const catLbl = cfg[lang] || cfg.ua || cat;
-          const sec = document.createElement('div');
-          sec.className = 'rcatsec';
-          sec.innerHTML = `<div class="rcattitle">${cfg.e} ${catLbl}</div>`;
+        if(!cats.length){ body.innerHTML=`<div style="font-size:13px;color:var(--sub);padding:8px 0">${u.noData}</div>`; return; }
+        cats.forEach(([cat,arts]) => {
+          const cfg = CATS[cat]||{ua:cat,e:'📌'};
+          const catLbl = cfg[lang]||cfg.ua||cat;
+          const sec = document.createElement('div'); sec.className='rcatsec';
+          sec.innerHTML=`<div class="rcattitle">${cfg.e} ${catLbl}</div>`;
           arts.forEach(a => {
-            const s = a['summary_'+lang] || a.summary_ua || '';
-            const div = document.createElement('div');
-            div.className = 'rart';
+            const s = a['summary_'+lang]||a.summary_ua||'';
+            const div = document.createElement('div'); div.className='rart';
             const href = esc(a.link);
-            div.innerHTML =
-              `<a href="${href}" target="_blank"
-                  ${tg ? `onclick="event.preventDefault();tg.openLink('${href}')"` : ''}>
-                 ${esc(a.title)}
-               </a>
-               ${s ? `<div class="rsumm">${esc(s)}</div>` : ''}
-               <div class="rtime">🕐 ${ago(a.published)}</div>`;
+            div.innerHTML=`<a href="${href}" target="_blank" ${tg?`onclick="event.preventDefault();tg.openLink('${href}')"`:''}>${esc(a.title)}</a>${s?`<div class="rsumm">${esc(s)}</div>`:''}<div class="rtime">🕐 ${ago(a.published)}</div>`;
             sec.appendChild(div);
           });
           body.appendChild(sec);
         });
-      } catch {
-        body.innerHTML = `<div style="font-size:13px;color:var(--sub);padding:8px 0">${u.error}</div>`;
-      }
+      } catch { body.innerHTML=`<div style="font-size:13px;color:var(--sub);padding:8px 0">${u.error}</div>`; }
     }
   };
-  wrap.appendChild(head);
-  wrap.appendChild(body);
+  wrap.appendChild(head); wrap.appendChild(body);
   return wrap;
 }
 
 // ── Markets ───────────────────────────────────────────────────
-async function fetchMarkets() {
+async function fetchMarkets(){
   const u = UI[lang];
-  const grid = document.getElementById('pgrid');
-  const ch = document.getElementById('charts');
+  const grid = document.getElementById('mk-grid');
   grid.innerHTML = Array(10).fill('<div class="sk sk-pcard"></div>').join('');
-  ch.innerHTML = Array(3).fill('<div class="sk sk-ch"></div>').join('');
-  try {
+  try{
     const r = await fetch('/api/webapp/markets');
     mkData = await r.json();
     renderGrid(mkData);
-    await loadCharts(mkData.slice(0,3).map(m=>m.key));
   } catch {
-    grid.innerHTML = `<div class="empty" style="grid-column:span 2"><div class="ei">⚠️</div><p>${u.loadError}</p></div>`;
-    ch.innerHTML = '';
+    grid.innerHTML=`<div class="empty" style="grid-column:span 2"><div class="ei">⚠️</div><p>${u.loadError}</p></div>`;
   }
 }
 
-function renderGrid(data) {
-  const grid = document.getElementById('pgrid');
-  grid.innerHTML = '';
+function renderGrid(data){
+  const grid = document.getElementById('mk-grid'); grid.innerHTML='';
   data.forEach(m => {
     const pct = m.change_pct;
-    const sign = pct>=0 ? '+' : '';
-    const cls = Math.abs(pct)<0.05 ? 'fl' : pct>=0 ? 'up' : 'dn';
-    const card = document.createElement('div');
-    card.className = 'pcard';
-    card.innerHTML =
+    const sign = pct>=0?'+':'';
+    const cls = Math.abs(pct)<0.05?'fl':pct>=0?'up':'dn';
+    const card = document.createElement('div'); card.className='pcard';
+    card.innerHTML=
       `<div class="pcico">${m.emoji}</div>
        <div class="pclbl">${m.label}</div>
        <div class="pcval">${m.current} <span class="pcunit">${m.unit}</span></div>
        <div class="pcchg ${cls}">${sign}${pct.toFixed(2)}%</div>`;
+    card.onclick = () => openMkDetail(m);
     grid.appendChild(card);
   });
 }
 
-async function loadCharts(keys) {
-  cachedCharts = {};
-  for (const k of keys) {
-    try {
-      const r = await fetch('/api/webapp/chart/'+k);
-      cachedCharts[k] = await r.json();
-    } catch { cachedCharts[k] = null; }
+async function openMkDetail(m){
+  currentMkKey = m.key;
+  document.getElementById('mk-grid-wrap').style.display = 'none';
+  document.getElementById('mk-detail').classList.add('on');
+
+  const chartWrap = document.getElementById('mk-chart-wrap');
+  const newsArea  = document.getElementById('mk-news');
+  chartWrap.innerHTML = '<div class="sk sk-ch" style="margin:0 14px 12px"></div>';
+  newsArea.innerHTML  = '<div class="sk sk-card"></div><div class="sk sk-card"></div>';
+
+  const pct    = m.change_pct;
+  const pctCol = pct>=0 ? (light?'#16A34A':'#22C55E') : (light?'#DC2626':'#F87171');
+  const pctStr = (pct>=0?'+':'')+pct.toFixed(2)+'%';
+
+  // Chart
+  try{
+    const r = await fetch('/api/webapp/chart/'+m.key);
+    const d = await r.json();
+    chartWrap.innerHTML=
+      `<div class="chcard">
+         <div class="chtitle">
+           <span>${d.emoji||m.emoji||''} ${d.label||m.label}</span>
+           <span class="chpct" style="color:${pctCol}">${pctStr}</span>
+         </div>
+         <canvas id="mkcv" height="150"></canvas>
+       </div>`;
+    if(detailChart){ detailChart.destroy(); detailChart=null; }
+    const prices = d.prices||[];
+    if(prices.length) _drawDetailChart(prices, d.dates, d.unit||'', pctCol);
+  } catch {
+    chartWrap.innerHTML=`<div class="empty"><div class="ei">⚠️</div><p>${UI[lang].error}</p></div>`;
   }
-  redrawCharts();
+
+  // Related news
+  try{
+    const cats = TICKER_CATS[m.key]||'global_sources';
+    const r = await fetch(`/api/webapp/news?category=${cats}&lang=${lang}&limit=8`);
+    const articles = await r.json();
+    newsArea.innerHTML = '';
+    if(!articles.length){ newsArea.innerHTML=`<div class="empty"><div class="ei">📭</div><p>${UI[lang].noNews}</p></div>`; return; }
+    articles.forEach(a => newsArea.appendChild(newsCard(a)));
+  } catch {
+    newsArea.innerHTML=`<div class="empty"><div class="ei">⚠️</div><p>${UI[lang].loadError}</p></div>`;
+  }
 }
 
-function redrawCharts() {
-  const area = document.getElementById('charts');
-  area.innerHTML = '';
-  chartInstances.forEach(c=>c.destroy());
-  chartInstances = [];
-  const tc = dark?'#8899B0':'#5A6478';
-  const gc = dark?'#252D3D':'#DDE4F0';
-  Object.entries(cachedCharts).forEach(([key,d]) => {
-    if (!d||!d.dates||!d.prices) return;
-    const mkt = mkData.find(m=>m.key===key);
-    const pct = mkt ? (mkt.change_pct>=0?'+':'')+mkt.change_pct.toFixed(2)+'%' : '';
-    const pctCol = mkt ? (mkt.change_pct>=0 ? (dark?'#22C55E':'#16A34A') : (dark?'#F87171':'#DC2626')) : tc;
-    const card = document.createElement('div');
-    card.className = 'chcard';
-    card.innerHTML =
-      `<div class="chtitle">
-         <span>${d.emoji||''} ${d.label}</span>
-         <span class="chpct" style="color:${pctCol}">${pct}</span>
-       </div>
-       <canvas id="c_${key}" height="110"></canvas>`;
-    area.appendChild(card);
-    const prices = d.prices;
-    const lineCol = prices[prices.length-1]>=prices[0]
-      ? (dark?'#22C55E':'#16A34A')
-      : (dark?'#F87171':'#DC2626');
-    const ctx = document.getElementById('c_'+key).getContext('2d');
-    chartInstances.push(new Chart(ctx,{
-      type:'line',
-      data:{labels:d.dates,datasets:[{data:prices,borderColor:lineCol,backgroundColor:lineCol+'22',borderWidth:2,fill:true,tension:.35,pointRadius:0,pointHitRadius:10}]},
-      options:{responsive:true,maintainAspectRatio:true,plugins:{legend:{display:false},tooltip:{mode:'index',intersect:false,backgroundColor:dark?'#1E2535':'#fff',borderColor:gc,borderWidth:1,titleColor:tc,bodyColor:tc,callbacks:{label:c=>`${c.parsed.y.toFixed(2)} ${d.unit||''}`}}},scales:{x:{grid:{color:gc},ticks:{color:tc,maxTicksLimit:5,maxRotation:0}},y:{grid:{color:gc},ticks:{color:tc,maxTicksLimit:5,callback:v=>v>=1000?Math.round(v/100)/10+'k':v}}}}
-    }));
+function _drawDetailChart(prices, dates, unit, pctCol){
+  const lineCol = prices[prices.length-1]>=prices[0] ? (light?'#16A34A':'#22C55E') : (light?'#DC2626':'#F87171');
+  const tc = light?'#5A6478':'#7880A0';
+  const gc = light?'#DDE4F0':'#242430';
+  const ctx = document.getElementById('mkcv').getContext('2d');
+  detailChart = new Chart(ctx,{
+    type:'line',
+    data:{labels:dates,datasets:[{data:prices,borderColor:lineCol,backgroundColor:lineCol+'22',borderWidth:2,fill:true,tension:.35,pointRadius:0,pointHitRadius:10}]},
+    options:{responsive:true,maintainAspectRatio:true,plugins:{legend:{display:false},tooltip:{mode:'index',intersect:false,backgroundColor:light?'#fff':'#111118',borderColor:gc,borderWidth:1,titleColor:tc,bodyColor:tc,callbacks:{label:c=>`${c.parsed.y.toFixed(2)} ${unit}`}}},scales:{x:{grid:{color:gc},ticks:{color:tc,maxTicksLimit:5,maxRotation:0}},y:{grid:{color:gc},ticks:{color:tc,maxTicksLimit:5,callback:v=>v>=1000?Math.round(v/100)/10+'k':v}}}}
   });
 }
 
-// ── Utils ─────────────────────────────────────────────────────
-function esc(s){
-  return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+async function redrawDetailChart(key){
+  if(!key) return;
+  const m = mkData.find(x=>x.key===key); if(!m) return;
+  const pct = m.change_pct;
+  const pctCol = pct>=0?(light?'#16A34A':'#22C55E'):(light?'#DC2626':'#F87171');
+  try{
+    const r = await fetch('/api/webapp/chart/'+key);
+    const d = await r.json();
+    if(detailChart){detailChart.destroy();detailChart=null;}
+    document.querySelector('.chtitle .chpct').style.color = pctCol;
+    if((d.prices||[]).length) _drawDetailChart(d.prices, d.dates, d.unit||'', pctCol);
+  } catch {}
 }
+
+function closeMkDetail(){ closeMkDetailSilent(); }
+function closeMkDetailSilent(){
+  if(detailChart){detailChart.destroy();detailChart=null;}
+  document.getElementById('mk-detail').classList.remove('on');
+  document.getElementById('mk-grid-wrap').style.display = '';
+  currentMkKey = null;
+}
+
+// ── Utils ─────────────────────────────────────────────────────
+function esc(s){ return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 </script>
 </body>
 </html>
