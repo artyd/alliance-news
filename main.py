@@ -4894,24 +4894,9 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);fon
   background:var(--bg);z-index:9999;transition:opacity .5s ease;
   overflow:hidden;
 }
-/* Rings expand from center around the logo */
-.splash-ring{
-  position:absolute;
-  width:72vw;height:72vw;
-  max-width:340px;max-height:340px;
-  border-radius:50%;
-  border:1.5px solid #808080;
-  animation:ring-exp 2.2s ease-out infinite;
-}
-.splash-ring2{animation-delay:.75s}
-.splash-ring3{animation-delay:1.5s}
-@keyframes ring-exp{
-  0%{transform:scale(.55);opacity:.55}
-  100%{transform:scale(2.6);opacity:0}
-}
-/* Logo — 85% screen width, no background, pulsing */
+/* Logo — 72% screen width, no background, pulsing */
 .sp-logo-img{
-  width:85vw;max-width:420px;height:auto;
+  width:72vw;max-width:360px;height:auto;
   object-fit:contain;
   z-index:2;position:relative;
   animation:logo-pulse 2s ease-in-out infinite;
@@ -5093,15 +5078,112 @@ nav button.on::after{
 /* ── EMPTY ── */
 .empty{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:60px 20px;text-align:center;gap:8px}
 .empty .ei{font-size:44px}.empty p{font-size:13.5px;color:var(--sub)}
+
+/* ── TRACKING ── */
+.trk-wrap{padding:14px}
+/* Mode toggle */
+.trk-mode-row{display:flex;gap:8px;margin-bottom:12px}
+.trk-mode-btn{
+  flex:1;padding:10px 8px;border-radius:var(--r);
+  background:var(--surface);border:1.5px solid var(--border);
+  font-size:13px;font-weight:700;color:var(--sub);cursor:pointer;transition:all .15s;
+}
+.trk-mode-btn.on{border-color:var(--text);color:var(--text);background:var(--surface2)}
+/* Container hint bar */
+.trk-cnt-hint{
+  background:var(--surface);border:1px solid var(--border);border-radius:var(--r);
+  padding:10px 14px;margin-bottom:10px;font-size:12px;color:var(--sub);line-height:1.5;
+}
+.trk-carriers{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px}
+.trk-car-btn{
+  padding:12px 8px;border-radius:var(--r);
+  background:var(--surface);border:1.5px solid var(--border);
+  font-size:13px;font-weight:700;color:var(--sub);cursor:pointer;
+  transition:all .15s;text-align:center;
+}
+.trk-car-btn.on{border-color:var(--text);color:var(--text);background:var(--surface2)}
+.trk-input-row{display:flex;gap:8px;margin-bottom:4px}
+.trk-input{
+  flex:1;padding:11px 14px;border-radius:var(--r);
+  background:var(--surface);border:1px solid var(--border);
+  color:var(--text);font-size:14px;font-family:var(--font);
+  outline:none;transition:border-color .15s;
+}
+.trk-input:focus{border-color:var(--sub)}
+.trk-go{
+  padding:11px 16px;border-radius:var(--r);
+  background:var(--green);border:none;color:#000;
+  font-size:14px;font-weight:800;cursor:pointer;white-space:nowrap;
+  transition:opacity .15s;
+}
+.trk-go:active{opacity:.8}
+.trk-result{margin-top:14px}
+.trk-error{
+  background:var(--surface);border:1px solid var(--border);border-radius:var(--r);
+  padding:16px 15px;font-size:13px;color:var(--sub);line-height:1.6;
+}
+.trk-error strong{color:var(--text);display:block;margin-bottom:6px;font-size:14px}
+.trk-error code{font-size:11.5px;color:var(--green);display:block;margin-top:8px;word-break:break-all}
+.trk-open-btn{
+  display:block;width:100%;margin-top:12px;padding:13px;border-radius:var(--r);
+  background:var(--surface2);border:1px solid var(--border);
+  color:var(--text);font-size:13px;font-weight:700;cursor:pointer;text-align:center;
+  transition:background .15s;
+}
+.trk-open-btn:active{background:var(--border)}
+.trk-delivery{
+  background:var(--surface);border:1px solid var(--border);border-radius:var(--r);
+  padding:14px 15px;margin-bottom:14px;
+  display:flex;align-items:center;gap:12px;
+}
+.trk-del-ico{font-size:28px;flex-shrink:0}
+.trk-del-info{flex:1;min-width:0}
+.trk-del-label{font-size:11.5px;color:var(--sub);margin-bottom:4px;line-height:1.4}
+.trk-del-date{font-size:16px;font-weight:800;color:var(--text)}
+.trk-timeline{display:flex;flex-direction:column}
+.trk-step{display:flex;align-items:flex-start;gap:12px;position:relative}
+.trk-step:not(:last-child)::before{
+  content:'';position:absolute;left:17px;top:36px;width:2px;
+  height:calc(100% - 12px);background:var(--border);z-index:0;
+}
+.trk-dot{
+  width:36px;height:36px;border-radius:50%;flex-shrink:0;
+  display:flex;align-items:center;justify-content:center;
+  font-size:16px;z-index:1;position:relative;
+}
+.trk-dot.done{background:#22C55E22;border:2px solid var(--green)}
+.trk-dot.active{background:var(--green);border:2px solid var(--green)}
+.trk-dot.pending{background:var(--surface2);border:2px solid var(--border)}
+.trk-step-info{padding:6px 0 18px;flex:1}
+.trk-step-title{font-size:13.5px;font-weight:700;color:var(--text);margin-bottom:2px}
+.trk-step-title.dim{color:var(--muted)}
+.trk-step-desc{font-size:12px;color:var(--sub);line-height:1.5}
+
+/* ── WIDGETS (Add tab) ── */
+.wgt-header{padding:16px 14px 10px}
+.wgt-title{font-size:16px;font-weight:800;color:var(--text);margin-bottom:3px}
+.wgt-sub{font-size:12px;color:var(--sub)}
+.wgt-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:0 14px 24px}
+.wgt-card{
+  background:var(--surface);border:1.5px solid var(--border);
+  border-radius:var(--r);padding:16px 14px 14px;
+  display:flex;flex-direction:column;gap:7px;
+  transition:border-color .15s,background .15s;min-height:104px;
+}
+.wgt-card.wgt-active{cursor:pointer}
+.wgt-card.wgt-active:active{background:var(--surface2)}
+.wgt-card.wgt-future{opacity:.5;cursor:default}
+.wgt-ico{font-size:28px;line-height:1}
+.wgt-name{font-size:13.5px;font-weight:700;color:var(--text)}
+.wgt-badge{display:inline-block;font-size:11px;font-weight:700;padding:3px 8px;border-radius:5px}
+.wgt-badge.wgt-on{background:#22C55E22;color:var(--green)}
+.wgt-badge.wgt-off{background:var(--surface2);color:var(--muted)}
 </style>
 </head>
 <body>
 
-<!-- SPLASH: logo 85% screen, pulse + grey rings, no text, no box -->
+<!-- SPLASH: logo 72% screen, pulse only, no rings, no text, no box -->
 <div id="splash">
-  <div class="splash-ring"></div>
-  <div class="splash-ring splash-ring2"></div>
-  <div class="splash-ring splash-ring3"></div>
   <img class="sp-logo-img" src="/logo.png" alt="" onerror="this.style.display='none'">
 </div>
 
@@ -5129,11 +5211,53 @@ nav button.on::after{
       <div class="rlist" id="rlist"></div>
     </div>
 
-    <!-- ADD -->
+    <!-- ADD / Widget management -->
     <div id="padd" class="panel">
-      <div class="empty">
-        <div class="ei">➕</div>
-        <p id="add-text">Додати ринки — скоро</p>
+      <div class="wgt-header">
+        <div class="wgt-title" id="wgt-title">Мої віджети</div>
+        <div class="wgt-sub" id="wgt-sub">Натисни, щоб перейти</div>
+      </div>
+      <div class="wgt-grid">
+        <div class="wgt-card wgt-active" onclick="tab('news',document.getElementById('btn-news'))">
+          <div class="wgt-ico">📰</div>
+          <div class="wgt-name" id="wgt-n-news">Новини</div>
+          <div class="wgt-badge wgt-on" id="wgt-b-active">✓ Активно</div>
+        </div>
+        <div class="wgt-card wgt-active" onclick="tab('reports',document.getElementById('btn-reports'))">
+          <div class="wgt-ico">📋</div>
+          <div class="wgt-name" id="wgt-n-reports">Звіти</div>
+          <div class="wgt-badge wgt-on">✓ Активно</div>
+        </div>
+        <div class="wgt-card wgt-active" onclick="tab('markets',document.getElementById('btn-markets'))">
+          <div class="wgt-ico">📈</div>
+          <div class="wgt-name" id="wgt-n-markets">Ринки</div>
+          <div class="wgt-badge wgt-on">✓ Активно</div>
+        </div>
+        <div class="wgt-card wgt-active" onclick="tab('tracking',document.getElementById('btn-tracking'))">
+          <div class="wgt-ico">📡</div>
+          <div class="wgt-name" id="wgt-n-tracking">Трекінг</div>
+          <div class="wgt-badge wgt-on">✓ Активно</div>
+        </div>
+        <div class="wgt-card wgt-future">
+          <div class="wgt-ico">📊</div>
+          <div class="wgt-name" id="wgt-n-analytics">Аналітика</div>
+          <div class="wgt-badge wgt-off" id="wgt-b-soon">Незабаром</div>
+        </div>
+        <div class="wgt-card wgt-future">
+          <div class="wgt-ico">💱</div>
+          <div class="wgt-name" id="wgt-n-currency">Валюти</div>
+          <div class="wgt-badge wgt-off">Незабаром</div>
+        </div>
+        <div class="wgt-card wgt-future">
+          <div class="wgt-ico">🌤</div>
+          <div class="wgt-name" id="wgt-n-weather">Погода</div>
+          <div class="wgt-badge wgt-off">Незабаром</div>
+        </div>
+        <div class="wgt-card wgt-future">
+          <div class="wgt-ico">🏭</div>
+          <div class="wgt-name" id="wgt-n-warehouse">Склад</div>
+          <div class="wgt-badge wgt-off">Незабаром</div>
+        </div>
       </div>
     </div>
 
@@ -5157,9 +5281,29 @@ nav button.on::after{
 
     <!-- TRACKING -->
     <div id="ptracking" class="panel">
-      <div class="empty">
-        <div class="ei">📡</div>
-        <p id="track-text">Трекінг — скоро</p>
+      <div class="trk-wrap">
+        <!-- Mode toggle: Parcel / Container -->
+        <div class="trk-mode-row">
+          <button class="trk-mode-btn on" id="trk-mode-parcel" onclick="setTrkMode('parcel')">📦 Посилка</button>
+          <button class="trk-mode-btn" id="trk-mode-container" onclick="setTrkMode('container')">🚢 Контейнер</button>
+        </div>
+        <!-- Carrier selector (parcel mode) -->
+        <div class="trk-carriers" id="trk-carriers-wrap">
+          <button class="trk-car-btn on" data-car="nova" onclick="selectCarrier(this)">📦 Нова Пошта</button>
+          <button class="trk-car-btn" data-car="meest" onclick="selectCarrier(this)">🚚 Meest Express</button>
+          <button class="trk-car-btn" data-car="dhl" onclick="selectCarrier(this)">✈️ DHL</button>
+          <button class="trk-car-btn" data-car="ems" onclick="selectCarrier(this)">📮 EMS</button>
+        </div>
+        <!-- Container hint (container mode) -->
+        <div class="trk-cnt-hint" id="trk-cnt-hint" style="display:none">
+          <span id="trk-cnt-hint-txt">Введіть номер контейнера (напр. MSCU1234567)</span>
+        </div>
+        <!-- Input row -->
+        <div class="trk-input-row">
+          <input class="trk-input" id="trk-num" type="text" autocomplete="off" spellcheck="false">
+          <button class="trk-go" id="trk-go" onclick="doTrack()">Знайти</button>
+        </div>
+        <div class="trk-result" id="trk-result"></div>
       </div>
     </div>
 
@@ -5228,28 +5372,40 @@ const UI = {
     loadMore:'Завантажити ще', noNews:'Новин поки немає', loadError:'Помилка завантаження',
     readFull:'Читати повністю', collapse:'Згорнути', loading:'Завантаження…',
     error:'Помилка', noData:'Немає даних', noDataYet:'Звітів поки немає',
-    addSoon:'Додати ринки — скоро', trackSoon:'Трекінг — скоро',
     news:'Новини', reports:'Звіти', add:'Додати', markets:'Ринки', tracking:'Трекінг',
     pricesNow:'📊 ЦІНИ ЗАРАЗ', relNews:"📰 ПОВ'ЯЗАНІ НОВИНИ", back:'Назад',
     openPdf:'📄 Відкрити PDF', newsCnt:' новин',
+    wgtTitle:'Мої віджети', wgtSub:'Натисни, щоб перейти',
+    wgtActive:'✓ Активно', wgtSoon:'Незабаром',
+    trkFind:'Знайти', trkPlaceholder:'Номер відправлення…',
+    trkDelivery:'Очікувана дата доставки',
+    trkCntHint:'Введіть номер контейнера (напр. MSCU1234567)',
   },
   ru:{
     loadMore:'Загрузить ещё', noNews:'Новостей пока нет', loadError:'Ошибка загрузки',
     readFull:'Читать полностью', collapse:'Свернуть', loading:'Загрузка…',
     error:'Ошибка', noData:'Нет данных', noDataYet:'Отчётов пока нет',
-    addSoon:'Добавить рынки — скоро', trackSoon:'Трекинг — скоро',
     news:'Новости', reports:'Отчёты', add:'Добавить', markets:'Рынки', tracking:'Трекинг',
     pricesNow:'📊 ЦЕНЫ СЕЙЧАС', relNews:'📰 СВЯЗАННЫЕ НОВОСТИ', back:'Назад',
     openPdf:'📄 Открыть PDF', newsCnt:' новостей',
+    wgtTitle:'Мои виджеты', wgtSub:'Нажми, чтобы перейти',
+    wgtActive:'✓ Активно', wgtSoon:'Скоро',
+    trkFind:'Найти', trkPlaceholder:'Номер отправления…',
+    trkDelivery:'Ожидаемая дата доставки',
+    trkCntHint:'Введите номер контейнера (напр. MSCU1234567)',
   },
   en:{
     loadMore:'Load more', noNews:'No news yet', loadError:'Loading error',
     readFull:'Read more', collapse:'Collapse', loading:'Loading…',
     error:'Error', noData:'No data', noDataYet:'No reports yet',
-    addSoon:'Add markets — coming soon', trackSoon:'Tracking — coming soon',
     news:'News', reports:'Reports', add:'Add', markets:'Markets', tracking:'Tracking',
     pricesNow:'📊 CURRENT PRICES', relNews:'📰 RELATED NEWS', back:'Back',
     openPdf:'📄 Open PDF', newsCnt:' news',
+    wgtTitle:'My Widgets', wgtSub:'Tap to navigate',
+    wgtActive:'✓ Active', wgtSoon:'Coming soon',
+    trkFind:'Find', trkPlaceholder:'Tracking number…',
+    trkDelivery:'Expected delivery',
+    trkCntHint:'Enter container number (e.g. MSCU1234567)',
   },
 };
 
@@ -5267,13 +5423,30 @@ function updateStaticText(){
   document.getElementById('nav-add').textContent       = u.add;
   document.getElementById('nav-markets').textContent   = u.markets;
   document.getElementById('nav-tracking').textContent  = u.tracking;
-  document.getElementById('add-text').textContent      = u.addSoon;
-  document.getElementById('track-text').textContent    = u.trackSoon;
   document.getElementById('h-prices').textContent      = u.pricesNow;
   document.getElementById('mk-news-hdr').textContent   = u.relNews;
   document.getElementById('back-lbl').textContent      = u.back;
   const lm = document.getElementById('lmore');
   if(lm.style.display !== 'none') lm.textContent = u.loadMore;
+  // Widget tab
+  document.getElementById('wgt-title').textContent    = u.wgtTitle;
+  document.getElementById('wgt-sub').textContent      = u.wgtSub;
+  document.getElementById('wgt-b-active').textContent = u.wgtActive;
+  document.querySelectorAll('.wgt-badge.wgt-on').forEach(el => el.textContent = u.wgtActive);
+  document.querySelectorAll('.wgt-badge.wgt-off').forEach(el => el.textContent = u.wgtSoon);
+  document.getElementById('wgt-n-news').textContent      = u.news;
+  document.getElementById('wgt-n-reports').textContent   = u.reports;
+  document.getElementById('wgt-n-markets').textContent   = u.markets;
+  document.getElementById('wgt-n-tracking').textContent  = u.tracking;
+  // Tracking tab
+  const trkInput = document.getElementById('trk-num');
+  if(trkInput) trkInput.placeholder = trkMode==='container'
+    ? u.trkCntHint.split('(')[0].trim() : u.trkPlaceholder;
+  const trkGo = document.getElementById('trk-go');
+  if(trkGo) trkGo.textContent = u.trkFind;
+  const cntHintEl = document.getElementById('trk-cnt-hint-txt');
+  if(cntHintEl) cntHintEl.textContent = u.trkCntHint;
+  document.getElementById('trk-result').innerHTML = '';
 }
 
 // ── Category config ───────────────────────────────────────────
@@ -5307,6 +5480,10 @@ let mkData = [], detailChart = null, currentMkKey = null;
 // ── Boot ──────────────────────────────────────────────────────
 window.addEventListener('load', () => {
   document.getElementById('lbtn').textContent = FLAGS[langIdx];
+  const trkInput = document.getElementById('trk-num');
+  if(trkInput) trkInput.placeholder = UI[lang].trkPlaceholder;
+  const cntHintEl = document.getElementById('trk-cnt-hint-txt');
+  if(cntHintEl) cntHintEl.textContent = UI[lang].trkCntHint;
   buildChips();
   fetchNews(true);
   setTimeout(() => {
@@ -5564,6 +5741,124 @@ function closeMkDetailSilent(){
   currentMkKey = null;
 }
 
+// ── Tracking ──────────────────────────────────────────────────
+let trkCarrier = 'nova';
+let trkMode = 'parcel'; // 'parcel' | 'container'
+
+function setTrkMode(mode){
+  trkMode = mode;
+  document.getElementById('trk-mode-parcel').classList.toggle('on', mode==='parcel');
+  document.getElementById('trk-mode-container').classList.toggle('on', mode==='container');
+  document.getElementById('trk-carriers-wrap').style.display = mode==='parcel' ? '' : 'none';
+  document.getElementById('trk-cnt-hint').style.display = mode==='container' ? '' : 'none';
+  document.getElementById('trk-num').value = '';
+  document.getElementById('trk-result').innerHTML = '';
+  const u = UI[lang];
+  document.getElementById('trk-num').placeholder = mode==='container'
+    ? (lang==='en'?'Container number (e.g. MSCU1234567)':lang==='ru'?'Номер контейнера (напр. MSCU1234567)':'Номер контейнера (напр. MSCU1234567)')
+    : u.trkPlaceholder;
+}
+
+function selectCarrier(btn){
+  document.querySelectorAll('.trk-car-btn').forEach(b => b.classList.remove('on'));
+  btn.classList.add('on');
+  trkCarrier = btn.dataset.car;
+  document.getElementById('trk-result').innerHTML = '';
+}
+
+async function doTrack(){
+  const raw = document.getElementById('trk-num').value.trim();
+  if(!raw){ document.getElementById('trk-num').focus(); return; }
+  const num = raw.toUpperCase().replace(/[\s\-]/g,'');
+  const res = document.getElementById('trk-result');
+  res.innerHTML =
+    '<div class="sk sk-card" style="height:80px;margin-bottom:10px"></div>' +
+    '<div class="sk sk-card" style="height:220px"></div>';
+
+  const carrier = trkMode==='container' ? 'auto' : trkCarrier;
+  try{
+    const r = await fetch(`/api/webapp/track?number=${encodeURIComponent(num)}&carrier=${carrier}`);
+    const data = await r.json();
+    res.innerHTML = renderTrackResult(data, num);
+  } catch(e) {
+    res.innerHTML = `<div class="trk-error"><strong>⚠️ Помилка мережі</strong>${esc(String(e))}</div>`;
+  }
+}
+
+function renderTrackResult(d, num){
+  if(!d.ok){
+    const hint = d.hint ? `<code>${esc(d.hint)}</code>` : '';
+    return `<div class="trk-error"><strong>⚠️ ${esc(d.error||'Помилка')}</strong>${esc(d.hint||'')}${hint}</div>`;
+  }
+
+  let html = '';
+
+  // ── Container: show line + open button ─────────────────────────────────────
+  if(d.type === 'container'){
+    const lineName = d.line || d.carrier || '';
+    html += `<div class="trk-delivery">
+      <div class="trk-del-ico">🚢</div>
+      <div class="trk-del-info">
+        <div class="trk-del-label">${esc(lineName)}</div>
+        <div class="trk-del-date">${esc(d.number||num)}</div>
+      </div>
+    </div>`;
+    if(d.status) html += `<div class="trk-error" style="margin-bottom:10px"><strong>${esc(d.status)}</strong></div>`;
+    if(d.tracking_url){
+      const btnLabel = lang==='en'?'🌐 Open tracking page':lang==='ru'?'🌐 Открыть на сайте перевозчика':'🌐 Відкрити на сайті перевізника';
+      html += `<button class="trk-open-btn" onclick="openTrkUrl('${esc(d.tracking_url)}')">${btnLabel}</button>`;
+    }
+    if(d.no_api){
+      const setupNote = lang==='en'
+        ? 'For live container status in-app, set SEVENTEEN_TRACK_KEY in .env (free at 17track.net/en/apiDoc)'
+        : lang==='ru'
+        ? 'Для отслеживания в приложении добавьте SEVENTEEN_TRACK_KEY в .env (бесплатно: 17track.net)'
+        : 'Для відстеження в додатку додайте SEVENTEEN_TRACK_KEY у .env (безкоштовно: 17track.net)';
+      html += `<div class="trk-error" style="margin-top:10px;font-size:11.5px;color:var(--muted)">${esc(setupNote)}</div>`;
+    }
+  }
+
+  // ── Parcel header ───────────────────────────────────────────────────────────
+  if(d.type === 'parcel'){
+    const carrierLabel = d.carrier || '';
+    const scheduled = d.scheduled_delivery || '';
+    const delivLabel = UI[lang].trkDelivery;
+    html += `<div class="trk-delivery">
+      <div class="trk-del-ico">📦</div>
+      <div class="trk-del-info">
+        <div class="trk-del-label">${esc(carrierLabel)} · ${esc(d.number||num)}</div>
+        <div class="trk-del-date">${esc(d.status||'')}</div>
+        ${scheduled?`<div class="trk-del-label" style="margin-top:3px">${esc(delivLabel)}: ${esc(scheduled)}</div>`:''}
+      </div>
+    </div>`;
+  }
+
+  // ── Steps timeline ──────────────────────────────────────────────────────────
+  const steps = d.steps || [];
+  if(steps.length){
+    html += '<div class="trk-timeline">';
+    steps.forEach(s => {
+      const dim = s.status==='pending' ? ' dim' : '';
+      const desc = [s.desc, s.time].filter(Boolean).join('<br>');
+      html += `<div class="trk-step">
+        <div class="trk-dot ${s.status}">${s.icon||'📍'}</div>
+        <div class="trk-step-info">
+          <div class="trk-step-title${dim}">${esc(s.title||'')}</div>
+          ${desc?`<div class="trk-step-desc">${desc}</div>`:''}
+        </div>
+      </div>`;
+    });
+    html += '</div>';
+  }
+
+  return html;
+}
+
+function openTrkUrl(url){
+  if(tg) tg.openLink(url);
+  else window.open(url, '_blank');
+}
+
 // ── Escape ─────────────────────────────────────────────────────
 function esc(s){ return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 </script>
@@ -5818,3 +6113,238 @@ async def api_chart(key: str, days: int = 30):
     }
     _ch_cache[key] = {"data": data, "ts": now}
     return data
+
+
+# ─── PARCEL & CONTAINER TRACKING ─────────────────────────────────────────────
+import re as _tre
+
+NOVA_POSHTA_API_KEY   = os.getenv("NOVA_POSHTA_API_KEY", "")
+SEVENTEEN_TRACK_KEY   = os.getenv("SEVENTEEN_TRACK_KEY", "")   # https://17track.net/en/apiDoc
+
+# ISO 6346 prefix → shipping line name + tracking URL template
+_CONTAINER_LINES: dict[str, tuple[str, str]] = {
+    "MAEU": ("Maersk",        "https://www.maersk.com/tracking/{n}"),
+    "MSKU": ("Maersk",        "https://www.maersk.com/tracking/{n}"),
+    "MRKU": ("Maersk",        "https://www.maersk.com/tracking/{n}"),
+    "MSCU": ("MSC",           "https://www.msc.com/track-a-shipment?trackingNumber={n}"),
+    "MEDU": ("MSC",           "https://www.msc.com/track-a-shipment?trackingNumber={n}"),
+    "MSDU": ("MSC",           "https://www.msc.com/track-a-shipment?trackingNumber={n}"),
+    "CMAU": ("CMA CGM",       "https://www.cma-cgm.com/ebusiness/tracking/search?SearchBy=Container&Reference={n}"),
+    "CGMU": ("CMA CGM",       "https://www.cma-cgm.com/ebusiness/tracking/search?SearchBy=Container&Reference={n}"),
+    "APLU": ("APL / CMA CGM", "https://www.cma-cgm.com/ebusiness/tracking/search?SearchBy=Container&Reference={n}"),
+    "HLCU": ("Hapag-Lloyd",   "https://www.hapag-lloyd.com/en/online-business/track/track-by-container-solution.html?container={n}"),
+    "HLBU": ("Hapag-Lloyd",   "https://www.hapag-lloyd.com/en/online-business/track/track-by-container-solution.html?container={n}"),
+    "OOLU": ("OOCL",          "https://www.oocl.com/eng/ourservices/eservices/cargotracking/Pages/cargotracking.aspx?ContainerNumber={n}"),
+    "OCLU": ("OOCL",          "https://www.oocl.com/eng/ourservices/eservices/cargotracking/Pages/cargotracking.aspx?ContainerNumber={n}"),
+    "EGLV": ("Evergreen",     "https://www.evergreen-line.com/static/jsp/tracking.jsp?cn={n}"),
+    "EGHU": ("Evergreen",     "https://www.evergreen-line.com/static/jsp/tracking.jsp?cn={n}"),
+    "COSU": ("COSCO",         "https://elines.coscoshipping.com/ebusiness/cargoTracking?trackingType=CONTAINER&number={n}"),
+    "CBHU": ("COSCO",         "https://elines.coscoshipping.com/ebusiness/cargoTracking?trackingType=CONTAINER&number={n}"),
+    "YMLU": ("Yang Ming",     "https://www.yangming.com/e-service/Track_Trace/track_trace_cargo_tracking.aspx?query_type=1&bl_no={n}"),
+    "YMMU": ("Yang Ming",     "https://www.yangming.com/e-service/Track_Trace/track_trace_cargo_tracking.aspx?query_type=1&bl_no={n}"),
+    "ONEY": ("ONE",           "https://ecomm.one-line.com/one-ecom/manage-shipment/cargo-tracking?trkQry={n}"),
+    "ONEU": ("ONE",           "https://ecomm.one-line.com/one-ecom/manage-shipment/cargo-tracking?trkQry={n}"),
+    "ZIMU": ("ZIM",           "https://www.zim.com/tools/track-a-shipment?num={n}"),
+    "NYKU": ("NYK",           "https://www.nyk.com/english/container/tracking/?type=CN&num={n}"),
+}
+_FALLBACK_TRACK_URL = "https://www.track-trace.com/container#{n}"
+
+def _is_container(num: str) -> bool:
+    return bool(_tre.match(r'^[A-Z]{4}[0-9]{7}$', num))
+
+def _is_nova_poshta(num: str) -> bool:
+    return bool(_tre.match(r'^59\d{12}$', num) or _tre.match(r'^\d{14}$', num))
+
+def _container_info(num: str) -> tuple[str, str]:
+    prefix = num[:4]
+    line, url_tpl = _CONTAINER_LINES.get(prefix, ("Unknown carrier", _FALLBACK_TRACK_URL))
+    return line, url_tpl.format(n=num)
+
+
+async def _track_nova_poshta(number: str) -> dict:
+    if not NOVA_POSHTA_API_KEY:
+        return {
+            "ok": False,
+            "error": "Nova Poshta API key not set",
+            "hint": "Додайте NOVA_POSHTA_API_KEY у .env (безкоштовно: developers.novaposhta.ua)",
+        }
+    try:
+        async with httpx.AsyncClient(timeout=12.0) as client:
+            r = await client.post(
+                "https://api.novaposhta.ua/v2.0/json/",
+                json={
+                    "apiKey": NOVA_POSHTA_API_KEY,
+                    "modelName": "TrackingDocument",
+                    "calledMethod": "getStatusDocuments",
+                    "methodProperties": {"Documents": [{"DocumentNumber": number}]},
+                },
+            )
+            data = r.json()
+    except Exception as e:
+        return {"ok": False, "error": f"Network error: {e}"}
+
+    if not data.get("success") or not data.get("data"):
+        errs = data.get("errors", [])
+        return {"ok": False, "error": errs[0] if errs else "Not found"}
+
+    doc = data["data"][0]
+    status_code = str(doc.get("StatusCode", ""))
+    status_desc = doc.get("StatusDescription", "—")
+
+    # Build timeline from NP status progression
+    STATUS_ORDER = [
+        ("1",  "📦", "Замовлення прийнято",      doc.get("CitySender", "")),
+        ("2",  "🏭", "Відправлено",               doc.get("CitySender", "")),
+        ("3",  "🚚", "В дорозі",                  ""),
+        ("4",  "🏪", "На відділенні отримувача",  doc.get("WarehouseRecipientDescription", "")),
+        ("5",  "📬", "Зберігається",              doc.get("WarehouseRecipientDescription", "")),
+        ("6",  "🔔", "Повідомлення отримувача",   ""),
+        ("7",  "✅", "Отримано",                   doc.get("CityRecipientDescription", "")),
+        ("8",  "↩️", "Повернення",                 ""),
+        ("14", "🚫", "Відмова",                    ""),
+    ]
+    reached = False
+    steps = []
+    for code, icon, title, loc in STATUS_ORDER:
+        if code == status_code:
+            reached = True
+        if reached and len(steps) == 0:
+            # first matching = current active step
+            steps.append({"status": "active", "icon": icon, "title": title, "desc": status_desc, "time": ""})
+        elif not reached:
+            steps.append({"status": "done", "icon": icon, "title": title, "desc": loc, "time": ""})
+
+    # fallback if status code not mapped
+    if not steps:
+        steps = [{"status": "active", "icon": "📦", "title": status_desc, "desc": "", "time": ""}]
+
+    # Add pending "Доставлено" if not yet delivered
+    if status_code not in ("7",):
+        steps.append({"status": "pending", "icon": "🏁", "title": "Доставлено", "desc": "Очікується", "time": ""})
+
+    return {
+        "ok": True,
+        "type": "parcel",
+        "carrier": "Нова Пошта",
+        "number": number,
+        "status": status_desc,
+        "city_recipient": doc.get("CityRecipientDescription", ""),
+        "scheduled_delivery": doc.get("ScheduledDeliveryDate", ""),
+        "actual_delivery": doc.get("ActualDeliveryDate", ""),
+        "steps": steps,
+    }
+
+
+async def _track_17track(number: str, carrier_code: int = 0) -> dict:
+    """Universal tracking via 17track.net free API (100 new trackings/month)."""
+    if not SEVENTEEN_TRACK_KEY:
+        return {
+            "ok": False,
+            "error": "17track API key not set",
+            "hint": "Додайте SEVENTEEN_TRACK_KEY у .env (безкоштовно: 17track.net/en/apiDoc)",
+        }
+    headers = {"17token": SEVENTEEN_TRACK_KEY, "Content-Type": "application/json"}
+    payload = [{"number": number}]
+    if carrier_code:
+        payload[0]["carrier"] = carrier_code
+
+    try:
+        async with httpx.AsyncClient(timeout=18.0) as client:
+            await client.post(
+                "https://api.17track.net/track/v2/register",
+                json=payload, headers=headers,
+            )
+            r = await client.post(
+                "https://api.17track.net/track/v2/getsummary",
+                json=payload, headers=headers,
+            )
+            data = r.json()
+    except Exception as e:
+        return {"ok": False, "error": f"Network error: {e}"}
+
+    if data.get("code") != 0:
+        return {"ok": False, "error": data.get("message", "API error")}
+
+    accepted = (data.get("data") or {}).get("accepted", [])
+    if not accepted:
+        rejected = (data.get("data") or {}).get("rejected", [])
+        msg = "Not found"
+        if rejected:
+            msg = (rejected[0].get("error") or {}).get("message", "Not found")
+        return {"ok": False, "error": msg}
+
+    item = accepted[0]
+    track = item.get("track") or {}
+    events = track.get("z1") or []  # z1 = tracking events list
+
+    steps = []
+    for i, ev in enumerate(events[:10]):
+        steps.append({
+            "status": "active" if i == 0 else "done",
+            "icon": "📍" if i > 0 else "🚀",
+            "title": ev.get("z", ""),
+            "desc": ev.get("l", ""),
+            "time": ev.get("a", ""),
+        })
+
+    latest = (track.get("z0") or {})
+    current_status = latest.get("z", track.get("zt", ""))
+
+    return {
+        "ok": True,
+        "type": "parcel",
+        "carrier": track.get("c", ""),
+        "number": number,
+        "status": current_status,
+        "steps": steps,
+    }
+
+
+@app.get("/api/webapp/track")
+async def api_webapp_track(number: str, carrier: str = "auto"):
+    """Unified parcel & sea-container tracking endpoint."""
+    n = number.strip().upper().replace(" ", "").replace("-", "")
+    if not n:
+        raise HTTPException(status_code=400, detail="number required")
+
+    # ── Sea container (ISO 6346: 4 letters + 7 digits) ──────────────────────
+    if _is_container(n):
+        line, tracking_url = _container_info(n)
+        if SEVENTEEN_TRACK_KEY:
+            result = await _track_17track(n, 0)
+            result["type"] = "container"
+            result["line"] = line
+            result["tracking_url"] = tracking_url
+            return result
+        # Without 17track key: return carrier info + direct link
+        return {
+            "ok": True,
+            "type": "container",
+            "number": n,
+            "carrier": line,
+            "line": line,
+            "status": "Відкрийте офіційний сайт перевізника",
+            "tracking_url": tracking_url,
+            "steps": [],
+            "no_api": True,
+        }
+
+    # ── Parcel ───────────────────────────────────────────────────────────────
+    if carrier == "nova" or (carrier == "auto" and _is_nova_poshta(n)):
+        return await _track_nova_poshta(n)
+
+    # DHL / EMS / Meest → 17track
+    if SEVENTEEN_TRACK_KEY:
+        carrier_codes = {"dhl": 2, "ems": 3, "meest": 100177}
+        code = carrier_codes.get(carrier, 0)
+        return await _track_17track(n, code)
+
+    # No API keys at all
+    return {
+        "ok": False,
+        "error": "Необхідний API ключ",
+        "hint": (
+            "Для Нової Пошти: NOVA_POSHTA_API_KEY (безкоштовно на developers.novaposhta.ua)\n"
+            "Для DHL/EMS/Meest та контейнерів: SEVENTEEN_TRACK_KEY (безкоштовно на 17track.net/en/apiDoc)"
+        ),
+    }
