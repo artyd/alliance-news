@@ -93,6 +93,8 @@ def init_db():
     cursor.execute("ALTER TABLE articles ADD COLUMN IF NOT EXISTS extraction_status TEXT DEFAULT 'pending'")
     cursor.execute("ALTER TABLE articles ADD COLUMN IF NOT EXISTS extraction_attempted_at TIMESTAMP")
     cursor.execute("ALTER TABLE articles ADD COLUMN IF NOT EXISTS final_url TEXT")
+    cursor.execute("ALTER TABLE articles ADD COLUMN IF NOT EXISTS title_ua TEXT")
+    cursor.execute("ALTER TABLE articles ADD COLUMN IF NOT EXISTS title_ru TEXT")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_articles_extraction_status ON articles(extraction_status)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_articles_category_published ON articles(category, published DESC)")
 
@@ -349,6 +351,34 @@ _CAT_LABEL_UA = {
     "good_news":      "Позитивні новини",
     "market_alerts":  "Ринковий алерт",
 }
+_CAT_LABEL_RU = {
+    "api":            "Фармацевтические субстанции",
+    "cosmetic":       "Косметика и сырьё",
+    "herbal":         "Травы и экстракты",
+    "veterinary":     "Ветеринария",
+    "food":           "Пищевое сырьё",
+    "feed":           "Кормовые аминокислоты",
+    "capsules":       "Капсулы и оболочки",
+    "pvc":            "ПВХ и упаковка",
+    "logistics":      "Логистика",
+    "global_sources": "Глобальная экономика",
+    "good_news":      "Позитивные новости",
+    "market_alerts":  "Рыночный алерт",
+}
+_CAT_LABEL_EN = {
+    "api":            "Pharma API",
+    "cosmetic":       "Cosmetics & Raw Materials",
+    "herbal":         "Herbal & Extracts",
+    "veterinary":     "Veterinary",
+    "food":           "Food Ingredients",
+    "feed":           "Feed Amino Acids",
+    "capsules":       "Capsules & Shells",
+    "pvc":            "PVC & Packaging",
+    "logistics":      "Logistics",
+    "global_sources": "Global Economy",
+    "good_news":      "Good News",
+    "market_alerts":  "Market Alert",
+}
 _CAT_EMOJI = {
     "api":            "💊", "cosmetic":       "🧴", "herbal":         "🌿",
     "veterinary":     "🐾", "food":           "🌾", "feed":           "🐄",
@@ -371,30 +401,29 @@ _CAT_HASHTAG = {
 }
 
 
-def _build_tg_msg(title: str, summary: str, category: str, link: str) -> str:
-    """
-    Build a structured, readable Telegram news message.
-
-    Format:
-    [cat_emoji] [Category]  [hashtags]
-    ━━━━━━━━━━━━━━━━━━━━━━━━
-
-    📰 [Title bold]
-
-    ✍️ [Summary italic — 3 sentences: event / global impact / Ukraine B2B]
-
-    🔗 Читати повністю
-    """
-    label   = _CAT_LABEL_UA.get(category, category.upper())
+def _build_tg_msg(title: str, summary: str, category: str, link: str,
+                  lang: str = "ua", title_ua: str = "", title_ru: str = "") -> str:
+    """Build a structured Telegram news message with language-aware title and category label."""
+    _cat_labels = {"ua": _CAT_LABEL_UA, "ru": _CAT_LABEL_RU, "en": _CAT_LABEL_EN}
+    label   = _cat_labels.get(lang, _CAT_LABEL_UA).get(category, category.upper())
     emoji   = _CAT_EMOJI.get(category, "📰")
     hashtag = _CAT_HASHTAG.get(category, f"#{category}")
     divider = "━━━━━━━━━━━━━━━━━"
+    if lang == "ru":
+        display_title = title_ru or title
+        read_more = "Читать полностью"
+    elif lang == "en":
+        display_title = title
+        read_more = "Read more"
+    else:
+        display_title = title_ua or title
+        read_more = "Читати повністю"
     return (
         f"{emoji} <b>{label}</b>  {hashtag}\n"
         f"{divider}\n\n"
-        f"📰 <b>{title}</b>\n\n"
+        f"📰 <b>{display_title}</b>\n\n"
         f"✍️ <i>{summary}</i>\n\n"
-        f"🔗 <a href=\"{link}\">Читати повністю</a>"
+        f"🔗 <a href=\"{link}\">{read_more}</a>"
     )
 
 # ─────────────────────────────────────────────
@@ -1049,51 +1078,79 @@ RULES: Each summary 60-80 words, 4-5 sentences.
 Direct, specific. No vague phrases. summary_en: English. summary_ua: Ukrainian. summary_ru: Russian."""
 
 
-async def generate_summary(text: str, category: str = ""):
-    """Generate 3-language B2B summaries via OpenAI GPT-4o-mini (Gemini fallback)."""
-    if not text:
-        return {"summary_en": text, "summary_ua": text, "summary_ru": text}
+async def generate_summary(text: str, category: str = "", title: str = ""):
+    """Generate 3-language B2B summaries + translated titles via OpenAI GPT-4o-mini (Gemini fallback)."""
+    # If both text and title are empty — nothing to do.
+    if not text and not title:
+        return {"summary_en": "", "summary_ua": "", "summary_ru": "",
+                "title_ua": "", "title_ru": ""}
 
-    prompt = CAT_SYSTEM_PROMPTS.get(category, _DEFAULT_SYSTEM_PROMPT)
+    # If only title is provided (backfill mode) — ask only for title translation.
+    title_only_mode = bool(title and not text)
+
+    base_prompt = CAT_SYSTEM_PROMPTS.get(category, _DEFAULT_SYSTEM_PROMPT)
+    if title_only_mode:
+        prompt = (
+            "You are a professional translator. Translate the given news headline into "
+            "Ukrainian and Russian. Return ONLY a raw JSON object with keys: "
+            "title_ua (Ukrainian), title_ru (Russian). No markdown, no extra text."
+        )
+        user_content = f"Headline: {title}"
+    else:
+        title_instruction = (
+            "\n\nAlso translate the news headline into Ukrainian and Russian. "
+            "Add two extra keys to the JSON: title_ua (Ukrainian translation of the title) "
+            "and title_ru (Russian translation of the title). "
+            "Total JSON keys: summary_en, summary_ua, summary_ru, title_ua, title_ru."
+        ) if title else ""
+        prompt = base_prompt + title_instruction
+        user_content = (f"Title: {title}\nArticle:\n{text[:3000]}" if title
+                        else f"Article:\n{text[:3000]}")
+
+    def _parse(parsed: dict, fallback: str) -> dict:
+        return {
+            "summary_en": parsed.get("summary_en", fallback[:200]),
+            "summary_ua": parsed.get("summary_ua", fallback[:200]),
+            "summary_ru": parsed.get("summary_ru", fallback[:200]),
+            "title_ua":   parsed.get("title_ua", title),
+            "title_ru":   parsed.get("title_ru", title),
+        }
 
     # Primary: OpenAI GPT-4o-mini
     if aclient:
-        truncated = text[:3000]
         for attempt in range(3):
             try:
                 response = await aclient.chat.completions.create(
                     model="gpt-4o-mini",
-                    max_tokens=500,
+                    max_tokens=600,
                     temperature=0.2,
                     response_format={"type": "json_object"},
                     messages=[
                         {"role": "system", "content": prompt},
-                        {"role": "user",   "content": f"Article:\n{truncated}"},
+                        {"role": "user",   "content": user_content},
                     ],
                 )
                 parsed = json.loads(response.choices[0].message.content.strip())
-                return {
-                    "summary_en": parsed.get("summary_en", text[:200]),
-                    "summary_ua": parsed.get("summary_ua", text[:200]),
-                    "summary_ru": parsed.get("summary_ru", text[:200]),
-                }
+                return _parse(parsed, text)
             except json.JSONDecodeError as e:
                 print(f"generate_summary JSON error (attempt {attempt+1}): {e}")
                 if attempt == 2:
-                    return {"summary_en": text[:200], "summary_ua": text[:200], "summary_ru": text[:200]}
+                    return {"summary_en": text[:200], "summary_ua": text[:200], "summary_ru": text[:200],
+                            "title_ua": title, "title_ru": title}
             except Exception as e:
                 print(f"generate_summary OpenAI error (attempt {attempt+1}): {e}")
                 if attempt < 2:
                     await asyncio.sleep(2)
                 else:
-                    return {"summary_en": text[:200], "summary_ua": text[:200], "summary_ru": text[:200]}
+                    return {"summary_en": text[:200], "summary_ua": text[:200], "summary_ru": text[:200],
+                            "title_ua": title, "title_ru": title}
 
     # Fallback: Gemini (if OpenAI unavailable)
     if gemini_api_key:
         try:
             model = genai.GenerativeModel("gemini-2.5-flash")
             response = await model.generate_content_async(
-                f"{prompt}\n\nArticle:\n{text[:2000]}",
+                f"{prompt}\n\n{user_content[:2000]}",
                 request_options={"timeout": 60}
             )
             raw = response.text.strip()
@@ -1105,15 +1162,12 @@ async def generate_summary(text: str, category: str = ""):
                 raw = raw[:-3]
             raw = raw.strip()
             parsed = json.loads(raw)
-            return {
-                "summary_en": parsed.get("summary_en", text[:200]),
-                "summary_ua": parsed.get("summary_ua", text[:200]),
-                "summary_ru": parsed.get("summary_ru", text[:200]),
-            }
+            return _parse(parsed, text)
         except Exception as e:
             print(f"generate_summary Gemini fallback error: {e}")
 
-    return {"summary_en": text[:200], "summary_ua": text[:200], "summary_ru": text[:200]}
+    return {"summary_en": text[:200], "summary_ua": text[:200], "summary_ru": text[:200],
+            "title_ua": title, "title_ru": title}
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -1779,6 +1833,65 @@ async def backfill_missing_facts(max_articles: int = 100):
         return_exceptions=True,
     )
     print(f"Facts backfill: done processing {len(rows)} articles.")
+
+
+async def backfill_missing_title_translations(max_articles: int = 200):
+    """Translate title_ua / title_ru for articles that still have NULL translated titles."""
+    if not aclient and not gemini_api_key:
+        return
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        rows = db_fetchall(
+            cursor,
+            """
+            SELECT id, title FROM articles
+            WHERE (title_ua IS NULL OR title_ru IS NULL)
+              AND title IS NOT NULL AND title != ''
+            ORDER BY published DESC NULLS LAST
+            LIMIT %s
+            """,
+            (max_articles,),
+        )
+        conn.close()
+    except Exception as e:
+        print(f"title translation backfill query failed: {e}")
+        return
+
+    if not rows:
+        print("Title translation backfill: nothing to do.")
+        return
+
+    print(f"Title translation backfill: translating {len(rows)} article titles…")
+
+    async def _translate_one(article_id: int, title: str):
+        try:
+            result = await generate_summary("", title=title)
+            title_ua = result.get("title_ua") or title
+            title_ru = result.get("title_ru") or title
+            conn2 = get_db_connection()
+            cur2 = conn2.cursor()
+            cur2.execute(
+                "UPDATE articles SET title_ua = %s, title_ru = %s WHERE id = %s",
+                (title_ua, title_ru, article_id),
+            )
+            conn2.commit()
+            conn2.close()
+        except Exception as e:
+            print(f"Title translation backfill error for article {article_id}: {e}")
+
+    sem = asyncio.Semaphore(5)
+
+    async def _guarded(article_id, title):
+        async with sem:
+            await _translate_one(article_id, title)
+
+    await asyncio.gather(
+        *[_guarded(r["id"] if isinstance(r, dict) else r[0],
+                   r["title"] if isinstance(r, dict) else r[1]) for r in rows],
+        return_exceptions=True,
+    )
+    print(f"Title translation backfill: done ({len(rows)} articles).")
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -4205,12 +4318,13 @@ async def _push_market_alert(title: str, body: str, link: str, emoji: str):
                 INSERT INTO articles
                     (title, link, published, category,
                      summary_en, summary_ua, summary_ru,
-                     image_url, extraction_status, facts_status)
-                VALUES (%s, %s, %s, 'market_alerts', %s, %s, %s, %s, 'skipped', 'skipped')
+                     image_url, extraction_status, facts_status,
+                     title_ua, title_ru)
+                VALUES (%s, %s, %s, 'market_alerts', %s, %s, %s, %s, 'skipped', 'skipped', %s, %s)
                 ON CONFLICT(link) DO NOTHING
                 RETURNING id
                 """,
-                (title, link, now_str, body, body, body, placeholder_image),
+                (title, link, now_str, body, body, body, placeholder_image, title, title),
             )
             inserted_row = cursor.fetchone()
             conn.commit()
@@ -4475,16 +4589,18 @@ async def fetch_and_store_news():
                     if not image_url:
                         image_url = "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?q=80&w=1200&auto=format&fit=crop"
 
-                    summaries = await generate_summary(description, category=category)
-                    sum_en = summaries.get("summary_en", description)
-                    sum_ua = summaries.get("summary_ua", description)
-                    sum_ru = summaries.get("summary_ru", description)
+                    summaries = await generate_summary(description, category=category, title=title)
+                    sum_en    = summaries.get("summary_en", description)
+                    sum_ua    = summaries.get("summary_ua", description)
+                    sum_ru    = summaries.get("summary_ru", description)
+                    title_ua  = summaries.get("title_ua", title)
+                    title_ru  = summaries.get("title_ru", title)
 
                     cursor.execute('''
-                        INSERT INTO articles (title, link, published, category, summary_en, summary_ua, summary_ru, image_url, extraction_status)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'pending')
+                        INSERT INTO articles (title, link, published, category, summary_en, summary_ua, summary_ru, image_url, extraction_status, title_ua, title_ru)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'pending', %s, %s)
                         ON CONFLICT(link) DO NOTHING
-                    ''', (title, link, published, category, sum_en, sum_ua, sum_ru, image_url))
+                    ''', (title, link, published, category, sum_en, sum_ua, sum_ru, image_url, title_ua, title_ru))
                     conn.commit()
 
                     # ── Schedule full-text extraction in the background ──
@@ -4531,7 +4647,8 @@ async def fetch_and_store_news():
                                         continue
 
                                     summary_text = summaries.get(f"summary_{lang}", sum_en)
-                                    msg = _build_tg_msg(title, summary_text, category, link)
+                                    msg = _build_tg_msg(title, summary_text, category, link,
+                                                        lang=lang, title_ua=title_ua, title_ru=title_ru)
 
                                     resp = await http_client.post(f"{TELEGRAM_API_URL}/sendMessage", json={
                                         "chat_id": chat_id,
@@ -4558,7 +4675,8 @@ async def fetch_and_store_news():
                                     if cursor.fetchone() is not None:
                                         continue
 
-                                    msg = _build_tg_msg(title, sum_ua, category, link)
+                                    msg = _build_tg_msg(title, sum_ua, category, link,
+                                                        lang="ua", title_ua=title_ua, title_ru=title_ru)
                                     resp = await http_client.post(f"{TELEGRAM_API_URL}/sendMessage", json={
                                         "chat_id": admin_chat_id,
                                         "text": msg,
@@ -4666,6 +4784,10 @@ async def lifespan(app: FastAPI):
     # Stage 2: backfill facts extraction for any articles with full_text but no facts yet.
     # Same fire-and-forget pattern.
     task_backfill_facts = asyncio.create_task(backfill_missing_facts(max_articles=100))
+
+    # Title translation backfill: translate title_ua / title_ru for articles
+    # that existed before this feature was added.
+    task_backfill_titles = asyncio.create_task(backfill_missing_title_translations(max_articles=200))
 
     # Market alerts monitor: long-running loop that checks commodity prices
     # every 30 minutes during Kyiv market hours and pushes Telegram alerts
@@ -5726,7 +5848,7 @@ function newsCard(a){
   el.innerHTML =
     `<div class="ncard-body">
        <div class="nbadge" style="background:${cfg.c}">${cfg.e} ${esc(catLabel)}</div>
-       <a class="ntitle" href="${esc(a.link)}" target="_blank" rel="noopener noreferrer">${esc(a.title)}</a>
+       <a class="ntitle" href="${esc(a.link)}" target="_blank" rel="noopener noreferrer">${esc(a['title_'+lang]||a.title)}</a>
        ${summ ? `<div class="nsumm">${esc(summ)}</div>` : ''}
        <div class="ncard-footer">
          <div class="ntime">🕐 ${ago(a.published)}</div>
@@ -6225,7 +6347,7 @@ def api_news(category: str = "all", lang: str = "ua", limit: int = 15, offset: i
     conn = get_db_connection()
     cursor = conn.cursor()
     excluded = list(INTERNAL_CATEGORIES)
-    base_cols = "id, title, link, published, category, summary_en, summary_ua, summary_ru, image_url"
+    base_cols = "id, title, title_ua, title_ru, link, published, category, summary_en, summary_ua, summary_ru, image_url"
     if category == "all":
         if excluded:
             ph = ",".join(["%s"] * len(excluded))
@@ -6301,7 +6423,7 @@ def api_report_date(date: str, lang: str = "ua"):
     params = (*excluded, date, date)
     rows = db_fetchall(cursor,
         f"""
-        SELECT title, link, published, category, summary_en, summary_ua, summary_ru
+        SELECT title, title_ua, title_ru, link, published, category, summary_en, summary_ua, summary_ru
         FROM articles
         WHERE category NOT IN ({ph})
           AND published >= %s
