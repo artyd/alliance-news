@@ -6826,7 +6826,15 @@ async def _track_nova_poshta(number: str) -> dict:
 
 
 async def _track_17track(number: str, carrier_code: int = 0) -> dict:
-    """Universal tracking via 17track.net API v2.2."""
+    """
+    Universal tracking via 17track.net API v2.2.
+
+    Key differences from old v1/getsummary:
+    - Endpoint: /gettrackinfo  (not /getsummary)
+    - Events array key: "w1"   (not "z1")
+    - Overall status:  "e"     (integer code, not "z0"/"zt" strings)
+    - Carrier name:    track["c"] or item["carrier"] (integer code fallback)
+    """
     if not SEVENTEEN_TRACK_KEY:
         return {
             "ok": False,
@@ -6834,109 +6842,153 @@ async def _track_17track(number: str, carrier_code: int = 0) -> dict:
             "hint": "Додайте SEVENTEEN_TRACK_KEY у .env (безкоштовно: 17track.net/en/apiDoc)",
         }
 
-    headers     = {"17token": SEVENTEEN_TRACK_KEY, "Content-Type": "application/json"}
-    reg_payload = [{"number": number}]
-    if carrier_code:
-        reg_payload[0]["carrier"] = carrier_code
-    sum_payload = [{"number": number}]
+    headers = {"17token": SEVENTEEN_TRACK_KEY, "Content-Type": "application/json"}
 
-    def _build_result(data: dict) -> dict | None:
-        """Parse 17track getsummary response. Returns None if rejected."""
+    # v2.2 "e" field → (icon, Ukrainian label, step status)
+    _E_STATUS: dict[int, tuple[str, str, str]] = {
+        0:  ("📦", "Немає інформації",         "pending"),
+        10: ("🚚", "В дорозі",                 "active"),
+        20: ("⏰", "Термін зберігання минув",   "fail"),
+        30: ("🏪", "Готово до отримання",       "active"),
+        35: ("⚠️", "Не вручено / Виняток",     "active"),
+        40: ("✅", "Доставлено",               "done"),
+        50: ("🔔", "Потрібна увага",            "active"),
+    }
+
+    def _parse(data: dict) -> dict | None:
+        """
+        Parse /gettrackinfo v2.2 response.
+        Returns None → caller should retry with carrier_code=0 (auto-detect).
+        """
         if data.get("code") != 0:
-            return {"ok": False, "error": data.get("message") or data.get("msg") or "API error"}
+            return {
+                "ok": False,
+                "error": data.get("message") or data.get("msg") or "API error",
+            }
 
-        accepted = (data.get("data") or {}).get("accepted", [])
+        payload  = data.get("data") or {}
+        accepted = payload.get("accepted") or []
+        rejected = payload.get("rejected") or []
+
         if not accepted:
-            rejected = (data.get("data") or {}).get("rejected", [])
             if rejected:
-                err_obj = (rejected[0].get("error") or {})
-                msg = err_obj.get("message") or err_obj.get("msg") or "Not found"
-                # "Invalid url" from 17track = wrong carrier code for this number
-                if "invalid" in msg.lower() and "url" in msg.lower():
-                    return None  # signal: retry with auto-detect
+                err = rejected[0].get("error") or {}
+                msg = err.get("message") or err.get("msg") or "Not found"
+                if "invalid" in msg.lower():
+                    return None  # wrong carrier code → signal retry
+                return {"ok": False, "error": msg}
             return {"ok": False, "error": "Not found"}
 
         item  = accepted[0]
         track = item.get("track") or {}
-        events = track.get("z1") or []
 
-        # Check if data is still pending (newly registered, not fetched yet)
-        if not events and not (track.get("z0") or {}).get("z"):
+        # ── Events: v2.2 uses "w1"; "z1" kept as fallback ────────────────────
+        events = track.get("w1") or track.get("z1") or []
+
+        # ── Overall status from integer "e" field ─────────────────────────────
+        e_code = int(track.get("e", -1))
+        e_icon, e_label, e_state = _E_STATUS.get(e_code, ("📦", "", "active"))
+
+        carrier_name = (
+            track.get("c")                        # carrier name string (preferred)
+            or str(item.get("carrier", ""))        # carrier integer code as fallback
+        )
+
+        # No events yet → newly registered, 17track hasn't fetched data yet
+        if not events:
             return {
                 "ok": True, "type": "parcel",
-                "carrier": "", "number": number,
-                "status": "Трекінг зареєстровано. Оновіть сторінку через кілька хвилин.",
+                "carrier": carrier_name, "number": number,
+                "status": "Трекінг зареєстровано. Оновіть через кілька хвилин.",
                 "steps": [{
                     "status": "active", "icon": "🔄",
                     "title": "Запит відправлено до перевізника",
-                    "desc": "Дані з'являться протягом 1–5 хвилин", "time": "",
+                    "desc": "Дані з'являться протягом 1–5 хвилин",
+                    "time": "",
                 }],
             }
 
-        sliced = events[:15]          # newest-first, cap at 15
+        # ── Build chronological step list (events come newest-first from API) ─
+        sliced = events[:15]
         total  = len(sliced)
         steps  = []
-        for i, ev in enumerate(reversed(sliced)):   # chronological
+        for i, ev in enumerate(reversed(sliced)):
             is_last = (i == total - 1)
+            # Most recent event inherits the "e"-field status/icon
+            if is_last and e_code != -1:
+                st, ico = e_state, e_icon
+            else:
+                st, ico = ("done", "📍") if not is_last else ("active", "🚀")
             steps.append({
-                "status": "active" if is_last else "done",
-                "icon":   "🚀"     if is_last else "📍",
-                "title":  ev.get("z", ""),
-                "desc":   ev.get("l", ""),
-                "time":   ev.get("a", ""),
+                "status": st,
+                "icon":   ico,
+                "title":  ev.get("z") or "",   # event description
+                "desc":   ev.get("l") or "",   # location
+                "time":   ev.get("a") or "",   # datetime string
             })
 
-        latest = track.get("z0") or {}
-        current_status = latest.get("z", "") or track.get("zt", "")
+        # Human-readable current status:
+        # Use e_label when meaningful; fall back to last event title
+        if e_label and e_code not in (0, -1):
+            current_status = e_label
+        else:
+            current_status = steps[-1]["title"] if steps else ""
+
         return {
-            "ok": True, "type": "parcel",
-            "carrier": track.get("c", ""),
-            "number": number,
-            "status": current_status,
-            "steps": steps,
+            "ok":      True,
+            "type":    "parcel",
+            "carrier": carrier_name,
+            "number":  number,
+            "status":  current_status,
+            "steps":   steps,
         }
 
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
-            # 1. Register tracking number
+
+            # 1. Register number with 17track (triggers background fetch from carrier)
+            reg = [{"number": number}]
+            if carrier_code:
+                reg[0]["carrier"] = carrier_code
             try:
                 await client.post(
                     "https://api.17track.net/track/v2.2/register",
-                    json=reg_payload, headers=headers,
+                    json=reg, headers=headers,
                 )
             except Exception:
                 pass  # non-fatal
 
-            # 2. Short wait so 17track has time to fetch data from carrier
+            # 2. Give 17track time to fetch from the actual carrier
             await asyncio.sleep(2.5)
 
-            # 3. Get summary
-            r    = await client.post(
-                "https://api.17track.net/track/v2.2/getsummary",
-                json=sum_payload, headers=headers,
+            # 3. Fetch full tracking info (v2.2 correct endpoint)
+            r      = await client.post(
+                "https://api.17track.net/track/v2.2/gettrackinfo",
+                json=[{"number": number}], headers=headers,
             )
-            data = r.json()
-            result = _build_result(data)
+            result = _parse(r.json())
 
-            # 4. If rejected with "invalid url" → retry with auto-detect carrier
+            # 4. Wrong carrier code rejected → retry with auto-detect (carrier_code=0)
             if result is None and carrier_code != 0:
-                auto_payload = [{"number": number}]
                 try:
                     await client.post(
                         "https://api.17track.net/track/v2.2/register",
-                        json=auto_payload, headers=headers,
+                        json=[{"number": number}], headers=headers,
                     )
                 except Exception:
                     pass
                 await asyncio.sleep(2.0)
-                r2    = await client.post(
-                    "https://api.17track.net/track/v2.2/getsummary",
-                    json=auto_payload, headers=headers,
+                r2     = await client.post(
+                    "https://api.17track.net/track/v2.2/gettrackinfo",
+                    json=[{"number": number}], headers=headers,
                 )
-                result = _build_result(r2.json())
+                result = _parse(r2.json())
 
             if result is None:
-                return {"ok": False, "error": "Номер не розпізнано. Перевірте правильність номера або виберіть іншого перевізника."}
+                return {
+                    "ok": False,
+                    "error": "Номер не розпізнано. Перевірте правильність або оберіть іншого перевізника.",
+                }
             return result
 
     except Exception as e:
