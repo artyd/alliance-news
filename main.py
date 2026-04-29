@@ -5305,24 +5305,35 @@ nav button.on::after{
 .trk-del-info{flex:1;min-width:0}
 .trk-del-label{font-size:11.5px;color:var(--sub);margin-bottom:4px;line-height:1.4}
 .trk-del-date{font-size:16px;font-weight:800;color:var(--text)}
-.trk-timeline{display:flex;flex-direction:column}
-.trk-step{display:flex;align-items:flex-start;gap:12px;position:relative}
+.trk-timeline{display:flex;flex-direction:column;margin-bottom:4px}
+/* Each step has a fixed minimum height so dots are always evenly spaced */
+.trk-step{
+  display:flex;align-items:flex-start;gap:13px;
+  position:relative;min-height:72px;
+}
+/* Vertical connector line — fixed top anchor (bottom of dot = top+36px), fixed bottom gap */
 .trk-step:not(:last-child)::before{
-  content:'';position:absolute;left:17px;top:36px;width:2px;
-  height:calc(100% - 12px);background:var(--border);z-index:0;
+  content:'';position:absolute;left:17px;top:37px;width:2px;
+  bottom:0;background:var(--border);z-index:0;
 }
 .trk-dot{
   width:36px;height:36px;border-radius:50%;flex-shrink:0;
   display:flex;align-items:center;justify-content:center;
-  font-size:16px;z-index:1;position:relative;
+  font-size:16px;z-index:1;position:relative;margin-top:2px;
 }
 .trk-dot.done{background:#22C55E22;border:2px solid var(--green)}
-.trk-dot.active{background:var(--green);border:2px solid var(--green)}
+.trk-dot.active{background:var(--green);border:2px solid var(--green);box-shadow:0 0 0 4px #22c55e22}
+.trk-dot.fail{background:#EF444422;border:2px solid #EF4444}
 .trk-dot.pending{background:var(--surface2);border:2px solid var(--border)}
-.trk-step-info{padding:6px 0 18px;flex:1}
-.trk-step-title{font-size:13.5px;font-weight:700;color:var(--text);margin-bottom:2px}
+.trk-step-info{padding:4px 0 20px;flex:1;min-width:0}
+.trk-step-title{font-size:13.5px;font-weight:700;color:var(--text);margin-bottom:3px;line-height:1.35}
 .trk-step-title.dim{color:var(--muted)}
-.trk-step-desc{font-size:12px;color:var(--sub);line-height:1.5}
+/* Timestamp — shown in accent green, clearly readable */
+.trk-step-time{
+  font-size:11.5px;font-weight:600;color:var(--green);
+  margin-bottom:2px;font-variant-numeric:tabular-nums;
+}
+.trk-step-desc{font-size:11.5px;color:var(--sub);line-height:1.45}
 
 /* ── SAVED SHIPMENTS ── */
 .trk-saved-wrap{margin-top:22px;border-top:1px solid var(--border);padding-top:18px}
@@ -6180,13 +6191,14 @@ function renderTrackResult(d, num){
   if(steps.length){
     html += '<div class="trk-timeline">';
     steps.forEach(s => {
-      const dim = s.status==='pending' ? ' dim' : '';
-      const desc = [s.desc, s.time].filter(Boolean).join('<br>');
+      const dim  = (s.status==='pending'||s.status==='fail') ? ' dim' : '';
+      const dotCls = s.status || 'pending';
       html += `<div class="trk-step">
-        <div class="trk-dot ${s.status}">${s.icon||'📍'}</div>
+        <div class="trk-dot ${dotCls}">${s.icon||'📍'}</div>
         <div class="trk-step-info">
           <div class="trk-step-title${dim}">${esc(s.title||'')}</div>
-          ${desc?`<div class="trk-step-desc">${desc}</div>`:''}
+          ${s.time ? `<div class="trk-step-time">🕐 ${esc(s.time)}</div>` : ''}
+          ${s.desc ? `<div class="trk-step-desc">${esc(s.desc)}</div>` : ''}
         </div>
       </div>`;
     });
@@ -6821,75 +6833,114 @@ async def _track_17track(number: str, carrier_code: int = 0) -> dict:
             "error": "17track API key not set",
             "hint": "Додайте SEVENTEEN_TRACK_KEY у .env (безкоштовно: 17track.net/en/apiDoc)",
         }
-    headers = {"17token": SEVENTEEN_TRACK_KEY, "Content-Type": "application/json"}
+
+    headers     = {"17token": SEVENTEEN_TRACK_KEY, "Content-Type": "application/json"}
     reg_payload = [{"number": number}]
     if carrier_code:
         reg_payload[0]["carrier"] = carrier_code
-
-    # getsummary uses only the number (no carrier needed)
     sum_payload = [{"number": number}]
 
+    def _build_result(data: dict) -> dict | None:
+        """Parse 17track getsummary response. Returns None if rejected."""
+        if data.get("code") != 0:
+            return {"ok": False, "error": data.get("message") or data.get("msg") or "API error"}
+
+        accepted = (data.get("data") or {}).get("accepted", [])
+        if not accepted:
+            rejected = (data.get("data") or {}).get("rejected", [])
+            if rejected:
+                err_obj = (rejected[0].get("error") or {})
+                msg = err_obj.get("message") or err_obj.get("msg") or "Not found"
+                # "Invalid url" from 17track = wrong carrier code for this number
+                if "invalid" in msg.lower() and "url" in msg.lower():
+                    return None  # signal: retry with auto-detect
+            return {"ok": False, "error": "Not found"}
+
+        item  = accepted[0]
+        track = item.get("track") or {}
+        events = track.get("z1") or []
+
+        # Check if data is still pending (newly registered, not fetched yet)
+        if not events and not (track.get("z0") or {}).get("z"):
+            return {
+                "ok": True, "type": "parcel",
+                "carrier": "", "number": number,
+                "status": "Трекінг зареєстровано. Оновіть сторінку через кілька хвилин.",
+                "steps": [{
+                    "status": "active", "icon": "🔄",
+                    "title": "Запит відправлено до перевізника",
+                    "desc": "Дані з'являться протягом 1–5 хвилин", "time": "",
+                }],
+            }
+
+        sliced = events[:15]          # newest-first, cap at 15
+        total  = len(sliced)
+        steps  = []
+        for i, ev in enumerate(reversed(sliced)):   # chronological
+            is_last = (i == total - 1)
+            steps.append({
+                "status": "active" if is_last else "done",
+                "icon":   "🚀"     if is_last else "📍",
+                "title":  ev.get("z", ""),
+                "desc":   ev.get("l", ""),
+                "time":   ev.get("a", ""),
+            })
+
+        latest = track.get("z0") or {}
+        current_status = latest.get("z", "") or track.get("zt", "")
+        return {
+            "ok": True, "type": "parcel",
+            "carrier": track.get("c", ""),
+            "number": number,
+            "status": current_status,
+            "steps": steps,
+        }
+
     try:
-        async with httpx.AsyncClient(timeout=20.0) as client:
-            # Register the number first (fire-and-forget; error ignored)
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            # 1. Register tracking number
             try:
                 await client.post(
                     "https://api.17track.net/track/v2.2/register",
                     json=reg_payload, headers=headers,
                 )
             except Exception:
-                pass  # registration failure is non-fatal
+                pass  # non-fatal
 
-            r = await client.post(
+            # 2. Short wait so 17track has time to fetch data from carrier
+            await asyncio.sleep(2.5)
+
+            # 3. Get summary
+            r    = await client.post(
                 "https://api.17track.net/track/v2.2/getsummary",
                 json=sum_payload, headers=headers,
             )
             data = r.json()
+            result = _build_result(data)
+
+            # 4. If rejected with "invalid url" → retry with auto-detect carrier
+            if result is None and carrier_code != 0:
+                auto_payload = [{"number": number}]
+                try:
+                    await client.post(
+                        "https://api.17track.net/track/v2.2/register",
+                        json=auto_payload, headers=headers,
+                    )
+                except Exception:
+                    pass
+                await asyncio.sleep(2.0)
+                r2    = await client.post(
+                    "https://api.17track.net/track/v2.2/getsummary",
+                    json=auto_payload, headers=headers,
+                )
+                result = _build_result(r2.json())
+
+            if result is None:
+                return {"ok": False, "error": "Номер не розпізнано. Перевірте правильність номера або виберіть іншого перевізника."}
+            return result
+
     except Exception as e:
         return {"ok": False, "error": f"Network error: {e}"}
-
-    if data.get("code") != 0:
-        msg = data.get("message") or data.get("msg") or "API error"
-        return {"ok": False, "error": msg}
-
-    accepted = (data.get("data") or {}).get("accepted", [])
-    if not accepted:
-        rejected = (data.get("data") or {}).get("rejected", [])
-        msg = "Not found"
-        if rejected:
-            err_obj = rejected[0].get("error") or {}
-            msg = err_obj.get("message") or err_obj.get("msg") or "Not found"
-        return {"ok": False, "error": msg}
-
-    item  = accepted[0]
-    track = item.get("track") or {}
-    # z1 = events list (newest first), z0 = latest status object
-    events = track.get("z1") or []
-
-    sliced = events[:12]  # newest-first, capped at 12
-    total  = len(sliced)
-    steps  = []
-    for i, ev in enumerate(reversed(sliced)):  # now chronological (oldest→newest)
-        is_last = (i == total - 1)
-        steps.append({
-            "status": "active" if is_last else "done",
-            "icon":   "🚀"     if is_last else "📍",
-            "title":  ev.get("z", ""),
-            "desc":   ev.get("l", ""),
-            "time":   ev.get("a", ""),
-        })
-
-    latest = track.get("z0") or {}
-    current_status = latest.get("z", "") or track.get("zt", "")
-
-    return {
-        "ok": True,
-        "type": "parcel",
-        "carrier": track.get("c", ""),
-        "number": number,
-        "status": current_status,
-        "steps": steps,
-    }
 
 
 @app.get("/api/webapp/track")
