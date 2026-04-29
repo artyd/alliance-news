@@ -237,10 +237,13 @@ GLOBAL_SOURCES = urllib.parse.quote_plus(GLOBAL_SOURCES_RAW)
 RSS_FEEDS = {
     # Pharma active ingredients: price moves, shortages, API manufacturing news.
     # Sources include pharma trade press (pharmiweb, fiercepharma, icis) + Google News.
+    # NOTE: "API price" removed — it matches OpenAI/tech API pricing. Use specific pharma terms only.
     "api": (
         "https://news.google.com/rss/search?q=%22active+pharmaceutical+ingredient%22+OR+"
-        "%22API+price%22+OR+%22pharma+raw+material%22+OR+%22drug+shortage%22+OR+"
-        "%22generic+drug+supply%22+OR+(site:pharmiweb.com)+OR+(site:fiercepharma.com)"
+        "%22pharma+raw+material%22+OR+%22pharmaceutical+raw+material+price%22+OR+"
+        "%22drug+substance+supply%22+OR+%22drug+shortage%22+OR+%22generic+drug+supply+chain%22+OR+"
+        "%22CDMO%22+OR+%22pharmaceutical+manufacturer%22+OR+%22bulk+drug+substance%22+OR+"
+        "(site:pharmiweb.com)+OR+(site:fiercepharma.com)+OR+(site:drugchannels.net)"
         "+when:5d&hl=en-US&gl=US&ceid=US:en"
     ),
     # Cosmetic ingredients: raw material prices, new regulations (EU Cosmetics), brand launches.
@@ -265,10 +268,13 @@ RSS_FEEDS = {
         "+when:5d&hl=en-US&gl=US&ceid=US:en"
     ),
     # Food ingredients: commodity price moves, food-grade additives, supply disruptions.
+    # Focused on B2B ingredient sourcing — NOT consumer food/restaurant/waste news.
     "food": (
         "https://news.google.com/rss/search?q=%22food+ingredients%22+OR+"
-        "%22food+additives+price%22+OR+%22food+grade%22+OR+"
-        "%22food+raw+materials%22+OR+(site:foodingredientsfirst.com)+OR+(site:foodnavigator.com)"
+        "%22food+additive+supply%22+OR+%22food+grade+ingredient%22+OR+"
+        "%22food+ingredient+price%22+OR+%22food+additive+manufacturer%22+OR+"
+        "%22citric+acid+price%22+OR+%22ascorbic+acid+price%22+OR+%22food+ingredient+shortage%22+OR+"
+        "(site:foodingredientsfirst.com)+OR+(site:foodnavigator.com)+OR+(site:ingredients-network.com)"
         "+when:5d&hl=en-US&gl=US&ceid=US:en"
     ),
     # Feed amino acids: lysine, methionine, threonine price and supply from China/EU.
@@ -5578,10 +5584,12 @@ nav button.on::after{
         </div>
         <!-- Step 2a: Carrier grid (parcel only) — hidden until parcel chosen -->
         <div class="trk-carriers" id="trk-carriers-wrap" style="display:none">
-          <button class="trk-car-btn" data-car="nova" onclick="selectCarrier(this)">📦 Нова Пошта</button>
+          <button class="trk-car-btn" data-car="nova"  onclick="selectCarrier(this)">📦 Нова Пошта</button>
           <button class="trk-car-btn" data-car="meest" onclick="selectCarrier(this)">🚚 Meest Express</button>
-          <button class="trk-car-btn" data-car="dhl" onclick="selectCarrier(this)">✈️ DHL</button>
-          <button class="trk-car-btn" data-car="ems" onclick="selectCarrier(this)">📮 EMS</button>
+          <button class="trk-car-btn" data-car="dhl"   onclick="selectCarrier(this)">✈️ DHL</button>
+          <button class="trk-car-btn" data-car="fedex" onclick="selectCarrier(this)">📦 FedEx</button>
+          <button class="trk-car-btn" data-car="ups"   onclick="selectCarrier(this)">🚛 UPS</button>
+          <button class="trk-car-btn" data-car="ems"   onclick="selectCarrier(this)">📮 EMS / Укрпошта</button>
         </div>
         <!-- Step 2b / 3: Input row — hidden until carrier/mode chosen -->
         <div class="trk-input-row" id="trk-input-wrap" style="display:none">
@@ -6138,7 +6146,9 @@ function renderTrackResult(d, num){
     if(d.status) html += `<div class="trk-error" style="margin-bottom:10px"><strong>${esc(d.status)}</strong></div>`;
     if(d.tracking_url){
       const btnLabel = lang==='en'?'🌐 Open tracking page':lang==='ru'?'🌐 Открыть на сайте перевозчика':'🌐 Відкрити на сайті перевізника';
-      html += `<button class="trk-open-btn" onclick="openTrkUrl('${esc(d.tracking_url)}')">${btnLabel}</button>`;
+      // Use data-url attribute so browser decodes HTML entities before JS sees the URL
+      // (direct onclick string interpolation would keep &amp; causing "Invalid URL")
+      html += `<button class="trk-open-btn" data-url="${esc(d.tracking_url)}" onclick="openTrkUrl(this.dataset.url)">${btnLabel}</button>`;
     }
     if(d.no_api){
       const setupNote = lang==='en'
@@ -6655,54 +6665,156 @@ async def _track_nova_poshta(number: str) -> dict:
 
     doc = data["data"][0]
     status_code = str(doc.get("StatusCode", ""))
-    status_desc = doc.get("StatusDescription", "—")
+    status_desc = doc.get("StatusDescription", "") or doc.get("Status", "") or "—"
 
-    # Build timeline from NP status progression
-    STATUS_ORDER = [
-        ("1",  "📦", "Замовлення прийнято",      doc.get("CitySender", "")),
-        ("2",  "🏭", "Відправлено",               doc.get("CitySender", "")),
-        ("3",  "🚚", "В дорозі",                  ""),
-        ("4",  "🏪", "На відділенні отримувача",  doc.get("WarehouseRecipientDescription", "")),
-        ("5",  "📬", "Зберігається",              doc.get("WarehouseRecipientDescription", "")),
-        ("6",  "🔔", "Повідомлення отримувача",   ""),
-        ("7",  "✅", "Отримано",                   doc.get("CityRecipientDescription", "")),
-        ("8",  "↩️", "Повернення",                 ""),
-        ("14", "🚫", "Відмова",                    ""),
-    ]
-    reached = False
+    # Service type → delivery method
+    # WarehouseWarehouse = відділення→відділення
+    # WarehouseAddress   = відділення→адреса (кур'єр до отримувача)
+    # AddressWarehouse   = адреса→відділення
+    # AddressAddress     = адреса→адреса (кур'єр від і до)
+    service_type = doc.get("ServiceType", "")
+    courier_to_recipient = service_type.endswith("Address")
+
+    # Comprehensive status code map: (icon, label, is_success, is_fail)
+    # StatusCode 14 = "Вручено отримувачу" (courier delivery), NOT "Відмова"
+    _NP_STATUS: dict[str, tuple[str, str, bool, bool]] = {
+        "1":   ("📦", "Замовлення прийнято",               False, False),
+        "2":   ("🗑️", "Видалено",                          False, True),
+        "3":   ("❓", "Не знайдено",                        False, True),
+        "4":   ("🚚", "В дорозі",                           False, False),
+        "5":   ("🏪", "Прибуло на відділення",              False, False),
+        "6":   ("⏳", "На зберіганні",                      False, False),
+        "7":   ("💳", "Очікує залучення коштів",            False, False),
+        "8":   ("↩️", "Повернення",                         False, True),
+        "9":   ("✅", "Вручено",                             True,  False),
+        "10":  ("↪️", "Переадресовано",                     False, False),
+        "11":  ("🔄", "Невдала спроба вручення",            False, False),
+        "14":  ("✅", "Вручено отримувачу",                 True,  False),
+        "41":  ("📝", "Попереднє замовлення",               False, False),
+        "101": ("📦", "Замовлення прийнято",                False, False),
+        "102": ("🏭", "Відправлено",                        False, False),
+        "103": ("🚚", "В дорозі",                           False, False),
+        "104": ("🏙️", "Прибуло в місто отримувача",         False, False),
+        "105": ("🚫", "Відмова від отримання",              False, True),
+        "106": ("↩️", "Повернення відправнику",             False, True),
+        "107": ("🏠", "Вручено кур'єром",                  True,  False),
+        "108": ("↪️", "Переадресовано",                    False, False),
+        "110": ("🔄", "Невдала спроба вручення кур'єром",  False, False),
+    }
+
+    icon, mapped_label, is_success, is_fail = _NP_STATUS.get(
+        status_code, ("📦", status_desc, False, False)
+    )
+
+    # For delivered-via-courier statuses — use more descriptive label
+    if status_code in ("9", "14") and courier_to_recipient:
+        icon, mapped_label = "🏠", "Вручено кур'єром"
+
+    # Prefer API description when it's non-trivial
+    display_label = status_desc if status_desc and status_desc != "—" else mapped_label
+
+    def _fmt_np_date(raw: str) -> str:
+        """Parse Nova Poshta date (DD.MM.YYYY HH:MM:SS or ISO) → readable string."""
+        if not raw:
+            return ""
+        for fmt in ("%d.%m.%Y %H:%M:%S", "%d.%m.%Y %H:%M", "%d.%m.%Y",
+                    "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+            try:
+                dt = datetime.datetime.strptime(raw.strip(), fmt)
+                return dt.strftime("%d.%m.%Y %H:%M") if (
+                    "H" in fmt or "T" in fmt
+                ) else dt.strftime("%d.%m.%Y")
+            except ValueError:
+                continue
+        return raw  # return as-is if parsing fails
+
+    date_created  = _fmt_np_date(doc.get("DateCreated", ""))
+    date_scan     = _fmt_np_date(doc.get("DateScan", ""))
+    date_actual   = _fmt_np_date(doc.get("ActualDeliveryDate", ""))
+    date_sched    = doc.get("ScheduledDeliveryDate", "")
+
+    city_sender    = doc.get("CitySender", "") or doc.get("CitySenderDescription", "")
+    city_recipient = doc.get("CityRecipient", "") or doc.get("CityRecipientDescription", "")
+    branch_sender  = doc.get("WarehouseSender", "") or doc.get("WarehouseSenderDescription", "")
+    branch_recip   = doc.get("WarehouseRecipient", "") or doc.get("WarehouseRecipientDescription", "")
+
+    # ── Build timeline steps ──────────────────────────────────────────────────
     steps = []
-    for code, icon, title, loc in STATUS_ORDER:
-        if code == status_code:
-            reached = True
-        if reached and len(steps) == 0:
-            # first matching = current active step
-            steps.append({"status": "active", "icon": icon, "title": title, "desc": status_desc, "time": ""})
-        elif not reached:
-            steps.append({"status": "done", "icon": icon, "title": title, "desc": loc, "time": ""})
 
-    # fallback if status code not mapped
-    if not steps:
-        steps = [{"status": "active", "icon": "📦", "title": status_desc, "desc": "", "time": ""}]
+    # Step: Created
+    steps.append({
+        "status": "done",
+        "icon": "📦",
+        "title": "Замовлення прийнято",
+        "desc": city_sender + (f" · {branch_sender}" if branch_sender else ""),
+        "time": date_created,
+    })
 
-    # Add pending "Доставлено" if not yet delivered
-    if status_code not in ("7",):
-        steps.append({"status": "pending", "icon": "🏁", "title": "Доставлено", "desc": "Очікується", "time": ""})
+    # Step: Sent (add only if we're past the "accepted" stage)
+    _past_sent = {"4","5","6","7","9","10","11","14",
+                  "103","104","105","106","107","108","110"}
+    if status_code in _past_sent:
+        steps.append({
+            "status": "done",
+            "icon": "🚛",
+            "title": "Відправлено",
+            "desc": city_sender,
+            "time": "",
+        })
+
+    # Step: In transit (add if we're at branch-arrival or later)
+    _past_transit = {"5","6","7","9","10","11","14",
+                     "104","105","106","107","108","110"}
+    if status_code in _past_transit and status_code not in ("5","104"):
+        steps.append({
+            "status": "done",
+            "icon": "🚚",
+            "title": "В дорозі",
+            "desc": "",
+            "time": "",
+        })
+
+    # Step: Current status (main event) — skip if it duplicates "created"
+    if status_code not in ("1", "41", "101"):
+        step_st = "fail" if is_fail else ("done" if is_success else "active")
+        steps.append({
+            "status": step_st,
+            "icon": icon,
+            "title": display_label,
+            "desc": (city_recipient + (f" · {branch_recip}" if branch_recip else "")) or "",
+            "time": date_actual or date_scan,
+        })
+
+    # Step: Pending delivery (only if not yet terminal)
+    if not is_success and not is_fail:
+        if courier_to_recipient:
+            pending_label = "Вручення кур'єром"
+        else:
+            pending_label = "Готово до отримання у відділенні"
+        steps.append({
+            "status": "pending",
+            "icon": "🏁",
+            "title": pending_label,
+            "desc": f"Очікується: {date_sched}" if date_sched else "Очікується",
+            "time": "",
+        })
 
     return {
         "ok": True,
         "type": "parcel",
         "carrier": "Нова Пошта",
         "number": number,
-        "status": status_desc,
-        "city_recipient": doc.get("CityRecipientDescription", ""),
-        "scheduled_delivery": doc.get("ScheduledDeliveryDate", ""),
-        "actual_delivery": doc.get("ActualDeliveryDate", ""),
+        "status": display_label,
+        "city_sender": city_sender,
+        "city_recipient": city_recipient,
+        "scheduled_delivery": date_sched,
+        "actual_delivery": date_actual,
         "steps": steps,
     }
 
 
 async def _track_17track(number: str, carrier_code: int = 0) -> dict:
-    """Universal tracking via 17track.net free API (100 new trackings/month)."""
+    """Universal tracking via 17track.net API v2.2."""
     if not SEVENTEEN_TRACK_KEY:
         return {
             "ok": False,
@@ -6710,51 +6822,65 @@ async def _track_17track(number: str, carrier_code: int = 0) -> dict:
             "hint": "Додайте SEVENTEEN_TRACK_KEY у .env (безкоштовно: 17track.net/en/apiDoc)",
         }
     headers = {"17token": SEVENTEEN_TRACK_KEY, "Content-Type": "application/json"}
-    payload = [{"number": number}]
+    reg_payload = [{"number": number}]
     if carrier_code:
-        payload[0]["carrier"] = carrier_code
+        reg_payload[0]["carrier"] = carrier_code
+
+    # getsummary uses only the number (no carrier needed)
+    sum_payload = [{"number": number}]
 
     try:
-        async with httpx.AsyncClient(timeout=18.0) as client:
-            await client.post(
-                "https://api.17track.net/track/v2/register",
-                json=payload, headers=headers,
-            )
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            # Register the number first (fire-and-forget; error ignored)
+            try:
+                await client.post(
+                    "https://api.17track.net/track/v2.2/register",
+                    json=reg_payload, headers=headers,
+                )
+            except Exception:
+                pass  # registration failure is non-fatal
+
             r = await client.post(
-                "https://api.17track.net/track/v2/getsummary",
-                json=payload, headers=headers,
+                "https://api.17track.net/track/v2.2/getsummary",
+                json=sum_payload, headers=headers,
             )
             data = r.json()
     except Exception as e:
         return {"ok": False, "error": f"Network error: {e}"}
 
     if data.get("code") != 0:
-        return {"ok": False, "error": data.get("message", "API error")}
+        msg = data.get("message") or data.get("msg") or "API error"
+        return {"ok": False, "error": msg}
 
     accepted = (data.get("data") or {}).get("accepted", [])
     if not accepted:
         rejected = (data.get("data") or {}).get("rejected", [])
         msg = "Not found"
         if rejected:
-            msg = (rejected[0].get("error") or {}).get("message", "Not found")
+            err_obj = rejected[0].get("error") or {}
+            msg = err_obj.get("message") or err_obj.get("msg") or "Not found"
         return {"ok": False, "error": msg}
 
-    item = accepted[0]
+    item  = accepted[0]
     track = item.get("track") or {}
-    events = track.get("z1") or []  # z1 = tracking events list
+    # z1 = events list (newest first), z0 = latest status object
+    events = track.get("z1") or []
 
-    steps = []
-    for i, ev in enumerate(events[:10]):
+    sliced = events[:12]  # newest-first, capped at 12
+    total  = len(sliced)
+    steps  = []
+    for i, ev in enumerate(reversed(sliced)):  # now chronological (oldest→newest)
+        is_last = (i == total - 1)
         steps.append({
-            "status": "active" if i == 0 else "done",
-            "icon": "📍" if i > 0 else "🚀",
-            "title": ev.get("z", ""),
-            "desc": ev.get("l", ""),
-            "time": ev.get("a", ""),
+            "status": "active" if is_last else "done",
+            "icon":   "🚀"     if is_last else "📍",
+            "title":  ev.get("z", ""),
+            "desc":   ev.get("l", ""),
+            "time":   ev.get("a", ""),
         })
 
-    latest = (track.get("z0") or {})
-    current_status = latest.get("z", track.get("zt", ""))
+    latest = track.get("z0") or {}
+    current_status = latest.get("z", "") or track.get("zt", "")
 
     return {
         "ok": True,
@@ -6776,33 +6902,49 @@ async def api_webapp_track(number: str, carrier: str = "auto"):
     # ── Sea container (ISO 6346: 4 letters + 7 digits) ──────────────────────
     if _is_container(n):
         line, tracking_url = _container_info(n)
-        if SEVENTEEN_TRACK_KEY:
-            result = await _track_17track(n, 0)
-            result["type"] = "container"
-            result["line"] = line
-            result["tracking_url"] = tracking_url
-            return result
-        # Without 17track key: return carrier info + direct link
-        return {
+        base = {
             "ok": True,
             "type": "container",
             "number": n,
             "carrier": line,
             "line": line,
-            "status": "Відкрийте офіційний сайт перевізника",
             "tracking_url": tracking_url,
-            "steps": [],
-            "no_api": True,
         }
+        if SEVENTEEN_TRACK_KEY:
+            result = await _track_17track(n, 0)
+            # Always keep tracking_url and container metadata regardless of 17track result
+            result["type"] = "container"
+            result["line"] = line
+            result["tracking_url"] = tracking_url
+            if not result.get("ok"):
+                # 17track failed — still return usable container result with link
+                result["ok"] = True
+                result.setdefault("status", "Відкрийте офіційний сайт перевізника")
+                result.setdefault("steps", [])
+                result.pop("error", None)
+                result.pop("hint", None)
+            return result
+        # No 17track key — return link only
+        base["status"] = "Відкрийте офіційний сайт перевізника"
+        base["steps"] = []
+        base["no_api"] = True
+        return base
 
     # ── Parcel ───────────────────────────────────────────────────────────────
     if carrier == "nova" or (carrier == "auto" and _is_nova_poshta(n)):
         return await _track_nova_poshta(n)
 
-    # DHL / EMS / Meest → 17track
+    # DHL / FedEx / UPS / EMS / Meest → 17track
+    # Carrier codes per 17track API: 0=auto, 2=DHL, 4=UPS, 100003=FedEx, 100162=Meest
+    _CARRIER_CODES = {
+        "dhl":   2,
+        "ups":   4,
+        "fedex": 100003,
+        "ems":   3,
+        "meest": 100162,
+    }
     if SEVENTEEN_TRACK_KEY:
-        carrier_codes = {"dhl": 2, "ems": 3, "meest": 100177}
-        code = carrier_codes.get(carrier, 0)
+        code = _CARRIER_CODES.get(carrier, 0)
         return await _track_17track(n, code)
 
     # No API keys at all
@@ -6811,7 +6953,7 @@ async def api_webapp_track(number: str, carrier: str = "auto"):
         "error": "Необхідний API ключ",
         "hint": (
             "Для Нової Пошти: NOVA_POSHTA_API_KEY (безкоштовно на developers.novaposhta.ua)\n"
-            "Для DHL/EMS/Meest та контейнерів: SEVENTEEN_TRACK_KEY (безкоштовно на 17track.net/en/apiDoc)"
+            "Для DHL/FedEx/UPS/EMS/Meest та контейнерів: SEVENTEEN_TRACK_KEY (безкоштовно на 17track.net/en/apiDoc)"
         ),
     }
 
