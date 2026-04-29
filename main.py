@@ -6901,7 +6901,7 @@ async def _track_17track(number: str, carrier_code: int = 0) -> dict:
                 "carrier": carrier_name, "number": number,
                 "status": "Трекінг зареєстровано. Оновіть через кілька хвилин.",
                 "steps": [{
-                    "status": "active", "icon": "🔄",
+                    "status": "pending", "icon": "🔄",
                     "title": "Запит відправлено до перевізника",
                     "desc": "Дані з'являться протягом 1–5 хвилин",
                     "time": "",
@@ -6958,17 +6958,26 @@ async def _track_17track(number: str, carrier_code: int = 0) -> dict:
             except Exception:
                 pass  # non-fatal
 
-            # 2. Give 17track time to fetch from the actual carrier
-            await asyncio.sleep(2.5)
+            # 2. Polling loop: give 17track time to fetch from the actual carrier.
+            # Up to 5 attempts, 3 s apart. Break early if real events are received.
+            result = None
+            for _attempt in range(5):
+                await asyncio.sleep(3.0)
+                r = await client.post(
+                    "https://api.17track.net/track/v2.2/gettrackinfo",
+                    json=[{"number": number}], headers=headers,
+                )
+                result = _parse(r.json())
+                # Break when we have a real result with actual events
+                if (
+                    result is not None
+                    and result.get("ok")
+                    and result.get("steps")
+                    and result["steps"][0].get("status") != "pending"
+                ):
+                    break
 
-            # 3. Fetch full tracking info (v2.2 correct endpoint)
-            r      = await client.post(
-                "https://api.17track.net/track/v2.2/gettrackinfo",
-                json=[{"number": number}], headers=headers,
-            )
-            result = _parse(r.json())
-
-            # 4. Wrong carrier code rejected → retry with auto-detect (carrier_code=0)
+            # 3. Wrong carrier code rejected → retry with auto-detect (carrier_code=0)
             if result is None and carrier_code != 0:
                 try:
                     await client.post(
@@ -6977,12 +6986,22 @@ async def _track_17track(number: str, carrier_code: int = 0) -> dict:
                     )
                 except Exception:
                     pass
-                await asyncio.sleep(2.0)
-                r2     = await client.post(
-                    "https://api.17track.net/track/v2.2/gettrackinfo",
-                    json=[{"number": number}], headers=headers,
-                )
-                result = _parse(r2.json())
+                # Fallback polling: 3 iterations
+                result = None
+                for _attempt in range(3):
+                    await asyncio.sleep(3.0)
+                    r2 = await client.post(
+                        "https://api.17track.net/track/v2.2/gettrackinfo",
+                        json=[{"number": number}], headers=headers,
+                    )
+                    result = _parse(r2.json())
+                    if (
+                        result is not None
+                        and result.get("ok")
+                        and result.get("steps")
+                        and result["steps"][0].get("status") != "pending"
+                    ):
+                        break
 
             if result is None:
                 return {
