@@ -196,6 +196,7 @@ def init_db():
             carrier_name VARCHAR(150) DEFAULT '',
             status_text TEXT DEFAULT '',
             tracking_url TEXT DEFAULT '',
+            steps_json TEXT DEFAULT '',
             is_delivered BOOLEAN DEFAULT FALSE,
             added_at TIMESTAMPTZ DEFAULT NOW(),
             delivered_at TIMESTAMPTZ,
@@ -204,6 +205,12 @@ def init_db():
         )
     ''')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_tsv_user ON tracked_shipments(user_id, is_delivered)')
+    # Migration: add steps_json if missing (safe on existing DBs)
+    try:
+        cursor.execute("ALTER TABLE tracked_shipments ADD COLUMN IF NOT EXISTS steps_json TEXT DEFAULT ''")
+        conn.commit()
+    except Exception:
+        conn.rollback()
 
     conn.commit()
     cursor.close()
@@ -5279,7 +5286,7 @@ nav button.on::after{
 }
 .trk-radar-center{
   position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
-  font-size:26px;z-index:2;
+  font-size:40px;z-index:2;
 }
 .trk-loading-txt{font-size:13.5px;font-weight:600;color:var(--sub)}
 .trk-result{margin-top:14px}
@@ -5336,7 +5343,7 @@ nav button.on::after{
 .trk-step-desc{font-size:11.5px;color:var(--sub);line-height:1.45}
 
 /* ── SAVED SHIPMENTS ── */
-.trk-saved-wrap{margin-top:22px;border-top:1px solid var(--border);padding-top:18px}
+.trk-saved-wrap{margin-top:0;padding-top:0}
 .trk-sec-hdr{
   font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:1.2px;
   color:var(--sub);margin-bottom:10px;display:flex;align-items:center;gap:6px;
@@ -5373,6 +5380,43 @@ nav button.on::after{
 }
 .trk-save-btn:active{background:var(--surface2)}
 .trk-save-btn:disabled{opacity:.5;cursor:default;border-color:var(--border);color:var(--sub)}
+
+/* ── TRACKING SUB-TABS ── */
+.trk-subtab-row{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px}
+.trk-subtab{
+  padding:11px 8px;border-radius:var(--r);
+  background:var(--surface);border:1.5px solid var(--border);
+  font-size:13px;font-weight:700;color:var(--sub);cursor:pointer;
+  transition:all .15s;text-align:center;
+}
+.trk-subtab.on{border-color:var(--green);color:var(--text);background:var(--surface2)}
+.trk-find-pane{}
+.trk-list-pane{display:none}
+
+/* ── TRACKING DETAIL VIEW ── */
+.trk-detail-back{
+  display:flex;align-items:center;gap:8px;margin-bottom:14px;
+  font-size:13px;font-weight:700;color:var(--sub);cursor:pointer;
+  padding:8px 0;
+}
+.trk-detail-back:active{color:var(--text)}
+.trk-detail-back span{font-size:18px;line-height:1}
+.trk-refresh-btn{
+  display:block;width:100%;margin-top:14px;padding:13px;border-radius:var(--r);
+  background:var(--surface);border:1.5px solid var(--border);
+  color:var(--sub);font-size:14px;font-weight:700;cursor:pointer;text-align:center;
+  transition:background .15s,opacity .15s;
+}
+.trk-refresh-btn:active{background:var(--surface2)}
+.trk-refresh-btn:disabled{opacity:.5;cursor:default}
+.trk-auto-refresh{
+  margin-top:12px;padding:10px 14px;border-radius:var(--r);
+  background:var(--surface2);border:1px solid var(--border);
+  font-size:12px;color:var(--sub);text-align:center;
+}
+.trk-list-empty{
+  padding:40px 20px;text-align:center;color:var(--muted);font-size:13px;line-height:1.6;
+}
 
 /* ── WIDGETS (Add tab) ── */
 .wgt-header{padding:16px 14px 10px}
@@ -5582,34 +5626,58 @@ nav button.on::after{
     <!-- TRACKING -->
     <div id="ptracking" class="panel">
       <div class="trk-wrap">
-        <!-- Step 1: Mode selection — always visible -->
-        <div class="trk-mode-row">
-          <button class="trk-mode-btn" id="trk-mode-parcel" onclick="setTrkMode('parcel')">
-            <span class="trk-mode-ico">📦</span>
-            <span id="trk-lbl-parcel">Посилка</span>
-          </button>
-          <button class="trk-mode-btn" id="trk-mode-container" onclick="setTrkMode('container')">
-            <span class="trk-mode-ico">🚢</span>
-            <span id="trk-lbl-container">Контейнер</span>
-          </button>
+
+        <!-- Sub-tabs: Find | My Parcels -->
+        <div class="trk-subtab-row">
+          <button class="trk-subtab on" id="trk-sub-find"  onclick="trkSubTab('find')">🔍 <span id="trk-sub-lbl-find">Знайти</span></button>
+          <button class="trk-subtab"    id="trk-sub-list"  onclick="trkSubTab('list')">📋 <span id="trk-sub-lbl-list">Мої посилки</span></button>
         </div>
-        <!-- Step 2a: Carrier grid (parcel only) — hidden until parcel chosen -->
-        <div class="trk-carriers" id="trk-carriers-wrap" style="display:none">
-          <button class="trk-car-btn" data-car="nova"  onclick="selectCarrier(this)">📦 Нова Пошта</button>
-          <button class="trk-car-btn" data-car="meest" onclick="selectCarrier(this)">🚚 Meest Express</button>
-          <button class="trk-car-btn" data-car="dhl"   onclick="selectCarrier(this)">✈️ DHL</button>
-          <button class="trk-car-btn" data-car="fedex" onclick="selectCarrier(this)">📦 FedEx</button>
-          <button class="trk-car-btn" data-car="ups"   onclick="selectCarrier(this)">🚛 UPS</button>
-          <button class="trk-car-btn" data-car="ems"   onclick="selectCarrier(this)">📮 EMS / Укрпошта</button>
+
+        <!-- FIND PANE -->
+        <div class="trk-find-pane" id="trk-find-pane">
+          <!-- Step 1: Mode selection -->
+          <div class="trk-mode-row">
+            <button class="trk-mode-btn" id="trk-mode-parcel" onclick="setTrkMode('parcel')">
+              <span class="trk-mode-ico">📦</span>
+              <span id="trk-lbl-parcel">Посилка</span>
+            </button>
+            <button class="trk-mode-btn" id="trk-mode-container" onclick="setTrkMode('container')">
+              <span class="trk-mode-ico">🚢</span>
+              <span id="trk-lbl-container">Контейнер</span>
+            </button>
+          </div>
+          <!-- Step 2a: Carrier grid (parcel only) -->
+          <div class="trk-carriers" id="trk-carriers-wrap" style="display:none">
+            <button class="trk-car-btn" data-car="nova"  onclick="selectCarrier(this)">📦 Нова Пошта</button>
+            <button class="trk-car-btn" data-car="meest" onclick="selectCarrier(this)">🚚 Meest Express</button>
+            <button class="trk-car-btn" data-car="dhl"   onclick="selectCarrier(this)">✈️ DHL</button>
+            <button class="trk-car-btn" data-car="fedex" onclick="selectCarrier(this)">📦 FedEx</button>
+            <button class="trk-car-btn" data-car="ups"   onclick="selectCarrier(this)">🚛 UPS</button>
+            <button class="trk-car-btn" data-car="ems"   onclick="selectCarrier(this)">📮 EMS / Укрпошта</button>
+          </div>
+          <!-- Step 2b / 3: Input row -->
+          <div class="trk-input-row" id="trk-input-wrap" style="display:none">
+            <input class="trk-input" id="trk-num" type="text" autocomplete="off" spellcheck="false">
+            <button class="trk-go" id="trk-go" onclick="doTrack()">Знайти</button>
+          </div>
+          <div class="trk-result" id="trk-result"></div>
         </div>
-        <!-- Step 2b / 3: Input row — hidden until carrier/mode chosen -->
-        <div class="trk-input-row" id="trk-input-wrap" style="display:none">
-          <input class="trk-input" id="trk-num" type="text" autocomplete="off" spellcheck="false">
-          <button class="trk-go" id="trk-go" onclick="doTrack()">Знайти</button>
+
+        <!-- MY PARCELS PANE -->
+        <div class="trk-list-pane" id="trk-list-pane">
+          <!-- Detail view (hidden by default) -->
+          <div id="trk-detail-view" style="display:none">
+            <div class="trk-detail-back" onclick="closeDetail()">
+              <span>&#8592;</span> <span id="trk-detail-back-lbl">Назад</span>
+            </div>
+            <div id="trk-detail-content"></div>
+          </div>
+          <!-- List view -->
+          <div id="trk-list-view">
+            <div id="trk-saved"></div>
+          </div>
         </div>
-        <div class="trk-result" id="trk-result"></div>
-        <!-- Saved shipments (active + archive) -->
-        <div id="trk-saved"></div>
+
       </div>
     </div>
 
@@ -5691,6 +5759,10 @@ const UI = {
     trkSave:'📌 Зберегти в мій список', trkSaved:'✓ Збережено',
     trkActive:'🟢 Активні', trkArchive:'📦 Архів', trkNoSaved:'Немає збережених відправлень',
     trkUpdated:'Оновлено',
+    trkSubFind:'🔍 Знайти', trkSubList:'📋 Мої посилки',
+    trkRefresh:'🔄 Оновити статус',
+    trkAutoCheck:'Дані реєструються… автоматично перевіримо через',
+    trkEmptyList:'Ще немає збережених посилок.\nЗнайдіть посилку і натисніть «Зберегти».',
   },
   ru:{
     loadMore:'Загрузить ещё', noNews:'Новостей пока нет', loadError:'Ошибка загрузки',
@@ -5709,6 +5781,10 @@ const UI = {
     trkSave:'📌 Сохранить в мой список', trkSaved:'✓ Сохранено',
     trkActive:'🟢 Активные', trkArchive:'📦 Архив', trkNoSaved:'Нет сохранённых отправлений',
     trkUpdated:'Обновлено',
+    trkSubFind:'🔍 Найти', trkSubList:'📋 Мои посылки',
+    trkRefresh:'🔄 Обновить статус',
+    trkAutoCheck:'Данные регистрируются… автоматически проверим через',
+    trkEmptyList:'Сохранённых посылок пока нет.\nНайдите посылку и нажмите «Сохранить».',
   },
   en:{
     loadMore:'Load more', noNews:'No news yet', loadError:'Loading error',
@@ -5727,6 +5803,10 @@ const UI = {
     trkSave:'📌 Save to my list', trkSaved:'✓ Saved',
     trkActive:'🟢 Active', trkArchive:'📦 Archive', trkNoSaved:'No saved shipments',
     trkUpdated:'Updated',
+    trkSubFind:'🔍 Find', trkSubList:'📋 My Parcels',
+    trkRefresh:'🔄 Refresh status',
+    trkAutoCheck:'Registering… will auto-check in',
+    trkEmptyList:'No saved parcels yet.\nFind a parcel and tap Save.',
   },
 };
 
@@ -5770,6 +5850,11 @@ function updateStaticText(){
   if(trkInput && trkMode==='container') trkInput.placeholder = u.trkCntHint;
   else if(trkInput && trkCarrier) trkInput.placeholder = u.trkPlaceholder;
   document.getElementById('trk-result').innerHTML = '';
+  // Sub-tab labels
+  const sfLbl = document.getElementById('trk-sub-lbl-find');
+  if(sfLbl) sfLbl.textContent = u.trkSubFind || u.trkFind;
+  const slLbl = document.getElementById('trk-sub-lbl-list');
+  if(slLbl) slLbl.textContent = u.trkSubList || 'My Parcels';
 }
 
 // ── Category config ───────────────────────────────────────────
@@ -6062,35 +6147,41 @@ function closeMkDetailSilent(){
 }
 
 // ── Tracking ──────────────────────────────────────────────────
-let trkCarrier = null;  // null = not yet chosen
-let trkMode = null;     // null = not yet chosen
+let trkCarrier = null;
+let trkMode = null;
+let _lastTrkData = null;
+let _trkAutoRetryTimer = null;
+let _savedShipmentsCache = {active:[], archive:[]};
+
+// ── Sub-tab switching ─────────────────────────────────────────
+function trkSubTab(tab){
+  const isFind = tab === 'find';
+  document.getElementById('trk-sub-find').classList.toggle('on', isFind);
+  document.getElementById('trk-sub-list').classList.toggle('on', !isFind);
+  document.getElementById('trk-find-pane').style.display = isFind ? '' : 'none';
+  document.getElementById('trk-list-pane').style.display = isFind ? 'none' : '';
+  if(!isFind) loadSavedShipments();
+}
 
 function _trkReset(){
   document.getElementById('trk-num').value = '';
   document.getElementById('trk-result').innerHTML = '';
+  if(_trkAutoRetryTimer){ clearTimeout(_trkAutoRetryTimer); _trkAutoRetryTimer = null; }
 }
 
 function setTrkMode(mode){
   trkMode = mode;
   trkCarrier = null;
-
-  // Highlight chosen mode button
   document.getElementById('trk-mode-parcel').classList.toggle('on', mode==='parcel');
   document.getElementById('trk-mode-container').classList.toggle('on', mode==='container');
-
-  // Reset carrier buttons
   document.querySelectorAll('.trk-car-btn').forEach(b => b.classList.remove('on'));
-
   if(mode === 'parcel'){
-    // Show carrier grid, hide input until carrier chosen
     document.getElementById('trk-carriers-wrap').style.display = '';
     document.getElementById('trk-input-wrap').style.display = 'none';
   } else {
-    // Container: no carrier step, show input directly
     document.getElementById('trk-carriers-wrap').style.display = 'none';
     document.getElementById('trk-input-wrap').style.display = '';
-    const u = UI[lang];
-    document.getElementById('trk-num').placeholder = u.trkCntHint;
+    document.getElementById('trk-num').placeholder = UI[lang].trkCntHint;
     setTimeout(() => document.getElementById('trk-num').focus(), 80);
   }
   _trkReset();
@@ -6100,7 +6191,6 @@ function selectCarrier(btn){
   document.querySelectorAll('.trk-car-btn').forEach(b => b.classList.remove('on'));
   btn.classList.add('on');
   trkCarrier = btn.dataset.car;
-  // Reveal input field
   document.getElementById('trk-input-wrap').style.display = '';
   document.getElementById('trk-num').placeholder = UI[lang].trkPlaceholder;
   _trkReset();
@@ -6113,7 +6203,6 @@ async function doTrack(){
   const num = raw.toUpperCase().replace(/[\s\-]/g,'');
   const res = document.getElementById('trk-result');
   const ico = trkMode==='container' ? '🚢' : '📦';
-  const searchTxt = UI[lang].trkSearching;
   res.innerHTML =
     `<div class="trk-loading">
        <div class="trk-radar">
@@ -6122,7 +6211,7 @@ async function doTrack(){
          <div class="trk-radar-ring"></div>
          <div class="trk-radar-center">${ico}</div>
        </div>
-       <div class="trk-loading-txt">${esc(searchTxt)}</div>
+       <div class="trk-loading-txt">${esc(UI[lang].trkSearching)}</div>
      </div>`;
 
   const carrier = trkMode==='container' ? 'auto' : trkCarrier;
@@ -6130,21 +6219,63 @@ async function doTrack(){
     const r = await fetch(`/api/webapp/track?number=${encodeURIComponent(num)}&carrier=${carrier}`);
     const data = await r.json();
     res.innerHTML = renderTrackResult(data, num);
+    // Auto-retry if data is still pending (freshly registered)
+    if(data.ok && data.steps && data.steps.length === 1 && data.steps[0].status === 'pending'){
+      _scheduleAutoRetry(num, carrier, res);
+    }
   } catch(e) {
     res.innerHTML = `<div class="trk-error"><strong>⚠️ Помилка мережі</strong>${esc(String(e))}</div>`;
   }
+}
+
+function _scheduleAutoRetry(num, carrier, resEl){
+  if(_trkAutoRetryTimer){ clearTimeout(_trkAutoRetryTimer); }
+  let secs = 45;
+  const u = UI[lang];
+  const countEl = document.getElementById('trk-auto-countdown');
+  if(countEl) countEl.textContent = secs + 'с';
+  const tick = setInterval(()=>{
+    secs--;
+    const el = document.getElementById('trk-auto-countdown');
+    if(el) el.textContent = secs + 'с';
+    if(secs <= 0) clearInterval(tick);
+  }, 1000);
+
+  _trkAutoRetryTimer = setTimeout(async ()=>{
+    clearInterval(tick);
+    if(!resEl.isConnected) return;
+    const ico = carrier==='auto' || trkMode==='container' ? '🚢' : '📦';
+    resEl.innerHTML =
+      `<div class="trk-loading">
+         <div class="trk-radar">
+           <div class="trk-radar-ring"></div>
+           <div class="trk-radar-ring"></div>
+           <div class="trk-radar-ring"></div>
+           <div class="trk-radar-center">${ico}</div>
+         </div>
+         <div class="trk-loading-txt">${esc(UI[lang].trkSearching)}</div>
+       </div>`;
+    try{
+      const r2 = await fetch(`/api/webapp/track?number=${encodeURIComponent(num)}&carrier=${carrier}`);
+      const d2 = await r2.json();
+      resEl.innerHTML = renderTrackResult(d2, num);
+      if(d2.ok && d2.steps && d2.steps.length === 1 && d2.steps[0].status === 'pending'){
+        _scheduleAutoRetry(num, carrier, resEl);
+      }
+    } catch {}
+  }, 45000);
 }
 
 function renderTrackResult(d, num){
   _lastTrkData = d.ok ? d : null;
   if(!d.ok){
     const hint = d.hint ? `<code>${esc(d.hint)}</code>` : '';
-    return `<div class="trk-error"><strong>⚠️ ${esc(d.error||'Помилка')}</strong>${esc(d.hint||'')}${hint}</div>`;
+    return `<div class="trk-error"><strong>⚠️ ${esc(d.error||'Помилка')}</strong>${hint}</div>`;
   }
 
   let html = '';
 
-  // ── Container: show line + open button ─────────────────────────────────────
+  // ── Container ──────────────────────────────────────────────────────────────
   if(d.type === 'container'){
     const lineName = d.line || d.carrier || '';
     html += `<div class="trk-delivery">
@@ -6157,8 +6288,6 @@ function renderTrackResult(d, num){
     if(d.status) html += `<div class="trk-error" style="margin-bottom:10px"><strong>${esc(d.status)}</strong></div>`;
     if(d.tracking_url){
       const btnLabel = lang==='en'?'🌐 Open tracking page':lang==='ru'?'🌐 Открыть на сайте перевозчика':'🌐 Відкрити на сайті перевізника';
-      // Use data-url attribute so browser decodes HTML entities before JS sees the URL
-      // (direct onclick string interpolation would keep &amp; causing "Invalid URL")
       html += `<button class="trk-open-btn" data-url="${esc(d.tracking_url)}" onclick="openTrkUrl(this.dataset.url)">${btnLabel}</button>`;
     }
     if(d.no_api){
@@ -6171,30 +6300,29 @@ function renderTrackResult(d, num){
     }
   }
 
-  // ── Parcel header ───────────────────────────────────────────────────────────
+  // ── Parcel ─────────────────────────────────────────────────────────────────
   if(d.type === 'parcel'){
     const carrierLabel = d.carrier || '';
     const scheduled = d.scheduled_delivery || '';
-    const delivLabel = UI[lang].trkDelivery;
     html += `<div class="trk-delivery">
       <div class="trk-del-ico">📦</div>
       <div class="trk-del-info">
         <div class="trk-del-label">${esc(carrierLabel)} · ${esc(d.number||num)}</div>
         <div class="trk-del-date">${esc(d.status||'')}</div>
-        ${scheduled?`<div class="trk-del-label" style="margin-top:3px">${esc(delivLabel)}: ${esc(scheduled)}</div>`:''}
+        ${scheduled?`<div class="trk-del-label" style="margin-top:3px">${esc(UI[lang].trkDelivery)}: ${esc(scheduled)}</div>`:''}
       </div>
     </div>`;
   }
 
-  // ── Steps timeline ──────────────────────────────────────────────────────────
+  // ── Steps timeline ─────────────────────────────────────────────────────────
   const steps = d.steps || [];
+  const isPending = steps.length === 1 && steps[0].status === 'pending';
   if(steps.length){
     html += '<div class="trk-timeline">';
     steps.forEach(s => {
       const dim  = (s.status==='pending'||s.status==='fail') ? ' dim' : '';
-      const dotCls = s.status || 'pending';
       html += `<div class="trk-step">
-        <div class="trk-dot ${dotCls}">${s.icon||'📍'}</div>
+        <div class="trk-dot ${s.status||'pending'}">${s.icon||'📍'}</div>
         <div class="trk-step-info">
           <div class="trk-step-title${dim}">${esc(s.title||'')}</div>
           ${s.time ? `<div class="trk-step-time">🕐 ${esc(s.time)}</div>` : ''}
@@ -6205,9 +6333,12 @@ function renderTrackResult(d, num){
     html += '</div>';
   }
 
-  // Save button
-  html += `<button class="trk-save-btn" onclick="saveTrkShipment()">${UI[lang].trkSave}</button>`;
+  // Auto-retry countdown badge (shown when pending)
+  if(isPending){
+    html += `<div class="trk-auto-refresh">${esc(UI[lang].trkAutoCheck)} <strong id="trk-auto-countdown">45с</strong></div>`;
+  }
 
+  html += `<button class="trk-save-btn" onclick="saveTrkShipment()">${UI[lang].trkSave}</button>`;
   return html;
 }
 
@@ -6216,9 +6347,7 @@ function openTrkUrl(url){
   else window.open(url, '_blank');
 }
 
-// ── Saved shipments ───────────────────────────────────────────
-let _lastTrkData = null; // last successful tracking result
-
+// ── User ID ───────────────────────────────────────────────────
 function getTrkUserId(){
   const uid = tg?.initDataUnsafe?.user?.id;
   if(uid) return uid;
@@ -6227,6 +6356,7 @@ function getTrkUserId(){
   return parseInt(luid);
 }
 
+// ── Save shipment ─────────────────────────────────────────────
 async function saveTrkShipment(){
   if(!_lastTrkData?.ok) return;
   const d = _lastTrkData;
@@ -6239,6 +6369,7 @@ async function saveTrkShipment(){
     carrier_name: d.carrier || d.line || '',
     status_text: d.status || '',
     tracking_url: d.tracking_url || '',
+    steps: d.steps || [],
   };
   const btn = document.querySelector('.trk-save-btn');
   if(btn){ btn.disabled = true; btn.textContent = '…'; }
@@ -6250,7 +6381,6 @@ async function saveTrkShipment(){
     const resp = await r.json();
     if(resp.ok){
       if(btn){ btn.textContent = UI[lang].trkSaved; }
-      loadSavedShipments();
     } else {
       if(btn){ btn.disabled=false; btn.textContent=UI[lang].trkSave; }
     }
@@ -6259,21 +6389,29 @@ async function saveTrkShipment(){
   }
 }
 
+// ── Remove shipment ───────────────────────────────────────────
 async function removeTrkShipment(number, ev){
   ev.stopPropagation();
   const uid = getTrkUserId();
   try{
     await fetch(`/api/webapp/track/remove?user_id=${uid}&number=${encodeURIComponent(number)}`,
       {method:'DELETE'});
-    loadSavedShipments();
+    // Refresh list or go back if we're in detail view for this number
+    if(document.getElementById('trk-detail-view').style.display !== 'none'){
+      closeDetail();
+    } else {
+      loadSavedShipments();
+    }
   } catch {}
 }
 
+// ── Load & render saved list ──────────────────────────────────
 async function loadSavedShipments(){
   const uid = getTrkUserId();
   try{
     const r = await fetch(`/api/webapp/track/list?user_id=${uid}`);
     const data = await r.json();
+    _savedShipmentsCache = data;
     renderSavedShipments(data);
   } catch { document.getElementById('trk-saved').innerHTML = ''; }
 }
@@ -6282,9 +6420,13 @@ function renderSavedShipments(data){
   const el = document.getElementById('trk-saved');
   const active  = data.active  || [];
   const archive = data.archive || [];
-  if(!active.length && !archive.length){ el.innerHTML=''; return; }
-
   const u = UI[lang];
+
+  if(!active.length && !archive.length){
+    el.innerHTML = `<div class="trk-list-empty">${esc(u.trkEmptyList||u.trkNoSaved)}</div>`;
+    return;
+  }
+
   function fmtAgo(iso){
     if(!iso) return '';
     const s = (Date.now() - new Date(iso)) / 1000;
@@ -6294,7 +6436,8 @@ function renderSavedShipments(data){
     return u.trkUpdated+': '+new Date(iso).toLocaleDateString(
       lang==='en'?'en-US':lang==='ru'?'ru-RU':'uk-UA',{day:'numeric',month:'short'});
   }
-  function card(s, isArchive){
+
+  function card(s, isArchive, idx){
     const ico = s.type==='container' ? '🚢' : '📦';
     const cls = isArchive ? ' arc' : '';
     const stat = s.status_text || '—';
@@ -6304,7 +6447,7 @@ function renderSavedShipments(data){
       : fmtAgo(s.last_checked);
     const cname = s.carrier_name || '';
     const numLabel = cname ? `${esc(s.number)} · ${esc(cname)}` : esc(s.number);
-    return `<div class="trk-sv-card${cls}" onclick="quickTrack('${esc(s.number)}','${esc(s.carrier)}','${esc(s.type)}')">
+    return `<div class="trk-sv-card${cls}" onclick="openDetailByIdx(${idx})">
       <div class="trk-sv-ico">${ico}</div>
       <div class="trk-sv-info">
         <div class="trk-sv-num">${numLabel}</div>
@@ -6318,33 +6461,134 @@ function renderSavedShipments(data){
   let html = '<div class="trk-saved-wrap">';
   if(active.length){
     html += `<div class="trk-sec-hdr">${u.trkActive}<span class="trk-sec-cnt">${active.length}</span></div>`;
-    html += '<div class="trk-saved-list">'+active.map(s=>card(s,false)).join('')+'</div>';
+    html += '<div class="trk-saved-list">'+active.map((s,i)=>card(s,false,i)).join('')+'</div>';
   }
   if(archive.length){
     html += `<div class="trk-sec-hdr">${u.trkArchive}<span class="trk-sec-cnt">${archive.length}</span></div>`;
-    html += '<div class="trk-saved-list">'+archive.map(s=>card(s,true)).join('')+'</div>';
+    html += '<div class="trk-saved-list">'+archive.map((s,i)=>card(s,true,active.length+i)).join('')+'</div>';
   }
   html += '</div>';
   el.innerHTML = html;
 }
 
-async function quickTrack(number, carrier, type){
-  // Re-run tracking for a saved shipment
-  trkMode = type;
-  trkCarrier = carrier === 'auto' ? null : carrier;
-  document.getElementById('trk-mode-parcel').classList.toggle('on', type==='parcel');
-  document.getElementById('trk-mode-container').classList.toggle('on', type==='container');
-  document.getElementById('trk-carriers-wrap').style.display = type==='parcel' ? '' : 'none';
-  document.getElementById('trk-input-wrap').style.display = '';
-  document.getElementById('trk-num').value = number;
-  document.getElementById('trk-result').scrollIntoView({behavior:'smooth',block:'start'});
-  // highlight carrier btn if parcel
-  if(type==='parcel' && carrier && carrier!=='auto'){
-    document.querySelectorAll('.trk-car-btn').forEach(b=>{
-      b.classList.toggle('on', b.dataset.car===carrier);
+// ── Detail view (cached, no API call) ────────────────────────
+let _currentDetailNumber = null;
+
+function openDetailByIdx(idx){
+  const all = [...(_savedShipmentsCache.active||[]), ...(_savedShipmentsCache.archive||[])];
+  const shipment = all[idx];
+  if(shipment) openDetail(shipment);
+}
+
+function openDetail(shipment){
+  _currentDetailNumber = shipment.number;
+  document.getElementById('trk-list-view').style.display = 'none';
+  document.getElementById('trk-detail-view').style.display = '';
+  renderDetailContent(shipment);
+}
+
+function closeDetail(){
+  _currentDetailNumber = null;
+  document.getElementById('trk-detail-view').style.display = 'none';
+  document.getElementById('trk-list-view').style.display = '';
+  loadSavedShipments();
+}
+
+function renderDetailContent(s, refreshing){
+  const u = UI[lang];
+  const steps = s.steps || [];
+  const ico = s.type === 'container' ? '🚢' : '📦';
+  const cname = s.carrier_name || '';
+  const numLabel = cname ? `${s.number} · ${cname}` : s.number;
+
+  let html = '';
+  // Header card
+  html += `<div class="trk-delivery">
+    <div class="trk-del-ico">${ico}</div>
+    <div class="trk-del-info">
+      <div class="trk-del-label">${esc(numLabel)}</div>
+      <div class="trk-del-date">${esc(s.status_text||'—')}</div>
+    </div>
+  </div>`;
+
+  // Steps timeline from cache
+  if(steps.length){
+    html += '<div class="trk-timeline">';
+    steps.forEach(st => {
+      const dim = (st.status==='pending'||st.status==='fail') ? ' dim' : '';
+      html += `<div class="trk-step">
+        <div class="trk-dot ${st.status||'pending'}">${st.icon||'📍'}</div>
+        <div class="trk-step-info">
+          <div class="trk-step-title${dim}">${esc(st.title||'')}</div>
+          ${st.time ? `<div class="trk-step-time">🕐 ${esc(st.time)}</div>` : ''}
+          ${st.desc ? `<div class="trk-step-desc">${esc(st.desc)}</div>` : ''}
+        </div>
+      </div>`;
     });
+    html += '</div>';
+  } else {
+    html += `<div class="trk-auto-refresh" style="margin-bottom:14px">${esc(u.trkNoSaved||'Дані ще завантажуються…')}</div>`;
   }
-  await doTrack();
+
+  // Tracking URL button for containers
+  if(s.tracking_url){
+    const btnLabel = lang==='en'?'🌐 Open tracking page':lang==='ru'?'🌐 Открыть на сайте перевозчика':'🌐 Відкрити на сайті перевізника';
+    html += `<button class="trk-open-btn" data-url="${esc(s.tracking_url)}" onclick="openTrkUrl(this.dataset.url)">${btnLabel}</button>`;
+  }
+
+  // Refresh button
+  html += `<button class="trk-refresh-btn" id="trk-refresh-btn" onclick="refreshDetail('${esc(s.number)}','${esc(s.carrier)}','${esc(s.type)}')" ${refreshing?'disabled':''}>
+    ${refreshing ? '⏳ …' : esc(u.trkRefresh)}
+  </button>`;
+
+  // Remove button
+  html += `<button class="trk-open-btn" style="margin-top:8px;color:var(--muted);border-color:var(--border)"
+    onclick="removeTrkShipment('${esc(s.number)}',event)">✕ Видалити з відстеження</button>`;
+
+  document.getElementById('trk-detail-content').innerHTML = html;
+}
+
+async function refreshDetail(number, carrier, type){
+  const btn = document.getElementById('trk-refresh-btn');
+  if(btn){ btn.disabled=true; btn.textContent='⏳ …'; }
+
+  // Find the cached shipment to keep its data while loading
+  const all = [...(_savedShipmentsCache.active||[]), ...(_savedShipmentsCache.archive||[])];
+  const cached = all.find(s=>s.number===number) || {number, carrier, type, status_text:'', steps:[]};
+  renderDetailContent(cached, true);
+
+  try{
+    const r = await fetch(`/api/webapp/track?number=${encodeURIComponent(number)}&carrier=${carrier}`);
+    const data = await r.json();
+    if(data.ok){
+      // Update DB with fresh data
+      const uid = getTrkUserId();
+      await fetch('/api/webapp/track/save',{
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({
+          user_id: uid,
+          number: data.number || number,
+          carrier: carrier,
+          type: type,
+          carrier_name: data.carrier || data.line || cached.carrier_name || '',
+          status_text: data.status || '',
+          tracking_url: data.tracking_url || cached.tracking_url || '',
+          steps: data.steps || [],
+        }),
+      });
+      // Re-fetch from DB and show updated
+      const r2 = await fetch(`/api/webapp/track/list?user_id=${uid}`);
+      const listData = await r2.json();
+      _savedShipmentsCache = listData;
+      const all2 = [...(listData.active||[]), ...(listData.archive||[])];
+      const updated = all2.find(s=>s.number===number) || {number, carrier, type, status_text: data.status||'', steps: data.steps||[]};
+      renderDetailContent(updated, false);
+    } else {
+      renderDetailContent(cached, false);
+    }
+  } catch {
+    renderDetailContent(cached, false);
+  }
 }
 
 // ── Escape ─────────────────────────────────────────────────────
@@ -7093,6 +7337,8 @@ async def api_track_save(request: Request):
     cname    = str(body.get("carrier_name", ""))[:150]
     status   = str(body.get("status_text", ""))[:500]
     turl     = str(body.get("tracking_url", ""))[:500]
+    steps_raw = body.get("steps", [])
+    steps_json = json.dumps(steps_raw, ensure_ascii=False)[:8000]
 
     if not number or not user_id:
         raise HTTPException(status_code=400, detail="number and user_id required")
@@ -7104,17 +7350,18 @@ async def api_track_save(request: Request):
             cur.execute(
                 """
                 INSERT INTO tracked_shipments
-                    (user_id, number, carrier, type, carrier_name, status_text, tracking_url, last_checked)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, NOW())
+                    (user_id, number, carrier, type, carrier_name, status_text, tracking_url, steps_json, last_checked)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW())
                 ON CONFLICT (user_id, number) DO UPDATE SET
                     carrier      = EXCLUDED.carrier,
                     carrier_name = EXCLUDED.carrier_name,
                     status_text  = EXCLUDED.status_text,
                     tracking_url = EXCLUDED.tracking_url,
+                    steps_json   = EXCLUDED.steps_json,
                     last_checked = NOW()
                 RETURNING id
                 """,
-                (user_id, number, carrier, type_, cname, status, turl),
+                (user_id, number, carrier, type_, cname, status, turl, steps_json),
             )
             row = cur.fetchone()
             conn.commit()
@@ -7138,7 +7385,7 @@ async def api_track_list(user_id: int):
             cur.execute(
                 """
                 SELECT id, number, carrier, type, carrier_name, status_text,
-                       tracking_url, added_at, last_checked
+                       tracking_url, steps_json, added_at, last_checked
                 FROM tracked_shipments
                 WHERE user_id=%s AND is_delivered=FALSE
                 ORDER BY added_at DESC LIMIT 15
@@ -7150,7 +7397,7 @@ async def api_track_list(user_id: int):
             cur.execute(
                 """
                 SELECT id, number, carrier, type, carrier_name, status_text,
-                       tracking_url, added_at, delivered_at, last_checked
+                       tracking_url, steps_json, added_at, delivered_at, last_checked
                 FROM tracked_shipments
                 WHERE user_id=%s AND is_delivered=TRUE
                 ORDER BY delivered_at DESC LIMIT 15
@@ -7166,6 +7413,12 @@ async def api_track_list(user_id: int):
             for k in ("added_at", "last_checked", "delivered_at"):
                 if k in row and row[k]:
                     row[k] = _fmt(row[k])
+            # Deserialize steps_json → steps list
+            raw_steps = row.pop("steps_json", "") or ""
+            try:
+                row["steps"] = json.loads(raw_steps) if raw_steps else []
+            except Exception:
+                row["steps"] = []
 
         return {"active": active, "archive": archive}
     finally:
@@ -7228,6 +7481,7 @@ async def refresh_tracked_shipments():
             status_text  = result.get("status", "")
             carrier_name = result.get("carrier", "") or result.get("line", "")
             tracking_url = result.get("tracking_url", "")
+            steps_json   = json.dumps(result.get("steps", []), ensure_ascii=False)[:8000]
 
             is_delivered = any(kw in status_text.lower() for kw in _delivered_kw)
             if not is_delivered:
@@ -7245,19 +7499,23 @@ async def refresh_tracked_shipments():
                             """
                             UPDATE tracked_shipments SET
                                 status_text=%(s)s, carrier_name=%(c)s, tracking_url=%(u)s,
+                                steps_json=%(j)s,
                                 is_delivered=TRUE, delivered_at=NOW(), last_checked=NOW()
                             WHERE number=%(n)s AND is_delivered=FALSE
                             """,
-                            {"s": status_text, "c": carrier_name, "u": tracking_url, "n": row["number"]},
+                            {"s": status_text, "c": carrier_name, "u": tracking_url,
+                             "j": steps_json, "n": row["number"]},
                         )
                     else:
                         cur2.execute(
                             """
                             UPDATE tracked_shipments SET
-                                status_text=%(s)s, carrier_name=%(c)s, last_checked=NOW()
+                                status_text=%(s)s, carrier_name=%(c)s,
+                                steps_json=%(j)s, last_checked=NOW()
                             WHERE number=%(n)s AND is_delivered=FALSE
                             """,
-                            {"s": status_text, "c": carrier_name, "n": row["number"]},
+                            {"s": status_text, "c": carrier_name,
+                             "j": steps_json, "n": row["number"]},
                         )
                     conn2.commit()
             except Exception as e2:
