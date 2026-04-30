@@ -7278,17 +7278,31 @@ async def api_webapp_track(number: str, carrier: str = "auto"):
         }
         if SEVENTEEN_TRACK_KEY:
             result = await _track_17track(n, 0)
-            # Always keep tracking_url and container metadata regardless of 17track result
+            # Always stamp container metadata regardless of 17track result
             result["type"] = "container"
             result["line"] = line
             result["tracking_url"] = tracking_url
             if not result.get("ok"):
-                # 17track failed — still return usable container result with link
+                # 17track API error / network fail → return container with link + pending step
                 result["ok"] = True
-                result.setdefault("status", "Відкрийте офіційний сайт перевізника")
-                result.setdefault("steps", [])
+                result.setdefault("status", "Трекінг зареєстровано. Оновіть через кілька хвилин.")
+                result["steps"] = [{
+                    "status": "pending", "icon": "🔄",
+                    "title": "Запит відправлено до перевізника",
+                    "desc": "Дані з'являться протягом 1–10 хвилин",
+                    "time": "",
+                }]
                 result.pop("error", None)
                 result.pop("hint", None)
+            elif not result.get("steps"):
+                # 17track accepted but no events yet → also show pending
+                result["status"] = "Трекінг зареєстровано. Оновіть через кілька хвилин."
+                result["steps"] = [{
+                    "status": "pending", "icon": "🔄",
+                    "title": "Запит відправлено до перевізника",
+                    "desc": "Дані з'являться протягом 1–10 хвилин",
+                    "time": "",
+                }]
             return result
         # No 17track key — return link only
         base["status"] = "Відкрийте офіційний сайт перевізника"
