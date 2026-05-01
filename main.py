@@ -5235,7 +5235,7 @@ nav button.on::after{
 .empty .ei{font-size:44px}.empty p{font-size:13.5px;color:var(--sub)}
 
 /* ── TRACKING ── */
-.trk-wrap{padding:14px}
+.trk-wrap{padding:14px;display:flex;flex-direction:column;min-height:100%;box-sizing:border-box}
 /* Step 1: Mode picker — two big cards */
 .trk-mode-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px}
 .trk-mode-btn{
@@ -5381,17 +5381,25 @@ nav button.on::after{
 .trk-save-btn:active{background:var(--surface2)}
 .trk-save-btn:disabled{opacity:.5;cursor:default;border-color:var(--border);color:var(--sub)}
 
-/* ── TRACKING SUB-TABS ── */
-.trk-subtab-row{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px}
-.trk-subtab{
-  padding:11px 8px;border-radius:var(--r);
-  background:var(--surface);border:1.5px solid var(--border);
-  font-size:13px;font-weight:700;color:var(--sub);cursor:pointer;
-  transition:all .15s;text-align:center;
+/* ── TRACKING SCREEN NAVIGATION ── */
+.trk-screen{display:none;flex-direction:column;flex:1}
+.trk-screen.active{display:flex}
+.trk-big-wrap{display:flex;flex-direction:column;flex:1;gap:12px;padding-bottom:4px}
+.trk-big-btn{
+  flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:10px;border-radius:var(--r);border:1.5px solid var(--border);
+  background:var(--surface);color:var(--sub);cursor:pointer;min-height:130px;
+  transition:all .2s;
 }
-.trk-subtab.on{border-color:var(--green);color:var(--text);background:var(--surface2)}
-.trk-find-pane{}
-.trk-list-pane{display:none}
+.trk-big-btn:active{background:var(--surface2);border-color:var(--green)}
+.trk-big-ico{font-size:44px;line-height:1}
+.trk-big-title{font-size:18px;font-weight:800;color:var(--text);margin-top:2px}
+.trk-big-sub{font-size:11.5px;color:var(--muted);text-align:center;padding:0 12px;line-height:1.4}
+.trk-nav-back{
+  display:flex;align-items:center;gap:6px;padding:6px 0 14px;flex-shrink:0;
+  font-size:13px;font-weight:700;color:var(--sub);cursor:pointer;transition:color .15s;
+}
+.trk-nav-back:active{color:var(--text)}
 
 /* ── TRACKING DETAIL VIEW ── */
 .trk-detail-back{
@@ -5627,27 +5635,43 @@ nav button.on::after{
     <div id="ptracking" class="panel">
       <div class="trk-wrap">
 
-        <!-- Sub-tabs: Find | My Parcels -->
-        <div class="trk-subtab-row">
-          <button class="trk-subtab on" id="trk-sub-find"  onclick="trkSubTab('find')">🔍 <span id="trk-sub-lbl-find">Знайти</span></button>
-          <button class="trk-subtab"    id="trk-sub-list"  onclick="trkSubTab('list')">📋 <span id="trk-sub-lbl-list">Мої посилки</span></button>
-        </div>
-
-        <!-- FIND PANE -->
-        <div class="trk-find-pane" id="trk-find-pane">
-          <!-- Step 1: Mode selection -->
-          <div class="trk-mode-row">
-            <button class="trk-mode-btn" id="trk-mode-parcel" onclick="setTrkMode('parcel')">
-              <span class="trk-mode-ico">📦</span>
-              <span id="trk-lbl-parcel">Посилка</span>
+        <!-- SCREEN 1: Home -->
+        <div id="trk-home" class="trk-screen active">
+          <div class="trk-big-wrap">
+            <button class="trk-big-btn" onclick="trkNav('type')">
+              <span class="trk-big-ico">🔍</span>
+              <span class="trk-big-title" id="trk-lbl-find-btn">Знайти</span>
+              <span class="trk-big-sub" id="trk-lbl-find-sub">Посилка або контейнер</span>
             </button>
-            <button class="trk-mode-btn" id="trk-mode-container" onclick="setTrkMode('container')">
-              <span class="trk-mode-ico">🚢</span>
-              <span id="trk-lbl-container">Контейнер</span>
+            <button class="trk-big-btn" onclick="trkNav('list')">
+              <span class="trk-big-ico">📋</span>
+              <span class="trk-big-title" id="trk-lbl-list-btn">Мої посилки</span>
+              <span class="trk-big-sub" id="trk-lbl-list-sub">Збережені відправлення</span>
             </button>
           </div>
-          <!-- Step 2a: Carrier grid (parcel only) -->
-          <div class="trk-carriers" id="trk-carriers-wrap" style="display:none">
+        </div>
+
+        <!-- SCREEN 2: Type selection -->
+        <div id="trk-type" class="trk-screen">
+          <div class="trk-nav-back" onclick="trkNav('home')">&#8592; <span id="trk-back-lbl-type">Назад</span></div>
+          <div class="trk-big-wrap">
+            <button class="trk-big-btn" onclick="trkNav('parcel')">
+              <span class="trk-big-ico">📦</span>
+              <span class="trk-big-title" id="trk-lbl-parcel">Посилка</span>
+              <span class="trk-big-sub">Nova Poshta · DHL · FedEx · EMS</span>
+            </button>
+            <button class="trk-big-btn" onclick="trkNav('container')">
+              <span class="trk-big-ico">🚢</span>
+              <span class="trk-big-title" id="trk-lbl-container">Контейнер</span>
+              <span class="trk-big-sub">MSC · Maersk · CMA-CGM · COSCO</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- SCREEN 3a: Parcel search -->
+        <div id="trk-parcel" class="trk-screen">
+          <div class="trk-nav-back" onclick="trkNav('type')">&#8592; <span id="trk-back-lbl-parcel">Назад</span></div>
+          <div class="trk-carriers" id="trk-carriers-wrap">
             <button class="trk-car-btn" data-car="nova"  onclick="selectCarrier(this)">📦 Нова Пошта</button>
             <button class="trk-car-btn" data-car="meest" onclick="selectCarrier(this)">🚚 Meest Express</button>
             <button class="trk-car-btn" data-car="dhl"   onclick="selectCarrier(this)">✈️ DHL</button>
@@ -5655,7 +5679,6 @@ nav button.on::after{
             <button class="trk-car-btn" data-car="ups"   onclick="selectCarrier(this)">🚛 UPS</button>
             <button class="trk-car-btn" data-car="ems"   onclick="selectCarrier(this)">📮 EMS / Укрпошта</button>
           </div>
-          <!-- Step 2b / 3: Input row -->
           <div class="trk-input-row" id="trk-input-wrap" style="display:none">
             <input class="trk-input" id="trk-num" type="text" autocomplete="off" spellcheck="false">
             <button class="trk-go" id="trk-go" onclick="doTrack()">Знайти</button>
@@ -5663,16 +5686,37 @@ nav button.on::after{
           <div class="trk-result" id="trk-result"></div>
         </div>
 
-        <!-- MY PARCELS PANE -->
-        <div class="trk-list-pane" id="trk-list-pane">
-          <!-- Detail view (hidden by default) -->
+        <!-- SCREEN 3b: Container search -->
+        <div id="trk-container" class="trk-screen">
+          <div class="trk-nav-back" onclick="trkNav('type')">&#8592; <span id="trk-back-lbl-container">Назад</span></div>
+          <div class="trk-carriers" id="trk-cnt-carriers-wrap">
+            <button class="trk-car-btn trk-cnt-btn" data-cnt="msc"       onclick="selectCntCarrier(this)">🚢 MSC</button>
+            <button class="trk-car-btn trk-cnt-btn" data-cnt="maersk"    onclick="selectCntCarrier(this)">🚢 Maersk</button>
+            <button class="trk-car-btn trk-cnt-btn" data-cnt="cmacgm"    onclick="selectCntCarrier(this)">🚢 CMA CGM</button>
+            <button class="trk-car-btn trk-cnt-btn" data-cnt="cosco"     onclick="selectCntCarrier(this)">🚢 COSCO</button>
+            <button class="trk-car-btn trk-cnt-btn" data-cnt="hapag"     onclick="selectCntCarrier(this)">🚢 Hapag-Lloyd</button>
+            <button class="trk-car-btn trk-cnt-btn" data-cnt="one"       onclick="selectCntCarrier(this)">🚢 ONE</button>
+            <button class="trk-car-btn trk-cnt-btn" data-cnt="evergreen" onclick="selectCntCarrier(this)">🚢 Evergreen</button>
+            <button class="trk-car-btn trk-cnt-btn" data-cnt="zim"       onclick="selectCntCarrier(this)">🚢 ZIM</button>
+            <button class="trk-car-btn trk-cnt-btn" data-cnt="hmm"       onclick="selectCntCarrier(this)">🚢 HMM</button>
+            <button class="trk-car-btn trk-cnt-btn" data-cnt="auto"      onclick="selectCntCarrier(this)">🔍 Auto</button>
+          </div>
+          <div class="trk-input-row" id="trk-cnt-input-wrap" style="display:none">
+            <input class="trk-input" id="trk-cnt-num" type="text" autocomplete="off" spellcheck="false" placeholder="MSCU1234567">
+            <button class="trk-go" id="trk-cnt-go" onclick="doTrackContainer()">Знайти</button>
+          </div>
+          <div class="trk-result" id="trk-cnt-result"></div>
+        </div>
+
+        <!-- SCREEN 4: My Parcels -->
+        <div id="trk-list" class="trk-screen">
+          <div class="trk-nav-back" onclick="trkNav('home')">&#8592; <span id="trk-back-lbl-list">Назад</span></div>
           <div id="trk-detail-view" style="display:none">
             <div class="trk-detail-back" onclick="closeDetail()">
               <span>&#8592;</span> <span id="trk-detail-back-lbl">Назад</span>
             </div>
             <div id="trk-detail-content"></div>
           </div>
-          <!-- List view -->
           <div id="trk-list-view">
             <div id="trk-saved"></div>
           </div>
@@ -5873,25 +5917,30 @@ function updateStaticText(){
   if(trkLblC) trkLblC.textContent = u.trkContainer;
   const trkGo = document.getElementById('trk-go');
   if(trkGo) trkGo.textContent = u.trkFind;
+  const trkCntGo = document.getElementById('trk-cnt-go');
+  if(trkCntGo) trkCntGo.textContent = u.trkFind;
+  const trkLblFindBtn = document.getElementById('trk-lbl-find-btn');
+  if(trkLblFindBtn) trkLblFindBtn.textContent = u.trkSubFind || u.trkFind;
+  const trkLblListBtn = document.getElementById('trk-lbl-list-btn');
+  if(trkLblListBtn) trkLblListBtn.textContent = u.trkSubList;
   const trkInput = document.getElementById('trk-num');
-  if(trkInput && trkMode==='container') trkInput.placeholder = u.trkCntHint;
-  else if(trkInput && trkCarrier) trkInput.placeholder = u.trkPlaceholder;
-  document.getElementById('trk-result').innerHTML = '';
-  // Sub-tab labels
-  const sfLbl = document.getElementById('trk-sub-lbl-find');
-  if(sfLbl) sfLbl.textContent = u.trkSubFind || u.trkFind;
-  const slLbl = document.getElementById('trk-sub-lbl-list');
-  if(slLbl) slLbl.textContent = u.trkSubList;
-  // Tracking — back button
+  if(trkInput && trkCarrier) trkInput.placeholder = u.trkPlaceholder;
+  const trkCntInput = document.getElementById('trk-cnt-num');
+  if(trkCntInput) trkCntInput.placeholder = u.trkCntHint;
+  // Tracking — back buttons
   const backLbl2 = document.getElementById('trk-detail-back-lbl');
   if(backLbl2) backLbl2.textContent = u.back;
+  ['trk-back-lbl-type','trk-back-lbl-parcel','trk-back-lbl-container','trk-back-lbl-list'].forEach(id => {
+    const el = document.getElementById(id);
+    if(el) el.textContent = u.back;
+  });
   // Carrier buttons (brand names stay in English; only locale-specific ones change)
   const carNova = document.querySelector('[data-car="nova"]');
   if(carNova) carNova.textContent = u.trkCarNova;
   const carEms = document.querySelector('[data-car="ems"]');
   if(carEms) carEms.textContent = u.trkCarEms;
   // Re-render saved list if visible (so time-ago strings update)
-  if(document.getElementById('trk-list-pane').style.display !== 'none'){
+  if(_trkCurrentScreen === 'list'){
     renderSavedShipments(_savedShipmentsCache);
   }
 }
@@ -5945,7 +5994,7 @@ function tab(name, btn){
   });
   if(name==='markets' && mkData.length===0) fetchMarkets();
   if(name==='reports' && document.getElementById('rlist').children.length===0) fetchReports();
-  if(name==='tracking') loadSavedShipments();
+  if(name==='tracking'){ trkNav('home'); loadSavedShipments(); }
 }
 
 // ── Chips ─────────────────────────────────────────────────────
@@ -6188,42 +6237,59 @@ function closeMkDetailSilent(){
 // ── Tracking ──────────────────────────────────────────────────
 let trkCarrier = null;
 let trkMode = null;
+let _trkCntLine = null;
 let _lastTrkData = null;
 let _trkAutoRetryTimer = null;
 let _savedShipmentsCache = {active:[], archive:[]};
+let _trkCurrentScreen = 'home';
 
-// ── Sub-tab switching ─────────────────────────────────────────
-function trkSubTab(tab){
-  const isFind = tab === 'find';
-  document.getElementById('trk-sub-find').classList.toggle('on', isFind);
-  document.getElementById('trk-sub-list').classList.toggle('on', !isFind);
-  document.getElementById('trk-find-pane').style.display = isFind ? '' : 'none';
-  document.getElementById('trk-list-pane').style.display = isFind ? 'none' : '';
-  if(!isFind) loadSavedShipments();
+const _TRK_SCREENS = ['trk-home','trk-type','trk-parcel','trk-container','trk-list'];
+
+// ── Screen navigation ─────────────────────────────────────────
+function trkNav(screen){
+  _TRK_SCREENS.forEach(id => {
+    const el = document.getElementById(id);
+    if(el) el.classList.remove('active');
+  });
+
+  if(screen !== 'list'){
+    const dv = document.getElementById('trk-detail-view');
+    if(dv) dv.style.display = 'none';
+    const lv = document.getElementById('trk-list-view');
+    if(lv) lv.style.display = '';
+  }
+
+  const idMap = {home:'trk-home',type:'trk-type',parcel:'trk-parcel',container:'trk-container',list:'trk-list'};
+  const el = document.getElementById(idMap[screen] || 'trk-home');
+  if(el) el.classList.add('active');
+  _trkCurrentScreen = screen;
+
+  if(screen === 'parcel'){
+    trkMode = 'parcel';
+    trkCarrier = null;
+    document.querySelectorAll('.trk-car-btn').forEach(b => b.classList.remove('on'));
+    document.getElementById('trk-input-wrap').style.display = 'none';
+    document.getElementById('trk-result').innerHTML = '';
+    if(_trkAutoRetryTimer){ clearTimeout(_trkAutoRetryTimer); _trkAutoRetryTimer = null; }
+  } else if(screen === 'container'){
+    trkMode = 'container';
+    trkCarrier = 'auto';
+    _trkCntLine = null;
+    document.querySelectorAll('.trk-cnt-btn').forEach(b => b.classList.remove('on'));
+    document.getElementById('trk-cnt-input-wrap').style.display = 'none';
+    document.getElementById('trk-cnt-result').innerHTML = '';
+    if(_trkAutoRetryTimer){ clearTimeout(_trkAutoRetryTimer); _trkAutoRetryTimer = null; }
+  } else if(screen === 'list'){
+    loadSavedShipments();
+  }
 }
 
 function _trkReset(){
-  document.getElementById('trk-num').value = '';
-  document.getElementById('trk-result').innerHTML = '';
+  const inp = document.getElementById('trk-num');
+  if(inp) inp.value = '';
+  const res = document.getElementById('trk-result');
+  if(res) res.innerHTML = '';
   if(_trkAutoRetryTimer){ clearTimeout(_trkAutoRetryTimer); _trkAutoRetryTimer = null; }
-}
-
-function setTrkMode(mode){
-  trkMode = mode;
-  trkCarrier = null;
-  document.getElementById('trk-mode-parcel').classList.toggle('on', mode==='parcel');
-  document.getElementById('trk-mode-container').classList.toggle('on', mode==='container');
-  document.querySelectorAll('.trk-car-btn').forEach(b => b.classList.remove('on'));
-  if(mode === 'parcel'){
-    document.getElementById('trk-carriers-wrap').style.display = '';
-    document.getElementById('trk-input-wrap').style.display = 'none';
-  } else {
-    document.getElementById('trk-carriers-wrap').style.display = 'none';
-    document.getElementById('trk-input-wrap').style.display = '';
-    document.getElementById('trk-num').placeholder = UI[lang].trkCntHint;
-    setTimeout(() => document.getElementById('trk-num').focus(), 80);
-  }
-  _trkReset();
 }
 
 function selectCarrier(btn){
@@ -6235,6 +6301,46 @@ function selectCarrier(btn){
   _trkReset();
   setTimeout(() => document.getElementById('trk-num').focus(), 80);
 }
+
+function selectCntCarrier(btn){
+  document.querySelectorAll('.trk-cnt-btn').forEach(b => b.classList.remove('on'));
+  btn.classList.add('on');
+  _trkCntLine = btn.textContent.trim();
+  document.getElementById('trk-cnt-input-wrap').style.display = '';
+  document.getElementById('trk-cnt-num').placeholder = UI[lang].trkCntHint;
+  document.getElementById('trk-cnt-result').innerHTML = '';
+  setTimeout(() => document.getElementById('trk-cnt-num').focus(), 80);
+}
+
+async function doTrackContainer(){
+  const raw = document.getElementById('trk-cnt-num').value.trim();
+  if(!raw){ document.getElementById('trk-cnt-num').focus(); return; }
+  const num = raw.toUpperCase().replace(/[\s\-]/g,'');
+  const res = document.getElementById('trk-cnt-result');
+  res.innerHTML =
+    `<div class="trk-loading">
+       <div class="trk-radar">
+         <div class="trk-radar-ring"></div>
+         <div class="trk-radar-ring"></div>
+         <div class="trk-radar-ring"></div>
+         <div class="trk-radar-center">🚢</div>
+       </div>
+       <div class="trk-loading-txt">${esc(UI[lang].trkSearching)}</div>
+     </div>`;
+  try{
+    const r = await fetch(`/api/webapp/track?number=${encodeURIComponent(num)}&carrier=auto`);
+    const data = await r.json();
+    _lastTrkData = data.ok ? {...data, _cntLine: _trkCntLine} : null;
+    res.innerHTML = renderTrackResult(data, num);
+    if(data.ok && data.steps && data.steps.length===1 && data.steps[0].status==='pending'){
+      _scheduleAutoRetry(num, 'auto', res, 1);
+    }
+  } catch(e){
+    res.innerHTML = `<div class="trk-error"><strong>${esc(UI[lang].trkNetError)}</strong>${esc(String(e))}</div>`;
+  }
+}
+
+function setTrkMode(mode){ /* legacy — handled by trkNav now */ }
 
 async function doTrack(){
   const raw = document.getElementById('trk-num').value.trim();
@@ -6378,7 +6484,7 @@ function renderTrackResult(d, num){
 
   // Auto-retry countdown badge (shown when pending)
   if(isPending){
-    html += `<div class="trk-auto-refresh">${esc(UI[lang].trkAutoCheck)} <strong id="trk-auto-countdown">45с</strong></div>`;
+    html += `<div class="trk-auto-refresh"><strong id="trk-auto-countdown">45с</strong></div>`;
   }
 
   html += `<button class="trk-save-btn" onclick="saveTrkShipment()">${UI[lang].trkSave}</button>`;
@@ -6409,7 +6515,7 @@ async function saveTrkShipment(){
     number: d.number || '',
     carrier: trkCarrier || 'auto',
     type: trkMode || 'parcel',
-    carrier_name: d.carrier || d.line || '',
+    carrier_name: d.carrier || d.line || _trkCntLine || '',
     status_text: d.status || '',
     tracking_url: d.tracking_url || '',
     steps: d.steps || [],
@@ -6424,6 +6530,7 @@ async function saveTrkShipment(){
     const resp = await r.json();
     if(resp.ok){
       if(btn){ btn.textContent = UI[lang].trkSaved; }
+      trkNav('list');
     } else {
       if(btn){ btn.disabled=false; btn.textContent=UI[lang].trkSave; }
     }
@@ -6488,12 +6595,10 @@ function renderSavedShipments(data){
       ? (s.delivered_at ? '✅ '+new Date(s.delivered_at).toLocaleDateString(
           lang==='en'?'en-US':lang==='ru'?'ru-RU':'uk-UA',{day:'numeric',month:'short'}) : '')
       : fmtAgo(s.last_checked);
-    const cname = s.carrier_name || '';
-    const numLabel = cname ? `${esc(s.number)} · ${esc(cname)}` : esc(s.number);
     return `<div class="trk-sv-card${cls}" onclick="openDetailByIdx(${idx})">
       <div class="trk-sv-ico">${ico}</div>
       <div class="trk-sv-info">
-        <div class="trk-sv-num">${numLabel}</div>
+        <div class="trk-sv-num">${esc(s.number)}</div>
         <div class="trk-sv-stat">${esc(stat)}</div>
         ${time?`<div class="trk-sv-time">${esc(time)}</div>`:''}
       </div>
@@ -6501,10 +6606,19 @@ function renderSavedShipments(data){
     </div>`;
   }
 
+  // Group active by carrier_name
+  const groups = {};
+  active.forEach((s, i) => {
+    const key = s.carrier_name || '—';
+    if(!groups[key]) groups[key] = [];
+    groups[key].push({s, idx: i});
+  });
+
   let html = '<div class="trk-saved-wrap">';
-  if(active.length){
-    html += `<div class="trk-sec-hdr">${u.trkActive}<span class="trk-sec-cnt">${active.length}</span></div>`;
-    html += '<div class="trk-saved-list">'+active.map((s,i)=>card(s,false,i)).join('')+'</div>';
+  for(const [cname, items] of Object.entries(groups)){
+    const ico = items[0].s.type === 'container' ? '🚢' : '📦';
+    html += `<div class="trk-sec-hdr">${ico} ${esc(cname)}<span class="trk-sec-cnt">${items.length}</span></div>`;
+    html += '<div class="trk-saved-list">'+items.map(({s, idx})=>card(s,false,idx)).join('')+'</div>';
   }
   if(archive.length){
     html += `<div class="trk-sec-hdr">${u.trkArchive}<span class="trk-sec-cnt">${archive.length}</span></div>`;
