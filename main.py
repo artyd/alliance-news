@@ -4839,7 +4839,7 @@ async def lifespan(app: FastAPI):
     scheduler.add_job(backfill_missing_facts, 'cron', hour=8, minute=45, id='backfill_facts_morning')
     # Same pattern before the midday report: 13:45 = 15 min before 14:00.
     scheduler.add_job(backfill_missing_facts, 'cron', hour=13, minute=45, id='backfill_facts_midday')
-    scheduler.add_job(refresh_tracked_shipments, 'interval', hours=3, id='refresh_tracking')
+    scheduler.add_job(refresh_tracked_shipments, 'interval', minutes=60, id='refresh_tracking')
     scheduler.start()
 
     yield
@@ -7239,79 +7239,260 @@ def _parse_17track_v24(data: dict, number: str) -> dict | None:
 
 async def _track_17track(number: str, carrier_code: int = 0, realtime: bool = True) -> dict:
     """
-    Universal tracking via 17track.net API v2.4.
-    realtime=True  → getrealtimetrackinfo (forces carrier fetch, 1 credit, 3h cache)
+    Universal tracking via 17TRACK API v2.4.
+
+    Логика:
+    1. Регистрируем номер в 17TRACK.
+    2. Если пользователь запросил трекинг вручную — пробуем getRealTimeTrackInfo.
+    3. Если real-time не дал события — пробуем gettrackinfo.
+    4. Если данных еще нет — возвращаем pending, а не общую ошибку.
+
+    realtime=True  → getRealTimeTrackInfo (forces carrier fetch, 1 credit, 3h cache)
     realtime=False → gettrackinfo only (uses 17track's own cache, background refresh)
     """
+
     if not SEVENTEEN_TRACK_KEY:
         return {
             "ok": False,
-            "error": "17track API key not set",
-            "hint": "Додайте SEVENTEEN_TRACK_KEY у .env (безкоштовно: 17track.net/en/apiDoc)",
+            "error": "17TRACK API key is not set",
+            "hint": "Добавьте SEVENTEEN_TRACK_KEY в .env",
         }
 
-    headers = {"17token": SEVENTEEN_TRACK_KEY, "Content-Type": "application/json"}
-    BASE    = "https://api.17track.net/track/v2.4"
+    BASE = "https://api.17track.net/track/v2.4"
 
-    def _body(extra: dict | None = None) -> list:
-        b: dict = {"number": number, "auto_detection": True}
-        if carrier_code:
-            b["carrier"] = carrier_code
+    headers = {
+        "17token": SEVENTEEN_TRACK_KEY,
+        "Content-Type": "application/json",
+    }
+
+    def _body(extra: dict | None = None, use_carrier: bool = True) -> list:
+        item = {
+            "number": number,
+            "auto_detection": True,
+        }
+
+        # carrier передаем только если пользователь явно выбрал перевозчика
+        if use_carrier and carrier_code:
+            item["carrier"] = carrier_code
+
         if extra:
-            b.update(extra)
-        return [b]
+            item.update(extra)
 
-    def _has_events(r: dict | None) -> bool:
+        return [item]
+
+    def _has_events(result: dict | None) -> bool:
         return bool(
-            r and r.get("ok")
-            and r.get("steps")
-            and r["steps"][0].get("status") != "pending"
+            result
+            and result.get("ok")
+            and result.get("steps")
+            and result["steps"][0].get("status") != "pending"
         )
 
+    async def _post_17track(
+        client: httpx.AsyncClient,
+        endpoint: str,
+        body: list,
+    ) -> tuple[dict | None, dict | None]:
+        """
+        Возвращает:
+        - data, None — если HTTP и JSON нормальные
+        - data, error_dict — если есть ошибка API
+        """
+
+        url = f"{BASE}/{endpoint}"
+
+        try:
+            response = await client.post(
+                url,
+                json=body,
+                headers=headers,
+            )
+        except httpx.RequestError as e:
+            return None, {
+                "ok": False,
+                "error": f"17TRACK network error on {endpoint}: {str(e)}",
+            }
+
+        try:
+            data = response.json()
+        except Exception:
+            return None, {
+                "ok": False,
+                "error": f"17TRACK returned non-JSON response on {endpoint}",
+                "http_status": response.status_code,
+                "raw_response": response.text[:500],
+            }
+
+        if response.status_code != 200:
+            return data, {
+                "ok": False,
+                "error": f"17TRACK HTTP error on {endpoint}",
+                "http_status": response.status_code,
+                "api_response": data,
+            }
+
+        if data.get("code") != 0:
+            return data, {
+                "ok": False,
+                "error": f"17TRACK API error on {endpoint}",
+                "api_code": data.get("code"),
+                "api_message": data.get("message") or data.get("msg") or "Unknown API error",
+                "api_response": data,
+            }
+
+        return data, None
+
+    def _register_rejected_error(data: dict | None) -> dict | None:
+        """
+        Проверяем, не отклонил ли 17TRACK регистрацию номера.
+        Если номер уже зарегистрирован — это не считаем критической ошибкой.
+        """
+
+        if not data:
+            return {
+                "ok": False,
+                "error": "Empty response from 17TRACK register",
+            }
+
+        payload = data.get("data") or {}
+        accepted = payload.get("accepted") or []
+        rejected = payload.get("rejected") or []
+
+        if accepted:
+            return None
+
+        if rejected:
+            err = rejected[0].get("error") or {}
+            msg = err.get("message") or err.get("msg") or "Tracking number rejected"
+
+            msg_lower = msg.lower()
+
+            # Если номер уже был зарегистрирован раньше — это нормально
+            if (
+                "already" in msg_lower
+                or "exist" in msg_lower
+                or "registered" in msg_lower
+            ):
+                return None
+
+            return {
+                "ok": False,
+                "error": f"17TRACK register rejected: {msg}",
+                "api_response": data,
+            }
+
+        return None
+
+    last_error: dict | None = None
+    result: dict | None = None
+
     try:
-        async with httpx.AsyncClient(timeout=25.0) as client:
+        async with httpx.AsyncClient(timeout=30.0) as client:
 
-            # 1. Register (non-fatal — just ensures 17track starts tracking this number)
-            try:
-                await client.post(f"{BASE}/register", json=_body(), headers=headers)
-            except Exception:
-                pass
+            # 1. Register tracking number
+            register_data, register_error = await _post_17track(
+                client,
+                "register",
+                _body(),
+            )
 
-            result: dict | None = None
+            if register_error:
+                return register_error
 
-            # 2a. Real-time fetch (user-initiated searches)
+            rejected_error = _register_rejected_error(register_data)
+            if rejected_error:
+                return rejected_error
+
+            # 2. Real-time request — только для ручного запроса пользователя
             if realtime:
-                try:
-                    r = await client.post(
-                        f"{BASE}/getrealtimetrackinfo",
-                        json=_body({"cacheLevel": 0}), headers=headers,
-                    )
-                    result = _parse_17track_v24(r.json(), number)
+                realtime_data, realtime_error = await _post_17track(
+                    client,
+                    "getRealTimeTrackInfo",
+                    _body({"cacheLevel": 0}),
+                )
+
+                if realtime_error:
+                    last_error = realtime_error
+                else:
+                    result = _parse_17track_v24(realtime_data, number)
+
+                    # Если parser вернул None — вероятно, carrier code неправильный.
+                    # Пробуем еще раз без carrier code, через auto-detection.
+                    if result is None and carrier_code:
+                        realtime_data_auto, realtime_error_auto = await _post_17track(
+                            client,
+                            "getRealTimeTrackInfo",
+                            _body({"cacheLevel": 0}, use_carrier=False),
+                        )
+
+                        if realtime_error_auto:
+                            last_error = realtime_error_auto
+                        else:
+                            result = _parse_17track_v24(realtime_data_auto, number)
+
                     if _has_events(result):
                         return result
-                except Exception:
-                    pass
 
-            # 2b. Cached lookup (background refresh or realtime fallback)
-            r2 = await client.post(
-                f"{BASE}/gettrackinfo",
-                json=_body(), headers=headers,
+            # 3. Cached lookup / fallback
+            cached_data, cached_error = await _post_17track(
+                client,
+                "gettrackinfo",
+                _body(),
             )
-            result2 = _parse_17track_v24(r2.json(), number)
-            if _has_events(result2):
-                return result2
 
-            # 3. Return best available result (even if pending)
-            best = result2 if result2 is not None else result
-            if best is None:
-                return {
-                    "ok": False,
-                    "error": "Номер не розпізнано. Перевірте правильність або оберіть іншого перевізника.",
-                }
-            return best
+            if cached_error:
+                last_error = cached_error
+            else:
+                result2 = _parse_17track_v24(cached_data, number)
+
+                # Если carrier code был неправильный — пробуем auto-detection
+                if result2 is None and carrier_code:
+                    cached_data_auto, cached_error_auto = await _post_17track(
+                        client,
+                        "gettrackinfo",
+                        _body(use_carrier=False),
+                    )
+
+                    if cached_error_auto:
+                        last_error = cached_error_auto
+                    else:
+                        result2 = _parse_17track_v24(cached_data_auto, number)
+
+                if _has_events(result2):
+                    return result2
+
+                if result2:
+                    return result2
+
+            # 4. Если 17TRACK принял номер, но событий еще нет
+            if result:
+                return result
+
+            if last_error:
+                return last_error
+
+            return {
+                "ok": True,
+                "type": "parcel",
+                "carrier": "",
+                "number": number,
+                "status": "Трекінг зареєстровано. Дані з'являться після оновлення 17TRACK.",
+                "steps": [
+                    {
+                        "status": "pending",
+                        "icon": "🔄",
+                        "title": "Запит відправлено в 17TRACK",
+                        "desc": "Інформація по посилці ще оновлюється",
+                        "time": "",
+                    }
+                ],
+            }
 
     except Exception as e:
-        return {"ok": False, "error": f"Network error: {e}"}
+        return {
+            "ok": False,
+            "error": f"Unexpected 17TRACK error: {str(e)}",
+        }
 
 
 @app.get("/api/webapp/track")
@@ -7412,14 +7593,13 @@ async def api_track_save(request: Request):
                 """
                 INSERT INTO tracked_shipments
                     (user_id, number, carrier, type, carrier_name, status_text, tracking_url, steps_json, last_checked)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NULL)
                 ON CONFLICT (user_id, number) DO UPDATE SET
                     carrier      = EXCLUDED.carrier,
                     carrier_name = EXCLUDED.carrier_name,
                     status_text  = EXCLUDED.status_text,
                     tracking_url = EXCLUDED.tracking_url,
-                    steps_json   = EXCLUDED.steps_json,
-                    last_checked = NOW()
+                    steps_json   = EXCLUDED.steps_json
                 RETURNING id
                 """,
                 (user_id, number, carrier, type_, cname, status, turl, steps_json),
@@ -7517,7 +7697,7 @@ async def refresh_tracked_shipments():
                 FROM tracked_shipments
                 WHERE is_delivered = FALSE
                   AND (last_checked IS NULL
-                       OR last_checked < NOW() - INTERVAL '2 hours')
+                       OR last_checked < NOW() - INTERVAL '1 hour')
                 ORDER BY number, last_checked ASC NULLS FIRST
                 LIMIT 40
                 """
