@@ -5759,10 +5759,19 @@ const UI = {
     trkSave:'📌 Зберегти в мій список', trkSaved:'✓ Збережено',
     trkActive:'🟢 Активні', trkArchive:'📦 Архів', trkNoSaved:'Немає збережених відправлень',
     trkUpdated:'Оновлено',
-    trkSubFind:'🔍 Знайти', trkSubList:'📋 Мої посилки',
+    trkSubFind:'Знайти', trkSubList:'Мої посилки',
     trkRefresh:'🔄 Оновити статус',
-    trkAutoCheck:'Дані реєструються… автоматично перевіримо через',
+    trkAutoCheck:'🔄 Повторна перевірка через',
     trkEmptyList:'Ще немає збережених посилок.\nЗнайдіть посилку і натисніть «Зберегти».',
+    trkOpenSite:'🌐 Відкрити на сайті перевізника',
+    trkRemove:'✕ Видалити з відстеження',
+    trkDelTitle:'Видалити',
+    trkNetError:'⚠️ Помилка мережі',
+    trkSec:'с',
+    trkDataLoading:'Дані ще завантажуються…',
+    trkNow:'щойно', trkMin:'хв', trkHour:'год',
+    trkMaxRetriesHint:'Дані ще не надійшли від перевізника. Збережіть відправлення — перевіримо автоматично через 3 години.',
+    trkCarNova:'📦 Нова Пошта', trkCarEms:'📮 EMS / Укрпошта',
   },
   ru:{
     loadMore:'Загрузить ещё', noNews:'Новостей пока нет', loadError:'Ошибка загрузки',
@@ -5781,10 +5790,19 @@ const UI = {
     trkSave:'📌 Сохранить в мой список', trkSaved:'✓ Сохранено',
     trkActive:'🟢 Активные', trkArchive:'📦 Архив', trkNoSaved:'Нет сохранённых отправлений',
     trkUpdated:'Обновлено',
-    trkSubFind:'🔍 Найти', trkSubList:'📋 Мои посылки',
+    trkSubFind:'Найти', trkSubList:'Мои посылки',
     trkRefresh:'🔄 Обновить статус',
-    trkAutoCheck:'Данные регистрируются… автоматически проверим через',
+    trkAutoCheck:'🔄 Повторная проверка через',
     trkEmptyList:'Сохранённых посылок пока нет.\nНайдите посылку и нажмите «Сохранить».',
+    trkOpenSite:'🌐 Открыть на сайте перевозчика',
+    trkRemove:'✕ Удалить из отслеживания',
+    trkDelTitle:'Удалить',
+    trkNetError:'⚠️ Ошибка сети',
+    trkSec:'с',
+    trkDataLoading:'Данные загружаются…',
+    trkNow:'только что', trkMin:'мин', trkHour:'ч',
+    trkMaxRetriesHint:'Данные ещё не поступили от перевозчика. Сохраните отправление — проверим автоматически через 3 часа.',
+    trkCarNova:'📦 Нова Пошта', trkCarEms:'📮 EMS / Укрпошта',
   },
   en:{
     loadMore:'Load more', noNews:'No news yet', loadError:'Loading error',
@@ -5803,10 +5821,19 @@ const UI = {
     trkSave:'📌 Save to my list', trkSaved:'✓ Saved',
     trkActive:'🟢 Active', trkArchive:'📦 Archive', trkNoSaved:'No saved shipments',
     trkUpdated:'Updated',
-    trkSubFind:'🔍 Find', trkSubList:'📋 My Parcels',
+    trkSubFind:'Find', trkSubList:'My Parcels',
     trkRefresh:'🔄 Refresh status',
-    trkAutoCheck:'Registering… will auto-check in',
+    trkAutoCheck:'🔄 Retry in',
     trkEmptyList:'No saved parcels yet.\nFind a parcel and tap Save.',
+    trkOpenSite:'🌐 Open tracking page',
+    trkRemove:'✕ Remove from tracking',
+    trkDelTitle:'Remove',
+    trkNetError:'⚠️ Network error',
+    trkSec:'s',
+    trkDataLoading:'Loading data…',
+    trkNow:'just now', trkMin:'min', trkHour:'hr',
+    trkMaxRetriesHint:'Data not yet available from carrier. Save this shipment — we will check automatically every 3 hours.',
+    trkCarNova:'📦 Nova Poshta', trkCarEms:'📮 EMS / Ukrposhta',
   },
 };
 
@@ -5854,7 +5881,19 @@ function updateStaticText(){
   const sfLbl = document.getElementById('trk-sub-lbl-find');
   if(sfLbl) sfLbl.textContent = u.trkSubFind || u.trkFind;
   const slLbl = document.getElementById('trk-sub-lbl-list');
-  if(slLbl) slLbl.textContent = u.trkSubList || 'My Parcels';
+  if(slLbl) slLbl.textContent = u.trkSubList;
+  // Tracking — back button
+  const backLbl2 = document.getElementById('trk-detail-back-lbl');
+  if(backLbl2) backLbl2.textContent = u.back;
+  // Carrier buttons (brand names stay in English; only locale-specific ones change)
+  const carNova = document.querySelector('[data-car="nova"]');
+  if(carNova) carNova.textContent = u.trkCarNova;
+  const carEms = document.querySelector('[data-car="ems"]');
+  if(carEms) carEms.textContent = u.trkCarEms;
+  // Re-render saved list if visible (so time-ago strings update)
+  if(document.getElementById('trk-list-pane').style.display !== 'none'){
+    renderSavedShipments(_savedShipmentsCache);
+  }
 }
 
 // ── Category config ───────────────────────────────────────────
@@ -6219,25 +6258,39 @@ async function doTrack(){
     const r = await fetch(`/api/webapp/track?number=${encodeURIComponent(num)}&carrier=${carrier}`);
     const data = await r.json();
     res.innerHTML = renderTrackResult(data, num);
-    // Auto-retry if data is still pending (freshly registered)
+    // Auto-retry if data is still pending (max 3 attempts)
     if(data.ok && data.steps && data.steps.length === 1 && data.steps[0].status === 'pending'){
-      _scheduleAutoRetry(num, carrier, res);
+      _scheduleAutoRetry(num, carrier, res, 1);
     }
   } catch(e) {
-    res.innerHTML = `<div class="trk-error"><strong>⚠️ Помилка мережі</strong>${esc(String(e))}</div>`;
+    res.innerHTML = `<div class="trk-error"><strong>${esc(UI[lang].trkNetError)}</strong>${esc(String(e))}</div>`;
   }
 }
 
-function _scheduleAutoRetry(num, carrier, resEl){
+const TRK_MAX_RETRIES = 3;
+
+function _scheduleAutoRetry(num, carrier, resEl, attempt){
   if(_trkAutoRetryTimer){ clearTimeout(_trkAutoRetryTimer); }
+
+  // After max retries — show "saved, will check in background" and stop
+  if(attempt > TRK_MAX_RETRIES){
+    const hint = UI[lang].trkMaxRetriesHint;
+    // Preserve current content and just add/update the auto-refresh note
+    const existing = document.getElementById('trk-auto-countdown');
+    if(existing){
+      const note = existing.closest('.trk-auto-refresh');
+      if(note) note.innerHTML = '⏸ ' + esc(hint);
+    }
+    return;
+  }
+
   let secs = 45;
-  const u = UI[lang];
   const countEl = document.getElementById('trk-auto-countdown');
-  if(countEl) countEl.textContent = secs + 'с';
+  if(countEl) countEl.textContent = secs + UI[lang].trkSec;
   const tick = setInterval(()=>{
     secs--;
     const el = document.getElementById('trk-auto-countdown');
-    if(el) el.textContent = secs + 'с';
+    if(el) el.textContent = secs + UI[lang].trkSec;
     if(secs <= 0) clearInterval(tick);
   }, 1000);
 
@@ -6260,7 +6313,7 @@ function _scheduleAutoRetry(num, carrier, resEl){
       const d2 = await r2.json();
       resEl.innerHTML = renderTrackResult(d2, num);
       if(d2.ok && d2.steps && d2.steps.length === 1 && d2.steps[0].status === 'pending'){
-        _scheduleAutoRetry(num, carrier, resEl);
+        _scheduleAutoRetry(num, carrier, resEl, attempt + 1);
       }
     } catch {}
   }, 45000);
@@ -6285,18 +6338,8 @@ function renderTrackResult(d, num){
         <div class="trk-del-date">${esc(d.number||num)}</div>
       </div>
     </div>`;
-    if(d.status) html += `<div class="trk-error" style="margin-bottom:10px"><strong>${esc(d.status)}</strong></div>`;
     if(d.tracking_url){
-      const btnLabel = lang==='en'?'🌐 Open tracking page':lang==='ru'?'🌐 Открыть на сайте перевозчика':'🌐 Відкрити на сайті перевізника';
-      html += `<button class="trk-open-btn" data-url="${esc(d.tracking_url)}" onclick="openTrkUrl(this.dataset.url)">${btnLabel}</button>`;
-    }
-    if(d.no_api){
-      const setupNote = lang==='en'
-        ? 'For live container status in-app, set SEVENTEEN_TRACK_KEY in .env (free at 17track.net/en/apiDoc)'
-        : lang==='ru'
-        ? 'Для отслеживания в приложении добавьте SEVENTEEN_TRACK_KEY в .env (бесплатно: 17track.net)'
-        : 'Для відстеження в додатку додайте SEVENTEEN_TRACK_KEY у .env (безкоштовно: 17track.net)';
-      html += `<div class="trk-error" style="margin-top:10px;font-size:11.5px;color:var(--muted)">${esc(setupNote)}</div>`;
+      html += `<button class="trk-open-btn" data-url="${esc(d.tracking_url)}" onclick="openTrkUrl(this.dataset.url)">${esc(UI[lang].trkOpenSite)}</button>`;
     }
   }
 
@@ -6430,9 +6473,9 @@ function renderSavedShipments(data){
   function fmtAgo(iso){
     if(!iso) return '';
     const s = (Date.now() - new Date(iso)) / 1000;
-    if(s < 60)    return u.trkUpdated+': щойно';
-    if(s < 3600)  return u.trkUpdated+': '+Math.floor(s/60)+' хв';
-    if(s < 86400) return u.trkUpdated+': '+Math.floor(s/3600)+' год';
+    if(s < 60)    return u.trkUpdated+': '+u.trkNow;
+    if(s < 3600)  return u.trkUpdated+': '+Math.floor(s/60)+' '+u.trkMin;
+    if(s < 86400) return u.trkUpdated+': '+Math.floor(s/3600)+' '+u.trkHour;
     return u.trkUpdated+': '+new Date(iso).toLocaleDateString(
       lang==='en'?'en-US':lang==='ru'?'ru-RU':'uk-UA',{day:'numeric',month:'short'});
   }
@@ -6454,7 +6497,7 @@ function renderSavedShipments(data){
         <div class="trk-sv-stat">${esc(stat)}</div>
         ${time?`<div class="trk-sv-time">${esc(time)}</div>`:''}
       </div>
-      <button class="trk-sv-del" onclick="removeTrkShipment('${esc(s.number)}',event)" title="Видалити">✕</button>
+      <button class="trk-sv-del" onclick="removeTrkShipment('${esc(s.number)}',event)" title="${esc(u.trkDelTitle)}">✕</button>
     </div>`;
   }
 
@@ -6527,13 +6570,12 @@ function renderDetailContent(s, refreshing){
     });
     html += '</div>';
   } else {
-    html += `<div class="trk-auto-refresh" style="margin-bottom:14px">${esc(u.trkNoSaved||'Дані ще завантажуються…')}</div>`;
+    html += `<div class="trk-auto-refresh" style="margin-bottom:14px">${esc(u.trkDataLoading)}</div>`;
   }
 
   // Tracking URL button for containers
   if(s.tracking_url){
-    const btnLabel = lang==='en'?'🌐 Open tracking page':lang==='ru'?'🌐 Открыть на сайте перевозчика':'🌐 Відкрити на сайті перевізника';
-    html += `<button class="trk-open-btn" data-url="${esc(s.tracking_url)}" onclick="openTrkUrl(this.dataset.url)">${btnLabel}</button>`;
+    html += `<button class="trk-open-btn" data-url="${esc(s.tracking_url)}" onclick="openTrkUrl(this.dataset.url)">${esc(u.trkOpenSite)}</button>`;
   }
 
   // Refresh button
@@ -6543,7 +6585,7 @@ function renderDetailContent(s, refreshing){
 
   // Remove button
   html += `<button class="trk-open-btn" style="margin-top:8px;color:var(--muted);border-color:var(--border)"
-    onclick="removeTrkShipment('${esc(s.number)}',event)">✕ Видалити з відстеження</button>`;
+    onclick="removeTrkShipment('${esc(s.number)}',event)">${esc(u.trkRemove)}</button>`;
 
   document.getElementById('trk-detail-content').innerHTML = html;
 }
@@ -7069,15 +7111,137 @@ async def _track_nova_poshta(number: str) -> dict:
     }
 
 
-async def _track_17track(number: str, carrier_code: int = 0) -> dict:
+def _parse_17track_v24(data: dict, number: str) -> dict | None:
     """
-    Universal tracking via 17track.net API v2.2.
+    Parse 17track API v2.4 response (gettrackinfo OR getrealtimetrackinfo).
+    Returns None → caller should retry with carrier_code=0.
+    Returns dict with ok=True/False.
+    """
+    if data.get("code") != 0:
+        return {
+            "ok": False,
+            "error": data.get("message") or data.get("msg") or "API error",
+        }
 
-    Key differences from old v1/getsummary:
-    - Endpoint: /gettrackinfo  (not /getsummary)
-    - Events array key: "w1"   (not "z1")
-    - Overall status:  "e"     (integer code, not "z0"/"zt" strings)
-    - Carrier name:    track["c"] or item["carrier"] (integer code fallback)
+    payload  = data.get("data") or {}
+    accepted = payload.get("accepted") or []
+    rejected = payload.get("rejected") or []
+
+    if not accepted:
+        if rejected:
+            err = rejected[0].get("error") or {}
+            msg = err.get("message") or err.get("msg") or "Not found"
+            if "invalid" in msg.lower() or "format" in msg.lower():
+                return None  # wrong carrier code → signal retry
+            return {"ok": False, "error": msg}
+        return {"ok": False, "error": "Not found"}
+
+    item       = accepted[0]
+    track_info = item.get("track_info") or {}
+
+    # ── Status (v2.4 string codes) ────────────────────────────────────────────
+    _STATUS_MAP = {
+        "NotFound":           ("📦", "Не знайдено",               "pending"),
+        "InfoReceived":       ("📝", "Інформацію отримано",       "active"),
+        "InTransit":          ("🚚", "В дорозі",                  "active"),
+        "Expired":            ("⏰", "Термін зберігання минув",   "fail"),
+        "AvailableForPickup": ("🏪", "Готово до отримання",       "active"),
+        "OutForDelivery":     ("🚀", "Виїхав на доставку",        "active"),
+        "DeliveryFailure":    ("⚠️", "Невдала спроба доставки",  "active"),
+        "Delivered":          ("✅", "Доставлено",                "done"),
+        "Exception":          ("⚠️", "Виняток",                  "fail"),
+    }
+
+    latest_status = track_info.get("latest_status") or {}
+    status_str    = latest_status.get("status") or "NotFound"
+    e_icon, e_label, e_state = _STATUS_MAP.get(status_str, ("📦", status_str, "active"))
+
+    # ── Carrier name from providers ───────────────────────────────────────────
+    tracking  = track_info.get("tracking") or {}
+    providers = tracking.get("providers") or []
+    events    = []
+    carrier_name = ""
+    if providers:
+        p = providers[0]
+        prov_info    = p.get("provider") or {}
+        carrier_name = prov_info.get("name") or ""
+        events       = p.get("events") or []
+    if not carrier_name:
+        carrier_name = str(item.get("carrier", ""))
+
+    # ── Estimated delivery ────────────────────────────────────────────────────
+    time_metrics = track_info.get("time_metrics") or {}
+    edd          = time_metrics.get("estimated_delivery_date") or {}
+    scheduled_delivery = edd.get("from") or ""
+    if scheduled_delivery:
+        try:
+            scheduled_delivery = datetime.datetime.fromisoformat(
+                scheduled_delivery.replace("Z", "+00:00")
+            ).strftime("%d.%m.%Y")
+        except Exception:
+            pass
+
+    # ── No events yet ─────────────────────────────────────────────────────────
+    if not events:
+        return {
+            "ok": True, "type": "parcel",
+            "carrier": carrier_name, "number": number,
+            "status": "Трекінг зареєстровано.",
+            "steps": [{
+                "status": "pending", "icon": "🔄",
+                "title": "Запит відправлено до перевізника",
+                "desc": "",
+                "time": "",
+            }],
+        }
+
+    # ── Build timeline (events newest-first → reverse to chronological) ───────
+    sliced = events[:15]
+    total  = len(sliced)
+    steps  = []
+    for i, ev in enumerate(reversed(sliced)):
+        is_last = (i == total - 1)
+        st  = e_state if is_last else "done"
+        ico = e_icon  if is_last else "📍"
+
+        # Format ISO timestamp → readable
+        time_str = ev.get("time_iso") or ev.get("time_utc") or ""
+        if time_str:
+            try:
+                time_str = datetime.datetime.fromisoformat(
+                    time_str.replace("Z", "+00:00")
+                ).strftime("%d.%m.%Y %H:%M")
+            except Exception:
+                pass
+
+        steps.append({
+            "status": st,
+            "icon":   ico,
+            "title":  ev.get("description") or "",
+            "desc":   ev.get("location") or "",
+            "time":   time_str,
+        })
+
+    current_status = e_label if status_str not in ("NotFound",) else (steps[-1]["title"] if steps else "")
+
+    result = {
+        "ok":      True,
+        "type":    "parcel",
+        "carrier": carrier_name,
+        "number":  number,
+        "status":  current_status,
+        "steps":   steps,
+    }
+    if scheduled_delivery:
+        result["scheduled_delivery"] = scheduled_delivery
+    return result
+
+
+async def _track_17track(number: str, carrier_code: int = 0, realtime: bool = True) -> dict:
+    """
+    Universal tracking via 17track.net API v2.4.
+    realtime=True  → getrealtimetrackinfo (forces carrier fetch, 1 credit, 3h cache)
+    realtime=False → gettrackinfo only (uses 17track's own cache, background refresh)
     """
     if not SEVENTEEN_TRACK_KEY:
         return {
@@ -7087,180 +7251,72 @@ async def _track_17track(number: str, carrier_code: int = 0) -> dict:
         }
 
     headers = {"17token": SEVENTEEN_TRACK_KEY, "Content-Type": "application/json"}
+    BASE    = "https://api.17track.net/track/v2.4"
 
-    # v2.2 "e" field → (icon, Ukrainian label, step status)
-    _E_STATUS: dict[int, tuple[str, str, str]] = {
-        0:  ("📦", "Немає інформації",         "pending"),
-        10: ("🚚", "В дорозі",                 "active"),
-        20: ("⏰", "Термін зберігання минув",   "fail"),
-        30: ("🏪", "Готово до отримання",       "active"),
-        35: ("⚠️", "Не вручено / Виняток",     "active"),
-        40: ("✅", "Доставлено",               "done"),
-        50: ("🔔", "Потрібна увага",            "active"),
-    }
+    def _body(extra: dict | None = None) -> list:
+        b: dict = {"number": number, "auto_detection": True}
+        if carrier_code:
+            b["carrier"] = carrier_code
+        if extra:
+            b.update(extra)
+        return [b]
 
-    def _parse(data: dict) -> dict | None:
-        """
-        Parse /gettrackinfo v2.2 response.
-        Returns None → caller should retry with carrier_code=0 (auto-detect).
-        """
-        if data.get("code") != 0:
-            return {
-                "ok": False,
-                "error": data.get("message") or data.get("msg") or "API error",
-            }
-
-        payload  = data.get("data") or {}
-        accepted = payload.get("accepted") or []
-        rejected = payload.get("rejected") or []
-
-        if not accepted:
-            if rejected:
-                err = rejected[0].get("error") or {}
-                msg = err.get("message") or err.get("msg") or "Not found"
-                if "invalid" in msg.lower():
-                    return None  # wrong carrier code → signal retry
-                return {"ok": False, "error": msg}
-            return {"ok": False, "error": "Not found"}
-
-        item  = accepted[0]
-        track = item.get("track") or {}
-
-        # ── Events: v2.2 uses "w1"; "z1" kept as fallback ────────────────────
-        events = track.get("w1") or track.get("z1") or []
-
-        # ── Overall status from integer "e" field ─────────────────────────────
-        e_code = int(track.get("e", -1))
-        e_icon, e_label, e_state = _E_STATUS.get(e_code, ("📦", "", "active"))
-
-        carrier_name = (
-            track.get("c")                        # carrier name string (preferred)
-            or str(item.get("carrier", ""))        # carrier integer code as fallback
+    def _has_events(r: dict | None) -> bool:
+        return bool(
+            r and r.get("ok")
+            and r.get("steps")
+            and r["steps"][0].get("status") != "pending"
         )
 
-        # No events yet → newly registered, 17track hasn't fetched data yet
-        if not events:
-            return {
-                "ok": True, "type": "parcel",
-                "carrier": carrier_name, "number": number,
-                "status": "Трекінг зареєстровано. Оновіть через кілька хвилин.",
-                "steps": [{
-                    "status": "pending", "icon": "🔄",
-                    "title": "Запит відправлено до перевізника",
-                    "desc": "Дані з'являться протягом 1–5 хвилин",
-                    "time": "",
-                }],
-            }
-
-        # ── Build chronological step list (events come newest-first from API) ─
-        sliced = events[:15]
-        total  = len(sliced)
-        steps  = []
-        for i, ev in enumerate(reversed(sliced)):
-            is_last = (i == total - 1)
-            # Most recent event inherits the "e"-field status/icon
-            if is_last and e_code != -1:
-                st, ico = e_state, e_icon
-            else:
-                st, ico = ("done", "📍") if not is_last else ("active", "🚀")
-            steps.append({
-                "status": st,
-                "icon":   ico,
-                "title":  ev.get("z") or "",   # event description
-                "desc":   ev.get("l") or "",   # location
-                "time":   ev.get("a") or "",   # datetime string
-            })
-
-        # Human-readable current status:
-        # Use e_label when meaningful; fall back to last event title
-        if e_label and e_code not in (0, -1):
-            current_status = e_label
-        else:
-            current_status = steps[-1]["title"] if steps else ""
-
-        return {
-            "ok":      True,
-            "type":    "parcel",
-            "carrier": carrier_name,
-            "number":  number,
-            "status":  current_status,
-            "steps":   steps,
-        }
-
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=25.0) as client:
 
-            # 1. Register number with 17track (triggers background fetch from carrier)
-            reg = [{"number": number}]
-            if carrier_code:
-                reg[0]["carrier"] = carrier_code
+            # 1. Register (non-fatal — just ensures 17track starts tracking this number)
             try:
-                await client.post(
-                    "https://api.17track.net/track/v2.2/register",
-                    json=reg, headers=headers,
-                )
+                await client.post(f"{BASE}/register", json=_body(), headers=headers)
             except Exception:
-                pass  # non-fatal
+                pass
 
-            # 2. Polling loop: give 17track time to fetch from the actual carrier.
-            # Up to 5 attempts, 3 s apart. Break early if real events are received.
-            result = None
-            for _attempt in range(5):
-                await asyncio.sleep(3.0)
-                r = await client.post(
-                    "https://api.17track.net/track/v2.2/gettrackinfo",
-                    json=[{"number": number}], headers=headers,
-                )
-                result = _parse(r.json())
-                # Break when we have a real result with actual events
-                if (
-                    result is not None
-                    and result.get("ok")
-                    and result.get("steps")
-                    and result["steps"][0].get("status") != "pending"
-                ):
-                    break
+            result: dict | None = None
 
-            # 3. Wrong carrier code rejected → retry with auto-detect (carrier_code=0)
-            if result is None and carrier_code != 0:
+            # 2a. Real-time fetch (user-initiated searches)
+            if realtime:
                 try:
-                    await client.post(
-                        "https://api.17track.net/track/v2.2/register",
-                        json=[{"number": number}], headers=headers,
+                    r = await client.post(
+                        f"{BASE}/getrealtimetrackinfo",
+                        json=_body({"cacheLevel": 0}), headers=headers,
                     )
+                    result = _parse_17track_v24(r.json(), number)
+                    if _has_events(result):
+                        return result
                 except Exception:
                     pass
-                # Fallback polling: 3 iterations
-                result = None
-                for _attempt in range(3):
-                    await asyncio.sleep(3.0)
-                    r2 = await client.post(
-                        "https://api.17track.net/track/v2.2/gettrackinfo",
-                        json=[{"number": number}], headers=headers,
-                    )
-                    result = _parse(r2.json())
-                    if (
-                        result is not None
-                        and result.get("ok")
-                        and result.get("steps")
-                        and result["steps"][0].get("status") != "pending"
-                    ):
-                        break
 
-            if result is None:
+            # 2b. Cached lookup (background refresh or realtime fallback)
+            r2 = await client.post(
+                f"{BASE}/gettrackinfo",
+                json=_body(), headers=headers,
+            )
+            result2 = _parse_17track_v24(r2.json(), number)
+            if _has_events(result2):
+                return result2
+
+            # 3. Return best available result (even if pending)
+            best = result2 if result2 is not None else result
+            if best is None:
                 return {
                     "ok": False,
                     "error": "Номер не розпізнано. Перевірте правильність або оберіть іншого перевізника.",
                 }
-            return result
+            return best
 
     except Exception as e:
         return {"ok": False, "error": f"Network error: {e}"}
 
 
 @app.get("/api/webapp/track")
-async def api_webapp_track(number: str, carrier: str = "auto"):
-    """Unified parcel & sea-container tracking endpoint."""
+async def api_webapp_track(number: str, carrier: str = "auto", _bg: bool = False):
+    """Unified parcel & sea-container tracking endpoint. _bg=True → background refresh (no realtime)."""
     n = number.strip().upper().replace(" ", "").replace("-", "")
     if not n:
         raise HTTPException(status_code=400, detail="number required")
@@ -7277,32 +7333,23 @@ async def api_webapp_track(number: str, carrier: str = "auto"):
             "tracking_url": tracking_url,
         }
         if SEVENTEEN_TRACK_KEY:
-            result = await _track_17track(n, 0)
+            result = await _track_17track(n, 0, realtime=not _bg)
             # Always stamp container metadata regardless of 17track result
             result["type"] = "container"
             result["line"] = line
             result["tracking_url"] = tracking_url
             if not result.get("ok"):
-                # 17track API error / network fail → return container with link + pending step
+                # 17track error → return container with link + pending step
                 result["ok"] = True
-                result.setdefault("status", "Трекінг зареєстровано. Оновіть через кілька хвилин.")
+                result.setdefault("status", "Трекінг зареєстровано.")
                 result["steps"] = [{
                     "status": "pending", "icon": "🔄",
                     "title": "Запит відправлено до перевізника",
-                    "desc": "Дані з'являться протягом 1–10 хвилин",
+                    "desc": "",
                     "time": "",
                 }]
                 result.pop("error", None)
                 result.pop("hint", None)
-            elif not result.get("steps"):
-                # 17track accepted but no events yet → also show pending
-                result["status"] = "Трекінг зареєстровано. Оновіть через кілька хвилин."
-                result["steps"] = [{
-                    "status": "pending", "icon": "🔄",
-                    "title": "Запит відправлено до перевізника",
-                    "desc": "Дані з'являться протягом 1–10 хвилин",
-                    "time": "",
-                }]
             return result
         # No 17track key — return link only
         base["status"] = "Відкрийте офіційний сайт перевізника"
@@ -7325,7 +7372,7 @@ async def api_webapp_track(number: str, carrier: str = "auto"):
     }
     if SEVENTEEN_TRACK_KEY:
         code = _CARRIER_CODES.get(carrier, 0)
-        return await _track_17track(n, code)
+        return await _track_17track(n, code, realtime=not _bg)
 
     # No API keys at all
     return {
@@ -7488,7 +7535,7 @@ async def refresh_tracked_shipments():
     for row in rows:
         await asyncio.sleep(0.8)
         try:
-            result = await api_webapp_track(row["number"], row["carrier"])
+            result = await api_webapp_track(row["number"], row["carrier"], _bg=True)
             if not result.get("ok"):
                 continue
 
