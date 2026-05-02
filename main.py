@@ -6645,17 +6645,31 @@ function renderSavedShipments(data){
   const archive = data.archive || [];
   const u = UI[lang];
 
-  // Render filter chips
+  // Render filter chips — always visible when there are active shipments
   const filterRow = document.getElementById('trk-filter-row');
   if(filterRow){
-    const carriers = [...new Set(active.map(s=>s.carrier_name).filter(Boolean))];
-    if(carriers.length > 1){
+    if(active.length){
+      const CHIP_ORDER = ['Nova Poshta','Nova Post','Meest','Meest Express','DHL','FedEx','UPS','EMS'];
+      const parcelCarriers = [...new Set(active.filter(s=>s.type!=='container').map(s=>s.carrier_name).filter(Boolean))];
+      parcelCarriers.sort((a,b)=>{
+        const ia = CHIP_ORDER.findIndex(x=>a.toLowerCase().includes(x.toLowerCase())||x.toLowerCase().includes(a.toLowerCase()));
+        const ib = CHIP_ORDER.findIndex(x=>b.toLowerCase().includes(x.toLowerCase())||x.toLowerCase().includes(b.toLowerCase()));
+        if(ia>=0&&ib>=0) return ia-ib;
+        if(ia>=0) return -1;
+        if(ib>=0) return 1;
+        return a.localeCompare(b);
+      });
+      const hasContainers = active.some(s=>s.type==='container');
       let fhtml = `<button class="trk-fchip${_trkFilter==='all'?' on':''}" style="${_trkFilter==='all'?'background:#4B5563;border-color:#4B5563':''}" data-color="#4B5563" onclick="trkSetFilter('all',this)">📋 ${u.trkAll||'Всі'}</button>`;
-      carriers.forEach(c=>{
+      parcelCarriers.forEach(c=>{
         const color = _CARRIER_COLORS[c] || '#4B5563';
         const isOn = _trkFilter === c;
         fhtml += `<button class="trk-fchip${isOn?' on':''}" style="${isOn?`background:${color};border-color:${color}`:''}" data-color="${esc(color)}" onclick="trkSetFilter(${JSON.stringify(c)},this)">${esc(c)}</button>`;
       });
+      if(hasContainers){
+        const isOn = _trkFilter === 'container';
+        fhtml += `<button class="trk-fchip${isOn?' on':''}" style="${isOn?'background:#005798;border-color:#005798':''}" data-color="#005798" onclick="trkSetFilter('container',this)">🚢 Контейнери</button>`;
+      }
       filterRow.innerHTML = fhtml;
       filterRow.style.display = '';
     } else {
@@ -6663,9 +6677,13 @@ function renderSavedShipments(data){
     }
   }
 
-  // Apply carrier filter
+  // Apply carrier/type filter
   const activeWithIdx = active.map((s,i)=>({s,idx:i}));
-  const filtered = _trkFilter === 'all' ? activeWithIdx : activeWithIdx.filter(({s})=>s.carrier_name===_trkFilter);
+  const filtered = _trkFilter === 'all'
+    ? activeWithIdx
+    : _trkFilter === 'container'
+      ? activeWithIdx.filter(({s})=>s.type==='container')
+      : activeWithIdx.filter(({s})=>s.carrier_name===_trkFilter);
 
   if(!filtered.length && !archive.length){
     el.innerHTML = `<div class="trk-list-empty">${esc(u.trkEmptyList||u.trkNoSaved)}</div>`;
