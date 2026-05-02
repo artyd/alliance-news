@@ -5423,6 +5423,12 @@ nav button.on::after{
   cursor:pointer;transition:background .15s;margin-bottom:14px;
 }
 .trk-nav-back:active{background:var(--surface2)}
+.trk-nav-row{display:flex;gap:8px;margin-bottom:14px;flex-shrink:0}
+.trk-nav-row .trk-nav-back{margin-bottom:0}
+.trk-sv-badge{
+  display:inline-block;padding:2px 8px;border-radius:5px;
+  font-size:10px;font-weight:700;color:#fff;margin-bottom:4px;
+}
 
 /* ── TRACKING DETAIL VIEW ── */
 .trk-detail-back{
@@ -5658,14 +5664,25 @@ nav button.on::after{
     <div id="ptracking" class="panel">
       <div class="trk-wrap">
 
-        <!-- Tab navigation (always visible) -->
-        <div class="trk-tab-row">
-          <button class="trk-tab-btn on" id="trk-tab-find" onclick="trkNav('type')">🔍 <span id="trk-lbl-find-btn">Знайти</span></button>
-          <button class="trk-tab-btn" id="trk-tab-my" onclick="trkNav('list')">📋 <span id="trk-lbl-list-btn">Мій трекінг</span></button>
+        <!-- SCREEN 1: Home -->
+        <div id="trk-home" class="trk-screen active">
+          <div class="trk-big-wrap">
+            <button class="trk-big-btn" onclick="trkNav('type')">
+              <span class="trk-big-ico">🔍</span>
+              <span class="trk-big-title" id="trk-lbl-find-btn">Знайти</span>
+              <span class="trk-big-sub" id="trk-lbl-find-sub">Посилка або контейнер</span>
+            </button>
+            <button class="trk-big-btn" onclick="trkNav('list')">
+              <span class="trk-big-ico">📋</span>
+              <span class="trk-big-title" id="trk-lbl-list-btn">Мій трекінг</span>
+              <span class="trk-big-sub" id="trk-lbl-list-sub">Збережені відправлення</span>
+            </button>
+          </div>
         </div>
 
-        <!-- SCREEN 2: Type selection (default) -->
-        <div id="trk-type" class="trk-screen active">
+        <!-- SCREEN 2: Type selection -->
+        <div id="trk-type" class="trk-screen">
+          <div class="trk-nav-back" onclick="trkNav('home')">&#8592; <span id="trk-back-lbl-type">Назад</span></div>
           <div class="trk-big-wrap">
             <button class="trk-big-btn" onclick="trkNav('parcel')">
               <span class="trk-big-ico">📦</span>
@@ -5682,7 +5699,10 @@ nav button.on::after{
 
         <!-- SCREEN 3a: Parcel search -->
         <div id="trk-parcel" class="trk-screen">
-          <div class="trk-nav-back" onclick="trkNav('type')">&#8592; <span id="trk-back-lbl-parcel">Назад</span></div>
+          <div class="trk-nav-row">
+            <div class="trk-nav-back" onclick="trkNav('type')">&#8592; <span id="trk-back-lbl-parcel">Назад</span></div>
+            <div class="trk-nav-back" onclick="trkNav('home')">🏠 <span id="trk-home-lbl-parcel">Головна</span></div>
+          </div>
           <div class="trk-carriers" id="trk-carriers-wrap">
             <button class="trk-car-btn" data-car="nova"  onclick="selectCarrier(this)">📦 Нова Пошта</button>
             <button class="trk-car-btn" data-car="meest" onclick="selectCarrier(this)">🚚 Meest Express</button>
@@ -5701,7 +5721,10 @@ nav button.on::after{
 
         <!-- SCREEN 3b: Container search -->
         <div id="trk-container" class="trk-screen">
-          <div class="trk-nav-back" onclick="trkNav('type')">&#8592; <span id="trk-back-lbl-container">Назад</span></div>
+          <div class="trk-nav-row">
+            <div class="trk-nav-back" onclick="trkNav('type')">&#8592; <span id="trk-back-lbl-container">Назад</span></div>
+            <div class="trk-nav-back" onclick="trkNav('home')">🏠 <span id="trk-home-lbl-container">Головна</span></div>
+          </div>
           <div class="trk-carriers" id="trk-cnt-carriers-wrap">
             <button class="trk-car-btn trk-cnt-btn" data-cnt="msc"       onclick="selectCntCarrier(this)">🚢 MSC</button>
             <button class="trk-car-btn trk-cnt-btn" data-cnt="maersk"    onclick="selectCntCarrier(this)">🚢 Maersk</button>
@@ -5723,6 +5746,7 @@ nav button.on::after{
 
         <!-- SCREEN 4: My Parcels -->
         <div id="trk-list" class="trk-screen">
+          <div class="trk-nav-back" onclick="trkNav('home')">&#8592; <span id="trk-back-lbl-list">Назад</span></div>
           <div class="trk-filter-row" id="trk-filter-row" style="display:none"></div>
           <div id="trk-detail-view" style="display:none">
             <div class="trk-detail-back" onclick="closeDetail()">← <span id="trk-detail-back-lbl">Назад</span></div>
@@ -5814,7 +5838,7 @@ const UI = {
     trkSave:'📌 Зберегти в мій список', trkSaved:'✓ Збережено',
     trkActive:'🟢 Активні', trkArchive:'📦 Архів', trkNoSaved:'Немає збережених відправлень',
     trkUpdated:'Оновлено',
-    trkSubFind:'Знайти', trkSubList:'Мій трекінг', trkAll:'Всі',
+    trkSubFind:'Знайти', trkSubList:'Мій трекінг', trkAll:'Всі', trkHome:'Головна',
     trkRefresh:'🔄 Оновити статус',
     trkAutoCheck:'🔄 Повторна перевірка через',
     trkEmptyList:'Ще немає збережених посилок.\nЗнайдіть посилку і натисніть «Зберегти».',
@@ -5845,7 +5869,7 @@ const UI = {
     trkSave:'📌 Сохранить в мой список', trkSaved:'✓ Сохранено',
     trkActive:'🟢 Активные', trkArchive:'📦 Архив', trkNoSaved:'Нет сохранённых отправлений',
     trkUpdated:'Обновлено',
-    trkSubFind:'Найти', trkSubList:'Мой трекинг', trkAll:'Все',
+    trkSubFind:'Найти', trkSubList:'Мой трекинг', trkAll:'Все', trkHome:'Главная',
     trkRefresh:'🔄 Обновить статус',
     trkAutoCheck:'🔄 Повторная проверка через',
     trkEmptyList:'Сохранённых посылок пока нет.\nНайдите посылку и нажмите «Сохранить».',
@@ -5876,7 +5900,7 @@ const UI = {
     trkSave:'📌 Save to my list', trkSaved:'✓ Saved',
     trkActive:'🟢 Active', trkArchive:'📦 Archive', trkNoSaved:'No saved shipments',
     trkUpdated:'Updated',
-    trkSubFind:'Find', trkSubList:'My Tracking', trkAll:'All',
+    trkSubFind:'Find', trkSubList:'My Tracking', trkAll:'All', trkHome:'Home',
     trkRefresh:'🔄 Refresh status',
     trkAutoCheck:'🔄 Retry in',
     trkEmptyList:'No saved parcels yet.\nFind a parcel and tap Save.',
@@ -5945,6 +5969,10 @@ function updateStaticText(){
     const el = document.getElementById(id);
     if(el) el.textContent = u.back;
   });
+  ['trk-home-lbl-parcel','trk-home-lbl-container'].forEach(id => {
+    const el = document.getElementById(id);
+    if(el) el.textContent = u.trkHome || 'Головна';
+  });
   // Carrier buttons (brand names stay in English; only locale-specific ones change)
   const carNova = document.querySelector('[data-car="nova"]');
   if(carNova) carNova.textContent = u.trkCarNova;
@@ -6005,7 +6033,7 @@ function tab(name, btn){
   });
   if(name==='markets' && mkData.length===0) fetchMarkets();
   if(name==='reports' && document.getElementById('rlist').children.length===0) fetchReports();
-  if(name==='tracking'){ trkNav('type'); }
+  if(name==='tracking'){ trkNav('home'); loadSavedShipments(); }
 }
 
 // ── Chips ─────────────────────────────────────────────────────
@@ -6252,7 +6280,7 @@ let _trkCntLine = null;
 let _lastTrkData = null;
 let _trkAutoRetryTimer = null;
 let _savedShipmentsCache = {active:[], archive:[]};
-let _trkCurrentScreen = 'type';
+let _trkCurrentScreen = 'home';
 let _trkFilter = 'all';
 const _CARRIER_COLORS = {
   'Nova Poshta':'#C8102E','DHL':'#D40511','FedEx':'#4D148C',
@@ -6275,7 +6303,7 @@ function trkSetFilter(carrier, btn){
   renderSavedShipments(_savedShipmentsCache);
 }
 
-const _TRK_SCREENS = ['trk-type','trk-parcel','trk-container','trk-list'];
+const _TRK_SCREENS = ['trk-home','trk-type','trk-parcel','trk-container','trk-list'];
 
 // ── Screen navigation ─────────────────────────────────────────
 function trkNav(screen){
@@ -6291,18 +6319,10 @@ function trkNav(screen){
     if(lv) lv.style.display = '';
   }
 
-  const idMap = {type:'trk-type',parcel:'trk-parcel',container:'trk-container',list:'trk-list'};
-  const el = document.getElementById(idMap[screen] || 'trk-type');
+  const idMap = {home:'trk-home',type:'trk-type',parcel:'trk-parcel',container:'trk-container',list:'trk-list'};
+  const el = document.getElementById(idMap[screen] || 'trk-home');
   if(el) el.classList.add('active');
   _trkCurrentScreen = screen;
-
-  // Update tab active state
-  const tf = document.getElementById('trk-tab-find');
-  const tl = document.getElementById('trk-tab-my');
-  if(tf && tl){
-    tf.classList.toggle('on', screen !== 'list');
-    tl.classList.toggle('on', screen === 'list');
-  }
 
   if(screen === 'parcel'){
     trkMode = 'parcel';
@@ -6660,9 +6680,13 @@ function renderSavedShipments(data){
       ? (s.delivered_at ? '✅ '+new Date(s.delivered_at).toLocaleDateString(
           lang==='en'?'en-US':lang==='ru'?'ru-RU':'uk-UA',{day:'numeric',month:'short'}) : '')
       : fmtAgo(s.last_checked);
+    const cname = s.carrier_name || '';
+    const ccolor = cname ? (_CARRIER_COLORS[cname] || '#4B5563') : '';
+    const badge = cname ? `<span class="trk-sv-badge" style="background:${ccolor}">${esc(cname)}</span>` : '';
     return `<div class="trk-sv-card${cls}" onclick="openDetailByIdx(${idx})">
       <div class="trk-sv-ico">${ico}</div>
       <div class="trk-sv-info">
+        ${badge}
         <div class="trk-sv-num">${esc(s.number)}</div>
         <div class="trk-sv-stat">${esc(stat)}</div>
         ${time?`<div class="trk-sv-time">${esc(time)}</div>`:''}
