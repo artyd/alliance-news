@@ -5367,11 +5367,12 @@ nav button.on::after{
 }
 .trk-sv-time{font-size:10px;color:var(--muted);margin-top:2px}
 .trk-sv-del{
-  background:none;border:none;font-size:18px;color:var(--muted);
-  cursor:pointer;padding:4px 2px;flex-shrink:0;line-height:1;
-  transition:color .15s;
+  background:var(--red);border:none;border-radius:20px;
+  font-size:11px;font-weight:700;color:#fff;
+  cursor:pointer;padding:6px 11px;flex-shrink:0;line-height:1;
+  transition:opacity .15s;white-space:nowrap;
 }
-.trk-sv-del:active{color:var(--red)}
+.trk-sv-del:active{opacity:.8}
 .trk-save-btn{
   display:block;width:100%;margin-top:14px;padding:13px;border-radius:var(--r);
   background:var(--surface);border:1.5px solid var(--green);
@@ -5380,6 +5381,26 @@ nav button.on::after{
 }
 .trk-save-btn:active{background:var(--surface2)}
 .trk-save-btn:disabled{opacity:.5;cursor:default;border-color:var(--border);color:var(--sub)}
+
+/* ── TRACKING TABS + FILTER CHIPS ── */
+.trk-tab-row{display:flex;gap:8px;margin-bottom:16px;flex-shrink:0}
+.trk-tab-btn{
+  flex:1;padding:10px 12px;border-radius:20px;font-size:13px;font-weight:700;
+  text-align:center;background:var(--surface);border:1.5px solid var(--border);
+  color:var(--sub);cursor:pointer;transition:all .15s;
+}
+.trk-tab-btn.on{border-color:var(--text);color:var(--text);background:var(--surface2)}
+.trk-filter-row{
+  display:flex;overflow-x:auto;gap:8px;padding-bottom:12px;flex-shrink:0;
+  -webkit-overflow-scrolling:touch;scrollbar-width:none;
+}
+.trk-filter-row::-webkit-scrollbar{display:none}
+.trk-fchip{
+  padding:6px 14px;border-radius:20px;font-size:12px;font-weight:700;
+  border:1.5px solid var(--border);color:var(--sub);background:var(--surface);
+  cursor:pointer;white-space:nowrap;transition:all .15s;flex-shrink:0;
+}
+.trk-fchip.on{color:#fff;border-color:transparent}
 
 /* ── TRACKING SCREEN NAVIGATION ── */
 .trk-screen{display:none;flex-direction:column;flex:1}
@@ -5396,19 +5417,21 @@ nav button.on::after{
 .trk-big-title{font-size:18px;font-weight:800;color:var(--text);margin-top:2px}
 .trk-big-sub{font-size:11.5px;color:var(--muted);text-align:center;padding:0 12px;line-height:1.4}
 .trk-nav-back{
-  display:flex;align-items:center;gap:6px;padding:6px 0 14px;flex-shrink:0;
-  font-size:13px;font-weight:700;color:var(--sub);cursor:pointer;transition:color .15s;
+  display:inline-flex;align-items:center;gap:7px;
+  padding:9px 16px;background:var(--surface);border:1px solid var(--border);
+  border-radius:20px;font-size:13px;font-weight:700;color:var(--text);
+  cursor:pointer;transition:background .15s;margin-bottom:14px;
 }
-.trk-nav-back:active{color:var(--text)}
+.trk-nav-back:active{background:var(--surface2)}
 
 /* ── TRACKING DETAIL VIEW ── */
 .trk-detail-back{
-  display:flex;align-items:center;gap:8px;margin-bottom:14px;
-  font-size:13px;font-weight:700;color:var(--sub);cursor:pointer;
-  padding:8px 0;
+  display:inline-flex;align-items:center;gap:7px;
+  padding:9px 16px;background:var(--surface);border:1px solid var(--border);
+  border-radius:20px;font-size:13px;font-weight:700;color:var(--text);
+  cursor:pointer;transition:background .15s;margin-bottom:14px;
 }
-.trk-detail-back:active{color:var(--text)}
-.trk-detail-back span{font-size:18px;line-height:1}
+.trk-detail-back:active{background:var(--surface2)}
 .trk-refresh-btn{
   display:block;width:100%;margin-top:14px;padding:13px;border-radius:var(--r);
   background:var(--surface);border:1.5px solid var(--border);
@@ -5635,25 +5658,14 @@ nav button.on::after{
     <div id="ptracking" class="panel">
       <div class="trk-wrap">
 
-        <!-- SCREEN 1: Home -->
-        <div id="trk-home" class="trk-screen active">
-          <div class="trk-big-wrap">
-            <button class="trk-big-btn" onclick="trkNav('type')">
-              <span class="trk-big-ico">🔍</span>
-              <span class="trk-big-title" id="trk-lbl-find-btn">Знайти</span>
-              <span class="trk-big-sub" id="trk-lbl-find-sub">Посилка або контейнер</span>
-            </button>
-            <button class="trk-big-btn" onclick="trkNav('list')">
-              <span class="trk-big-ico">📋</span>
-              <span class="trk-big-title" id="trk-lbl-list-btn">Мої посилки</span>
-              <span class="trk-big-sub" id="trk-lbl-list-sub">Збережені відправлення</span>
-            </button>
-          </div>
+        <!-- Tab navigation (always visible) -->
+        <div class="trk-tab-row">
+          <button class="trk-tab-btn on" id="trk-tab-find" onclick="trkNav('type')">🔍 <span id="trk-lbl-find-btn">Знайти</span></button>
+          <button class="trk-tab-btn" id="trk-tab-my" onclick="trkNav('list')">📋 <span id="trk-lbl-list-btn">Мій трекінг</span></button>
         </div>
 
-        <!-- SCREEN 2: Type selection -->
-        <div id="trk-type" class="trk-screen">
-          <div class="trk-nav-back" onclick="trkNav('home')">&#8592; <span id="trk-back-lbl-type">Назад</span></div>
+        <!-- SCREEN 2: Type selection (default) -->
+        <div id="trk-type" class="trk-screen active">
           <div class="trk-big-wrap">
             <button class="trk-big-btn" onclick="trkNav('parcel')">
               <span class="trk-big-ico">📦</span>
@@ -5678,6 +5690,7 @@ nav button.on::after{
             <button class="trk-car-btn" data-car="fedex" onclick="selectCarrier(this)">📦 FedEx</button>
             <button class="trk-car-btn" data-car="ups"   onclick="selectCarrier(this)">🚛 UPS</button>
             <button class="trk-car-btn" data-car="ems"   onclick="selectCarrier(this)">📮 EMS / Укрпошта</button>
+            <button class="trk-car-btn" data-car="auto"  onclick="selectCarrier(this)">🔍 Авто</button>
           </div>
           <div class="trk-input-row" id="trk-input-wrap" style="display:none">
             <input class="trk-input" id="trk-num" type="text" autocomplete="off" spellcheck="false">
@@ -5710,11 +5723,9 @@ nav button.on::after{
 
         <!-- SCREEN 4: My Parcels -->
         <div id="trk-list" class="trk-screen">
-          <div class="trk-nav-back" onclick="trkNav('home')">&#8592; <span id="trk-back-lbl-list">Назад</span></div>
+          <div class="trk-filter-row" id="trk-filter-row" style="display:none"></div>
           <div id="trk-detail-view" style="display:none">
-            <div class="trk-detail-back" onclick="closeDetail()">
-              <span>&#8592;</span> <span id="trk-detail-back-lbl">Назад</span>
-            </div>
+            <div class="trk-detail-back" onclick="closeDetail()">← <span id="trk-detail-back-lbl">Назад</span></div>
             <div id="trk-detail-content"></div>
           </div>
           <div id="trk-list-view">
@@ -5803,7 +5814,7 @@ const UI = {
     trkSave:'📌 Зберегти в мій список', trkSaved:'✓ Збережено',
     trkActive:'🟢 Активні', trkArchive:'📦 Архів', trkNoSaved:'Немає збережених відправлень',
     trkUpdated:'Оновлено',
-    trkSubFind:'Знайти', trkSubList:'Мої посилки',
+    trkSubFind:'Знайти', trkSubList:'Мій трекінг', trkAll:'Всі',
     trkRefresh:'🔄 Оновити статус',
     trkAutoCheck:'🔄 Повторна перевірка через',
     trkEmptyList:'Ще немає збережених посилок.\nЗнайдіть посилку і натисніть «Зберегти».',
@@ -5834,7 +5845,7 @@ const UI = {
     trkSave:'📌 Сохранить в мой список', trkSaved:'✓ Сохранено',
     trkActive:'🟢 Активные', trkArchive:'📦 Архив', trkNoSaved:'Нет сохранённых отправлений',
     trkUpdated:'Обновлено',
-    trkSubFind:'Найти', trkSubList:'Мои посылки',
+    trkSubFind:'Найти', trkSubList:'Мой трекинг', trkAll:'Все',
     trkRefresh:'🔄 Обновить статус',
     trkAutoCheck:'🔄 Повторная проверка через',
     trkEmptyList:'Сохранённых посылок пока нет.\nНайдите посылку и нажмите «Сохранить».',
@@ -5865,7 +5876,7 @@ const UI = {
     trkSave:'📌 Save to my list', trkSaved:'✓ Saved',
     trkActive:'🟢 Active', trkArchive:'📦 Archive', trkNoSaved:'No saved shipments',
     trkUpdated:'Updated',
-    trkSubFind:'Find', trkSubList:'My Parcels',
+    trkSubFind:'Find', trkSubList:'My Tracking', trkAll:'All',
     trkRefresh:'🔄 Refresh status',
     trkAutoCheck:'🔄 Retry in',
     trkEmptyList:'No saved parcels yet.\nFind a parcel and tap Save.',
@@ -5994,7 +6005,7 @@ function tab(name, btn){
   });
   if(name==='markets' && mkData.length===0) fetchMarkets();
   if(name==='reports' && document.getElementById('rlist').children.length===0) fetchReports();
-  if(name==='tracking'){ trkNav('home'); loadSavedShipments(); }
+  if(name==='tracking'){ trkNav('type'); }
 }
 
 // ── Chips ─────────────────────────────────────────────────────
@@ -6241,9 +6252,30 @@ let _trkCntLine = null;
 let _lastTrkData = null;
 let _trkAutoRetryTimer = null;
 let _savedShipmentsCache = {active:[], archive:[]};
-let _trkCurrentScreen = 'home';
+let _trkCurrentScreen = 'type';
+let _trkFilter = 'all';
+const _CARRIER_COLORS = {
+  'Nova Poshta':'#C8102E','DHL':'#D40511','FedEx':'#4D148C',
+  'UPS':'#8B4513','EMS':'#003B7A','Meest':'#E65C00',
+  'MSC':'#005798','Maersk':'#42B0D5','CMA CGM':'#0A3161',
+  'COSCO':'#003087','Hapag-Lloyd':'#F09800','ONE':'#E4002B',
+  'Evergreen':'#00A651','ZIM':'#005DAA','HMM':'#0050A0',
+};
+function trkSetFilter(carrier, btn){
+  _trkFilter = carrier;
+  document.querySelectorAll('#trk-filter-row .trk-fchip').forEach(el=>{
+    el.classList.remove('on');
+    el.style.background='';
+    el.style.borderColor='';
+  });
+  btn.classList.add('on');
+  const color = btn.dataset.color || '#4B5563';
+  btn.style.background = color;
+  btn.style.borderColor = color;
+  renderSavedShipments(_savedShipmentsCache);
+}
 
-const _TRK_SCREENS = ['trk-home','trk-type','trk-parcel','trk-container','trk-list'];
+const _TRK_SCREENS = ['trk-type','trk-parcel','trk-container','trk-list'];
 
 // ── Screen navigation ─────────────────────────────────────────
 function trkNav(screen){
@@ -6259,10 +6291,18 @@ function trkNav(screen){
     if(lv) lv.style.display = '';
   }
 
-  const idMap = {home:'trk-home',type:'trk-type',parcel:'trk-parcel',container:'trk-container',list:'trk-list'};
-  const el = document.getElementById(idMap[screen] || 'trk-home');
+  const idMap = {type:'trk-type',parcel:'trk-parcel',container:'trk-container',list:'trk-list'};
+  const el = document.getElementById(idMap[screen] || 'trk-type');
   if(el) el.classList.add('active');
   _trkCurrentScreen = screen;
+
+  // Update tab active state
+  const tf = document.getElementById('trk-tab-find');
+  const tl = document.getElementById('trk-tab-my');
+  if(tf && tl){
+    tf.classList.toggle('on', screen !== 'list');
+    tl.classList.toggle('on', screen === 'list');
+  }
 
   if(screen === 'parcel'){
     trkMode = 'parcel';
@@ -6280,6 +6320,7 @@ function trkNav(screen){
     document.getElementById('trk-cnt-result').innerHTML = '';
     if(_trkAutoRetryTimer){ clearTimeout(_trkAutoRetryTimer); _trkAutoRetryTimer = null; }
   } else if(screen === 'list'){
+    _trkFilter = 'all';
     loadSavedShipments();
   }
 }
@@ -6572,7 +6613,29 @@ function renderSavedShipments(data){
   const archive = data.archive || [];
   const u = UI[lang];
 
-  if(!active.length && !archive.length){
+  // Render filter chips
+  const filterRow = document.getElementById('trk-filter-row');
+  if(filterRow){
+    const carriers = [...new Set(active.map(s=>s.carrier_name).filter(Boolean))];
+    if(carriers.length > 1){
+      let fhtml = `<button class="trk-fchip${_trkFilter==='all'?' on':''}" style="${_trkFilter==='all'?'background:#4B5563;border-color:#4B5563':''}" data-color="#4B5563" onclick="trkSetFilter('all',this)">📋 ${u.trkAll||'Всі'}</button>`;
+      carriers.forEach(c=>{
+        const color = _CARRIER_COLORS[c] || '#4B5563';
+        const isOn = _trkFilter === c;
+        fhtml += `<button class="trk-fchip${isOn?' on':''}" style="${isOn?`background:${color};border-color:${color}`:''}" data-color="${esc(color)}" onclick="trkSetFilter(${JSON.stringify(c)},this)">${esc(c)}</button>`;
+      });
+      filterRow.innerHTML = fhtml;
+      filterRow.style.display = '';
+    } else {
+      filterRow.style.display = 'none';
+    }
+  }
+
+  // Apply carrier filter
+  const activeWithIdx = active.map((s,i)=>({s,idx:i}));
+  const filtered = _trkFilter === 'all' ? activeWithIdx : activeWithIdx.filter(({s})=>s.carrier_name===_trkFilter);
+
+  if(!filtered.length && !archive.length){
     el.innerHTML = `<div class="trk-list-empty">${esc(u.trkEmptyList||u.trkNoSaved)}</div>`;
     return;
   }
@@ -6590,7 +6653,9 @@ function renderSavedShipments(data){
   function card(s, isArchive, idx){
     const ico = s.type==='container' ? '🚢' : '📦';
     const cls = isArchive ? ' arc' : '';
-    const stat = s.status_text || '—';
+    const isPending = !s.steps || !s.steps.length ||
+      (s.steps.length === 1 && s.steps[0].status === 'pending');
+    const stat = isPending ? '—' : (s.status_text || '—');
     const time = isArchive
       ? (s.delivered_at ? '✅ '+new Date(s.delivered_at).toLocaleDateString(
           lang==='en'?'en-US':lang==='ru'?'ru-RU':'uk-UA',{day:'numeric',month:'short'}) : '')
@@ -6606,19 +6671,23 @@ function renderSavedShipments(data){
     </div>`;
   }
 
-  // Group active by carrier_name
-  const groups = {};
-  active.forEach((s, i) => {
-    const key = s.carrier_name || '—';
-    if(!groups[key]) groups[key] = [];
-    groups[key].push({s, idx: i});
-  });
-
   let html = '<div class="trk-saved-wrap">';
-  for(const [cname, items] of Object.entries(groups)){
-    const ico = items[0].s.type === 'container' ? '🚢' : '📦';
-    html += `<div class="trk-sec-hdr">${ico} ${esc(cname)}<span class="trk-sec-cnt">${items.length}</span></div>`;
-    html += '<div class="trk-saved-list">'+items.map(({s, idx})=>card(s,false,idx)).join('')+'</div>';
+  if(_trkFilter === 'all'){
+    // Group by carrier when showing all
+    const groups = {};
+    filtered.forEach(({s,idx}) => {
+      const key = s.carrier_name || '—';
+      if(!groups[key]) groups[key] = [];
+      groups[key].push({s, idx});
+    });
+    for(const [cname, items] of Object.entries(groups)){
+      const ico = items[0].s.type === 'container' ? '🚢' : '📦';
+      html += `<div class="trk-sec-hdr">${ico} ${esc(cname)}<span class="trk-sec-cnt">${items.length}</span></div>`;
+      html += '<div class="trk-saved-list">'+items.map(({s,idx})=>card(s,false,idx)).join('')+'</div>';
+    }
+  } else {
+    // Filtered view — flat list, no group header
+    html += '<div class="trk-saved-list">'+filtered.map(({s,idx})=>card(s,false,idx)).join('')+'</div>';
   }
   if(archive.length){
     html += `<div class="trk-sec-hdr">${u.trkArchive}<span class="trk-sec-cnt">${archive.length}</span></div>`;
@@ -6668,8 +6737,10 @@ function renderDetailContent(s, refreshing){
     </div>
   </div>`;
 
-  // Steps timeline from cache
-  if(steps.length){
+  // Steps timeline from cache (skip for pending/unregistered shipments)
+  const hasMeaningfulSteps = steps.length > 0 &&
+    !(steps.length === 1 && steps[0].status === 'pending');
+  if(hasMeaningfulSteps){
     html += '<div class="trk-timeline">';
     steps.forEach(st => {
       const dim = (st.status==='pending'||st.status==='fail') ? ' dim' : '';
@@ -6683,8 +6754,6 @@ function renderDetailContent(s, refreshing){
       </div>`;
     });
     html += '</div>';
-  } else {
-    html += `<div class="trk-auto-refresh" style="margin-bottom:14px">${esc(u.trkDataLoading)}</div>`;
   }
 
   // Tracking URL button for containers
@@ -6697,8 +6766,8 @@ function renderDetailContent(s, refreshing){
     ${refreshing ? '⏳ …' : esc(u.trkRefresh)}
   </button>`;
 
-  // Remove button
-  html += `<button class="trk-open-btn" style="margin-top:8px;color:var(--muted);border-color:var(--border)"
+  // Remove button (red)
+  html += `<button class="trk-open-btn" style="margin-top:8px;background:var(--red);border-color:var(--red);color:#fff"
     onclick="removeTrkShipment('${esc(s.number)}',event)">${esc(u.trkRemove)}</button>`;
 
   document.getElementById('trk-detail-content').innerHTML = html;
