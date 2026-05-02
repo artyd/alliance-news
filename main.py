@@ -5312,6 +5312,13 @@ nav button.on::after{
 .trk-del-info{flex:1;min-width:0}
 .trk-del-label{font-size:11.5px;color:var(--sub);margin-bottom:4px;line-height:1.4}
 .trk-del-date{font-size:16px;font-weight:800;color:var(--text)}
+.trk-carrier-banner{
+  border-radius:var(--r);padding:14px 15px;margin-bottom:14px;
+  border:2px solid var(--border);background:var(--surface);
+}
+.trk-carrier-bname{font-size:22px;font-weight:900;margin-bottom:6px}
+.trk-carrier-bnum{font-size:11.5px;color:var(--sub);margin-bottom:4px;font-variant-numeric:tabular-nums}
+.trk-carrier-bstat{font-size:14px;font-weight:700;color:var(--text)}
 .trk-timeline{display:flex;flex-direction:column;margin-bottom:4px}
 /* Each step has a fixed minimum height so dots are always evenly spaced */
 .trk-step{
@@ -5710,7 +5717,7 @@ nav button.on::after{
             <button class="trk-car-btn" data-car="fedex" onclick="selectCarrier(this)">📦 FedEx</button>
             <button class="trk-car-btn" data-car="ups"   onclick="selectCarrier(this)">🚛 UPS</button>
             <button class="trk-car-btn" data-car="ems"   onclick="selectCarrier(this)">📮 EMS / Укрпошта</button>
-            <button class="trk-car-btn" data-car="auto"  onclick="selectCarrier(this)">🔍 Авто</button>
+            <button class="trk-car-btn" data-car="auto" style="grid-column:1/-1" onclick="selectCarrier(this)">🔍 Авто</button>
           </div>
           <div class="trk-input-row" id="trk-input-wrap" style="display:none">
             <input class="trk-input" id="trk-num" type="text" autocomplete="off" spellcheck="false">
@@ -5746,13 +5753,16 @@ nav button.on::after{
 
         <!-- SCREEN 4: My Parcels -->
         <div id="trk-list" class="trk-screen">
-          <div class="trk-nav-back" onclick="trkNav('home')">&#8592; <span id="trk-back-lbl-list">Назад</span></div>
-          <div class="trk-filter-row" id="trk-filter-row" style="display:none"></div>
           <div id="trk-detail-view" style="display:none">
-            <div class="trk-detail-back" onclick="closeDetail()">← <span id="trk-detail-back-lbl">Назад</span></div>
+            <div class="trk-nav-row">
+              <div class="trk-nav-back" onclick="closeDetail()">&#8592; <span id="trk-detail-back-lbl">Назад</span></div>
+              <div class="trk-nav-back" onclick="trkNav('home')">🏠 <span id="trk-detail-home-lbl">Головна</span></div>
+            </div>
             <div id="trk-detail-content"></div>
           </div>
           <div id="trk-list-view">
+            <div class="trk-nav-back" onclick="trkNav('home')">&#8592; <span id="trk-back-lbl-list">Назад</span></div>
+            <div class="trk-filter-row" id="trk-filter-row" style="display:none"></div>
             <div id="trk-saved"></div>
           </div>
         </div>
@@ -5965,6 +5975,8 @@ function updateStaticText(){
   // Tracking — back buttons
   const backLbl2 = document.getElementById('trk-detail-back-lbl');
   if(backLbl2) backLbl2.textContent = u.back;
+  const homeLbl2 = document.getElementById('trk-detail-home-lbl');
+  if(homeLbl2) homeLbl2.textContent = u.trkHome || 'Головна';
   ['trk-back-lbl-type','trk-back-lbl-parcel','trk-back-lbl-container','trk-back-lbl-list'].forEach(id => {
     const el = document.getElementById(id);
     if(el) el.textContent = u.back;
@@ -6696,23 +6708,7 @@ function renderSavedShipments(data){
   }
 
   let html = '<div class="trk-saved-wrap">';
-  if(_trkFilter === 'all'){
-    // Group by carrier when showing all
-    const groups = {};
-    filtered.forEach(({s,idx}) => {
-      const key = s.carrier_name || '—';
-      if(!groups[key]) groups[key] = [];
-      groups[key].push({s, idx});
-    });
-    for(const [cname, items] of Object.entries(groups)){
-      const ico = items[0].s.type === 'container' ? '🚢' : '📦';
-      html += `<div class="trk-sec-hdr">${ico} ${esc(cname)}<span class="trk-sec-cnt">${items.length}</span></div>`;
-      html += '<div class="trk-saved-list">'+items.map(({s,idx})=>card(s,false,idx)).join('')+'</div>';
-    }
-  } else {
-    // Filtered view — flat list, no group header
-    html += '<div class="trk-saved-list">'+filtered.map(({s,idx})=>card(s,false,idx)).join('')+'</div>';
-  }
+  html += '<div class="trk-saved-list">'+filtered.map(({s,idx})=>card(s,false,idx)).join('')+'</div>';
   if(archive.length){
     html += `<div class="trk-sec-hdr">${u.trkArchive}<span class="trk-sec-cnt">${archive.length}</span></div>`;
     html += '<div class="trk-saved-list">'+archive.map((s,i)=>card(s,true,active.length+i)).join('')+'</div>';
@@ -6752,13 +6748,12 @@ function renderDetailContent(s, refreshing){
   const numLabel = cname ? `${s.number} · ${cname}` : s.number;
 
   let html = '';
-  // Header card
-  html += `<div class="trk-delivery">
-    <div class="trk-del-ico">${ico}</div>
-    <div class="trk-del-info">
-      <div class="trk-del-label">${esc(numLabel)}</div>
-      <div class="trk-del-date">${esc(s.status_text||'—')}</div>
-    </div>
+  // Carrier banner
+  const bannerColor = _CARRIER_COLORS[cname] || 'var(--border)';
+  html += `<div class="trk-carrier-banner" style="border-color:${bannerColor}">
+    <div class="trk-carrier-bname" style="color:${bannerColor}">${esc(cname || (s.type==='container'?'🚢 Container':'📦 Parcel'))}</div>
+    <div class="trk-carrier-bnum">${esc(s.number)}</div>
+    <div class="trk-carrier-bstat">${esc(s.status_text||'—')}</div>
   </div>`;
 
   // Steps timeline from cache (skip for pending/unregistered shipments)
