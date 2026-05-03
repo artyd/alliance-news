@@ -6523,14 +6523,13 @@ function renderTrackResult(d, num){
       <div class="trk-del-ico">🚢</div>
       <div class="trk-del-info">
         <div class="trk-del-label">${esc(lineName)}</div>
-        <div class="trk-del-date">${esc(d.number||num)}</div>
+        <div class="trk-del-date">${esc(d.status||d.number||num)}</div>
       </div>
     </div>`;
     if(d.tracking_url){
       html += `<button class="trk-open-btn" data-url="${esc(d.tracking_url)}" onclick="openTrkUrl(this.dataset.url)">${esc(UI[lang].trkOpenSite)}</button>`;
     }
-    html += `<button class="trk-save-btn" onclick="saveTrkShipment()">${UI[lang].trkSave}</button>`;
-    return html;
+    // NOTE: no return here — fall through to steps timeline rendering below
   }
 
   // ── Parcel ─────────────────────────────────────────────────────────────────
