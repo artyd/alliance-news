@@ -6449,8 +6449,11 @@ async function doTrack(){
     const r = await fetch(`/api/webapp/track?number=${encodeURIComponent(num)}&carrier=${carrier}`);
     const data = await r.json();
     res.innerHTML = renderTrackResult(data, num);
-    // Auto-retry if data is still pending (max 3 attempts)
-    if(data.ok && data.steps && data.steps.length === 1 && data.steps[0].status === 'pending'){
+    // Auto-retry if pending and NOT delivered (max 3 attempts)
+    const _steps = data.steps || [];
+    const _isDelivered = data.status === 'Доставлено'
+      || (_steps.length > 0 && _steps[_steps.length-1].status === 'done');
+    if(!_isDelivered && data.ok && _steps.length === 1 && _steps[0].status === 'pending'){
       _scheduleAutoRetry(num, carrier, res, 1);
     }
   } catch(e) {
@@ -6511,7 +6514,7 @@ function _scheduleAutoRetry(num, carrier, resEl, attempt){
 }
 
 function renderTrackResult(d, num){
-  if(!d.ok) _lastTrkData = null;  // only reset on error; callers set it on success
+  if(!d.ok) _lastTrkData = null;  // only reset on error
   if(!d.ok){
     const hint = d.hint ? `<code>${esc(d.hint)}</code>` : '';
     return `<div class="trk-error"><strong>⚠️ ${esc(d.error||'Помилка')}</strong>${hint}</div>`;
@@ -6532,26 +6535,45 @@ function renderTrackResult(d, num){
     if(d.tracking_url){
       html += `<button class="trk-open-btn" data-url="${esc(d.tracking_url)}" onclick="openTrkUrl(this.dataset.url)">${esc(UI[lang].trkOpenSite)}</button>`;
     }
-    // NO early return — fall through to steps timeline below
+    // no early return — fall through to steps timeline
   }
 
   // ── Parcel ─────────────────────────────────────────────────────────────────
   if(d.type === 'parcel'){
     const carrierLabel = d.carrier || '';
     const scheduled = d.scheduled_delivery || '';
-    html += `<div class="trk-delivery">
-      <div class="trk-del-ico">📦</div>
-      <div class="trk-del-info">
-        <div class="trk-del-label">${esc(carrierLabel)} · ${esc(d.number||num)}</div>
-        <div class="trk-del-date">${esc(d.status||'')}</div>
-        ${scheduled?`<div class="trk-del-label" style="margin-top:3px">${esc(UI[lang].trkDelivery)}: ${esc(scheduled)}</div>`:''}
-      </div>
-    </div>`;
+    const allSteps = d.steps || [];
+    const isDelivered = d.status === 'Доставлено'
+      || (allSteps.length > 0 && allSteps[allSteps.length-1].status === 'done');
+    const deliveryTime = isDelivered && allSteps.length
+      ? allSteps[allSteps.length-1].time || ''
+      : '';
+    if(isDelivered){
+      html += `<div class="trk-delivery" style="border-color:#22C55E;background:rgba(34,197,94,.07)">
+        <div class="trk-del-ico">✅</div>
+        <div class="trk-del-info">
+          <div class="trk-del-label" style="color:#22C55E;font-weight:700">Доставлено — ${esc(carrierLabel)}</div>
+          <div class="trk-del-date" style="color:#22C55E">${esc(deliveryTime || d.number || num)}</div>
+        </div>
+      </div>`;
+    } else {
+      html += `<div class="trk-delivery">
+        <div class="trk-del-ico">📦</div>
+        <div class="trk-del-info">
+          <div class="trk-del-label">${esc(carrierLabel)} · ${esc(d.number||num)}</div>
+          <div class="trk-del-date">${esc(d.status||'')}</div>
+          ${scheduled?`<div class="trk-del-label" style="margin-top:3px">${esc(UI[lang].trkDelivery)}: ${esc(scheduled)}</div>`:''}
+        </div>
+      </div>`;
+    }
   }
 
   // ── Steps timeline ─────────────────────────────────────────────────────────
-  const steps = d.steps || [];
-  const isPending = steps.length === 1 && steps[0].status === 'pending';
+  const rawSteps = d.steps || [];
+  // Hide 'pending' placeholder step for all types — show only real events
+  const steps = rawSteps.filter(s => s.status !== 'pending');
+  // isPending still based on rawSteps so auto-retry fires correctly
+  const isPending = rawSteps.length === 1 && rawSteps[0].status === 'pending';
   if(steps.length){
     html += '<div class="trk-timeline">';
     steps.forEach(s => {
@@ -6616,16 +6638,17 @@ async function saveTrkShipment(){
     const resp = await r.json();
     if(resp.ok){
       if(btn){ btn.textContent = UI[lang].trkSaved; }
-      setTimeout(()=>trkNav('list'), 400);  // brief visual feedback before nav
+      setTimeout(()=>trkNav('list'), 400);
     } else {
       if(btn){ btn.disabled=false; btn.textContent=UI[lang].trkSave; }
       const errMsg = resp.detail || resp.error || 'Save failed';
-      const errEl = document.querySelector('#trk-cnt-result .trk-save-err, #trk-result .trk-save-err');
-      if(!errEl){
+      const errEl = document.querySelector('.trk-save-err');
+      if(!errEl && btn){
         const div = document.createElement('div');
-        div.className='trk-save-err'; div.style.cssText='color:var(--red);font-size:12px;text-align:center;margin-top:6px';
+        div.className='trk-save-err';
+        div.style.cssText='color:var(--red);font-size:12px;text-align:center;margin-top:6px';
         div.textContent='⚠️ ' + errMsg;
-        if(btn) btn.after(div);
+        btn.after(div);
       }
     }
   } catch(err) {
