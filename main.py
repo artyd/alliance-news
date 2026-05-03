@@ -6408,8 +6408,15 @@ async function doTrackContainer(){
   try{
     const r = await fetch(`/api/webapp/track?number=${encodeURIComponent(num)}&carrier=auto`);
     const data = await r.json();
-    _lastTrkData = data.ok ? {...data, _cntLine: _trkCntLine} : null;
-    res.innerHTML = renderTrackResult(data, num);
+    // Force type=container and always allow saving from container screen
+    if(data.ok){
+      _lastTrkData = {...data, type:'container', _cntLine: _trkCntLine};
+    } else {
+      _lastTrkData = {ok:true, type:'container', number:num,
+        carrier: _trkCntLine||'', line: _trkCntLine||'',
+        tracking_url:'', steps:[], status:''};
+    }
+    res.innerHTML = renderTrackResult(data.ok ? _lastTrkData : data, num);
   } catch(e){
     res.innerHTML = `<div class="trk-error"><strong>${esc(UI[lang].trkNetError)}</strong>${esc(String(e))}</div>`;
   }
@@ -6649,31 +6656,26 @@ function renderSavedShipments(data){
   const archive = data.archive || [];
   const u = UI[lang];
 
-  // Render filter chips — always visible when there are active shipments
+  // Static 8-chip filter row — always show all carriers when active shipments exist
   const filterRow = document.getElementById('trk-filter-row');
   if(filterRow){
     if(active.length){
-      const CHIP_ORDER = ['Nova Poshta','Nova Post','Meest','Meest Express','DHL','FedEx','UPS','EMS'];
-      const parcelCarriers = [...new Set(active.filter(s=>s.type!=='container').map(s=>s.carrier_name||_CARRIER_CODE_MAP[s.carrier]||'').filter(Boolean))];
-      parcelCarriers.sort((a,b)=>{
-        const ia = CHIP_ORDER.findIndex(x=>a.toLowerCase().includes(x.toLowerCase())||x.toLowerCase().includes(a.toLowerCase()));
-        const ib = CHIP_ORDER.findIndex(x=>b.toLowerCase().includes(x.toLowerCase())||x.toLowerCase().includes(b.toLowerCase()));
-        if(ia>=0&&ib>=0) return ia-ib;
-        if(ia>=0) return -1;
-        if(ib>=0) return 1;
-        return a.localeCompare(b);
+      const CARRIER_CHIPS = [
+        {key:'all',       label:'📋 '+(u.trkAll||'Всі'), color:'#4B5563'},
+        {key:'nova',      label:'Nova Poshta',             color:'#C8102E'},
+        {key:'meest',     label:'Meest',                   color:'#E65C00'},
+        {key:'dhl',       label:'DHL',                     color:'#D40511'},
+        {key:'fedex',     label:'FedEx',                   color:'#4D148C'},
+        {key:'ups',       label:'UPS',                     color:'#8B4513'},
+        {key:'ems',       label:'EMS',                     color:'#003B7A'},
+        {key:'container', label:'🚢 Контейнери',           color:'#005798'},
+      ];
+      let fhtml = '';
+      CARRIER_CHIPS.forEach(chip=>{
+        const isOn = _trkFilter === chip.key;
+        const style = isOn ? `background:${chip.color};border-color:${chip.color}` : '';
+        fhtml += `<button class="trk-fchip${isOn?' on':''}" style="${style}" data-carrier="${chip.key}" data-color="${chip.color}" onclick="trkSetFilter(this.dataset.carrier,this)">${chip.label}</button>`;
       });
-      const hasContainers = active.some(s=>s.type==='container');
-      let fhtml = `<button class="trk-fchip${_trkFilter==='all'?' on':''}" style="${_trkFilter==='all'?'background:#4B5563;border-color:#4B5563':''}" data-color="#4B5563" onclick="trkSetFilter('all',this)">📋 ${u.trkAll||'Всі'}</button>`;
-      parcelCarriers.forEach(c=>{
-        const color = _CARRIER_COLORS[c] || '#4B5563';
-        const isOn = _trkFilter === c;
-        fhtml += `<button class="trk-fchip${isOn?' on':''}" style="${isOn?`background:${color};border-color:${color}`:''}" data-color="${esc(color)}" onclick="trkSetFilter(${JSON.stringify(c)},this)">${esc(c)}</button>`;
-      });
-      if(hasContainers){
-        const isOn = _trkFilter === 'container';
-        fhtml += `<button class="trk-fchip${isOn?' on':''}" style="${isOn?'background:#005798;border-color:#005798':''}" data-color="#005798" onclick="trkSetFilter('container',this)">🚢 Контейнери</button>`;
-      }
       filterRow.innerHTML = fhtml;
       filterRow.style.display = '';
     } else {
@@ -6681,13 +6683,24 @@ function renderSavedShipments(data){
     }
   }
 
-  // Apply carrier/type filter
+  // Apply carrier/type filter — match by carrier code OR carrier_name aliases
+  const CARRIER_NAMES = {
+    nova:  ['Nova Poshta','Nova Post'],
+    meest: ['Meest','Meest Express'],
+    dhl:   ['DHL'],
+    fedex: ['FedEx'],
+    ups:   ['UPS'],
+    ems:   ['EMS','EMS Ukraine','Укрпошта'],
+  };
   const activeWithIdx = active.map((s,i)=>({s,idx:i}));
   const filtered = _trkFilter === 'all'
     ? activeWithIdx
     : _trkFilter === 'container'
       ? activeWithIdx.filter(({s})=>s.type==='container')
-      : activeWithIdx.filter(({s})=>(s.carrier_name||_CARRIER_CODE_MAP[s.carrier]||'')===_trkFilter);
+      : activeWithIdx.filter(({s})=>{
+          const accept = CARRIER_NAMES[_trkFilter] || [];
+          return accept.includes(s.carrier_name) || s.carrier === _trkFilter;
+        });
 
   if(!filtered.length && !archive.length){
     el.innerHTML = `<div class="trk-list-empty">${esc(u.trkEmptyList||u.trkNoSaved)}</div>`;
@@ -7728,7 +7741,10 @@ async def api_webapp_track(number: str, carrier: str = "auto", _bg: bool = False
 
     # ── Sea container (ISO 6346: 4 letters + 7 digits) ──────────────────────
     if _is_container(n):
-        line, tracking_url = _container_info(n)
+        try:
+            line, tracking_url = _container_info(n)
+        except Exception:
+            line, tracking_url = "", ""
         base = {
             "ok": True,
             "type": "container",
@@ -7737,26 +7753,28 @@ async def api_webapp_track(number: str, carrier: str = "auto", _bg: bool = False
             "line": line,
             "tracking_url": tracking_url,
         }
-        if SEVENTEEN_TRACK_KEY:
-            result = await _track_17track(n, 0, realtime=not _bg)
-            # Always stamp container metadata regardless of 17track result
-            result["type"] = "container"
-            result["line"] = line
-            result["tracking_url"] = tracking_url
-            if not result.get("ok"):
-                # 17track error → return container with link + pending step
-                result["ok"] = True
-                result.setdefault("status", "Трекінг зареєстровано.")
-                result["steps"] = [{
-                    "status": "pending", "icon": "🔄",
-                    "title": "Запит відправлено до перевізника",
-                    "desc": "",
-                    "time": "",
-                }]
-                result.pop("error", None)
-                result.pop("hint", None)
-            return result
-        # No 17track key — return link only
+        try:
+            if SEVENTEEN_TRACK_KEY:
+                result = await _track_17track(n, 0, realtime=not _bg)
+                # Always stamp container metadata regardless of 17track result
+                result["type"] = "container"
+                result["line"] = line
+                result["tracking_url"] = tracking_url
+                if not result.get("ok"):
+                    result["ok"] = True
+                    result.setdefault("status", "Трекінг зареєстровано.")
+                    result["steps"] = [{
+                        "status": "pending", "icon": "🔄",
+                        "title": "Запит відправлено до перевізника",
+                        "desc": "",
+                        "time": "",
+                    }]
+                    result.pop("error", None)
+                    result.pop("hint", None)
+                return result
+        except Exception:
+            pass
+        # No 17track key (or 17track failed) — return link only
         base["status"] = "Відкрийте офіційний сайт перевізника"
         base["steps"] = []
         base["no_api"] = True
