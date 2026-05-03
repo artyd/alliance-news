@@ -6408,15 +6408,18 @@ async function doTrackContainer(){
   try{
     const r = await fetch(`/api/webapp/track?number=${encodeURIComponent(num)}&carrier=auto`);
     const data = await r.json();
-    // Force type=container and always allow saving from container screen
-    if(data.ok){
-      _lastTrkData = {...data, type:'container', _cntLine: _trkCntLine};
-    } else {
-      _lastTrkData = {ok:true, type:'container', number:num,
-        carrier: _trkCntLine||'', line: _trkCntLine||'',
-        tracking_url:'', steps:[], status:''};
-    }
-    res.innerHTML = renderTrackResult(data.ok ? _lastTrkData : data, num);
+    // Always build ok=true _lastTrkData so Save button always works
+    _lastTrkData = {
+      ...(data.ok ? data : {}),
+      ok: true, type: 'container', number: num,
+      carrier: data.carrier || data.line || _trkCntLine || '',
+      line:    data.line    || data.carrier || _trkCntLine || '',
+      tracking_url: data.tracking_url || '',
+      status: data.status || '',
+      steps:  data.steps  || [],
+      _cntLine: _trkCntLine,
+    };
+    res.innerHTML = renderTrackResult(_lastTrkData, num);
   } catch(e){
     res.innerHTML = `<div class="trk-error"><strong>${esc(UI[lang].trkNetError)}</strong>${esc(String(e))}</div>`;
   }
@@ -6508,7 +6511,7 @@ function _scheduleAutoRetry(num, carrier, resEl, attempt){
 }
 
 function renderTrackResult(d, num){
-  _lastTrkData = d.ok ? d : null;
+  if(!d.ok) _lastTrkData = null;  // only reset on error; callers set it on success
   if(!d.ok){
     const hint = d.hint ? `<code>${esc(d.hint)}</code>` : '';
     return `<div class="trk-error"><strong>⚠️ ${esc(d.error||'Помилка')}</strong>${hint}</div>`;
@@ -6523,13 +6526,13 @@ function renderTrackResult(d, num){
       <div class="trk-del-ico">🚢</div>
       <div class="trk-del-info">
         <div class="trk-del-label">${esc(lineName)}</div>
-        <div class="trk-del-date">${esc(d.status||d.number||num)}</div>
+        <div class="trk-del-date">${esc(d.status || d.number || num)}</div>
       </div>
     </div>`;
     if(d.tracking_url){
       html += `<button class="trk-open-btn" data-url="${esc(d.tracking_url)}" onclick="openTrkUrl(this.dataset.url)">${esc(UI[lang].trkOpenSite)}</button>`;
     }
-    // NOTE: no return here — fall through to steps timeline rendering below
+    // NO early return — fall through to steps timeline below
   }
 
   // ── Parcel ─────────────────────────────────────────────────────────────────
@@ -6565,8 +6568,8 @@ function renderTrackResult(d, num){
     html += '</div>';
   }
 
-  // Auto-retry countdown badge (shown when pending)
-  if(isPending){
+  // Auto-retry countdown badge (shown when pending, parcels only)
+  if(isPending && d.type !== 'container'){
     html += `<div class="trk-auto-refresh"><strong id="trk-auto-countdown">45с</strong></div>`;
   }
 
@@ -6613,12 +6616,21 @@ async function saveTrkShipment(){
     const resp = await r.json();
     if(resp.ok){
       if(btn){ btn.textContent = UI[lang].trkSaved; }
-      trkNav('list');
+      setTimeout(()=>trkNav('list'), 400);  // brief visual feedback before nav
     } else {
       if(btn){ btn.disabled=false; btn.textContent=UI[lang].trkSave; }
+      const errMsg = resp.detail || resp.error || 'Save failed';
+      const errEl = document.querySelector('#trk-cnt-result .trk-save-err, #trk-result .trk-save-err');
+      if(!errEl){
+        const div = document.createElement('div');
+        div.className='trk-save-err'; div.style.cssText='color:var(--red);font-size:12px;text-align:center;margin-top:6px';
+        div.textContent='⚠️ ' + errMsg;
+        if(btn) btn.after(div);
+      }
     }
-  } catch {
+  } catch(err) {
     if(btn){ btn.disabled=false; btn.textContent=UI[lang].trkSave; }
+    console.error('Save error:', err);
   }
 }
 
