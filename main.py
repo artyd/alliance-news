@@ -6295,11 +6295,16 @@ let _savedShipmentsCache = {active:[], archive:[]};
 let _trkCurrentScreen = 'home';
 let _trkFilter = 'all';
 const _CARRIER_COLORS = {
-  'Nova Poshta':'#C8102E','DHL':'#D40511','FedEx':'#4D148C',
-  'UPS':'#8B4513','EMS':'#003B7A','Meest':'#E65C00',
+  'Nova Poshta':'#C8102E','Nova Post':'#C8102E',
+  'DHL':'#D40511','FedEx':'#4D148C',
+  'UPS':'#8B4513','EMS':'#003B7A','EMS Ukraine':'#003B7A','Укрпошта':'#003B7A',
+  'Meest':'#E65C00','Meest Express':'#E65C00',
   'MSC':'#005798','Maersk':'#42B0D5','CMA CGM':'#0A3161',
   'COSCO':'#003087','Hapag-Lloyd':'#F09800','ONE':'#E4002B',
   'Evergreen':'#00A651','ZIM':'#005DAA','HMM':'#0050A0',
+};
+const _CARRIER_CODE_MAP = {
+  nova:'Nova Poshta', dhl:'DHL', fedex:'FedEx', ups:'UPS', ems:'EMS', meest:'Meest',
 };
 function trkSetFilter(carrier, btn){
   _trkFilter = carrier;
@@ -6405,9 +6410,6 @@ async function doTrackContainer(){
     const data = await r.json();
     _lastTrkData = data.ok ? {...data, _cntLine: _trkCntLine} : null;
     res.innerHTML = renderTrackResult(data, num);
-    if(data.ok && data.steps && data.steps.length===1 && data.steps[0].status==='pending'){
-      _scheduleAutoRetry(num, 'auto', res, 1);
-    }
   } catch(e){
     res.innerHTML = `<div class="trk-error"><strong>${esc(UI[lang].trkNetError)}</strong>${esc(String(e))}</div>`;
   }
@@ -6520,6 +6522,8 @@ function renderTrackResult(d, num){
     if(d.tracking_url){
       html += `<button class="trk-open-btn" data-url="${esc(d.tracking_url)}" onclick="openTrkUrl(this.dataset.url)">${esc(UI[lang].trkOpenSite)}</button>`;
     }
+    html += `<button class="trk-save-btn" onclick="saveTrkShipment()">${UI[lang].trkSave}</button>`;
+    return html;
   }
 
   // ── Parcel ─────────────────────────────────────────────────────────────────
@@ -6650,7 +6654,7 @@ function renderSavedShipments(data){
   if(filterRow){
     if(active.length){
       const CHIP_ORDER = ['Nova Poshta','Nova Post','Meest','Meest Express','DHL','FedEx','UPS','EMS'];
-      const parcelCarriers = [...new Set(active.filter(s=>s.type!=='container').map(s=>s.carrier_name).filter(Boolean))];
+      const parcelCarriers = [...new Set(active.filter(s=>s.type!=='container').map(s=>s.carrier_name||_CARRIER_CODE_MAP[s.carrier]||'').filter(Boolean))];
       parcelCarriers.sort((a,b)=>{
         const ia = CHIP_ORDER.findIndex(x=>a.toLowerCase().includes(x.toLowerCase())||x.toLowerCase().includes(a.toLowerCase()));
         const ib = CHIP_ORDER.findIndex(x=>b.toLowerCase().includes(x.toLowerCase())||x.toLowerCase().includes(b.toLowerCase()));
@@ -6683,7 +6687,7 @@ function renderSavedShipments(data){
     ? activeWithIdx
     : _trkFilter === 'container'
       ? activeWithIdx.filter(({s})=>s.type==='container')
-      : activeWithIdx.filter(({s})=>s.carrier_name===_trkFilter);
+      : activeWithIdx.filter(({s})=>(s.carrier_name||_CARRIER_CODE_MAP[s.carrier]||'')===_trkFilter);
 
   if(!filtered.length && !archive.length){
     el.innerHTML = `<div class="trk-list-empty">${esc(u.trkEmptyList||u.trkNoSaved)}</div>`;
