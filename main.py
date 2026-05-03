@@ -6295,11 +6295,11 @@ let _savedShipmentsCache = {active:[], archive:[]};
 let _trkCurrentScreen = 'home';
 let _trkFilter = 'all';
 const _CARRIER_COLORS = {
-  'Nova Poshta':'#C8102E','Nova Post':'#C8102E',
-  'DHL':'#D40511','FedEx':'#4D148C',
-  'UPS':'#8B4513','EMS':'#003B7A','EMS Ukraine':'#003B7A','Укрпошта':'#003B7A',
-  'Meest':'#E65C00','Meest Express':'#E65C00',
-  'MSC':'#005798','Maersk':'#42B0D5','CMA CGM':'#0A3161',
+  'Nova Poshta':'#DA291C','Nova Post':'#DA291C',
+  'DHL':'#FFCC00','FedEx':'#4D148C',
+  'UPS':'#351C15','EMS':'#FF6600','EMS Ukraine':'#FF6600','Укрпошта':'#FF6600',
+  'Meest':'#0057B8','Meest Express':'#0057B8',
+  'MSC':'#0097A7','Maersk':'#42B0D5','CMA CGM':'#0A3161',
   'COSCO':'#003087','Hapag-Lloyd':'#F09800','ONE':'#E4002B',
   'Evergreen':'#00A651','ZIM':'#005DAA','HMM':'#0050A0',
 };
@@ -6662,13 +6662,13 @@ function renderSavedShipments(data){
     if(active.length){
       const CARRIER_CHIPS = [
         {key:'all',       label:'📋 '+(u.trkAll||'Всі'), color:'#4B5563'},
-        {key:'nova',      label:'Nova Poshta',             color:'#C8102E'},
-        {key:'meest',     label:'Meest',                   color:'#E65C00'},
-        {key:'dhl',       label:'DHL',                     color:'#D40511'},
+        {key:'nova',      label:'Nova Poshta',             color:'#DA291C'},
+        {key:'meest',     label:'Meest',                   color:'#0057B8'},
+        {key:'dhl',       label:'DHL',                     color:'#FFCC00'},
         {key:'fedex',     label:'FedEx',                   color:'#4D148C'},
-        {key:'ups',       label:'UPS',                     color:'#8B4513'},
-        {key:'ems',       label:'EMS',                     color:'#003B7A'},
-        {key:'container', label:'🚢 Контейнери',           color:'#005798'},
+        {key:'ups',       label:'UPS',                     color:'#351C15'},
+        {key:'ems',       label:'EMS',                     color:'#FF6600'},
+        {key:'container', label:'🚢 Контейнери',           color:'#0097A7'},
       ];
       let fhtml = '';
       CARRIER_CHIPS.forEach(chip=>{
