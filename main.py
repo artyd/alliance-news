@@ -6052,6 +6052,14 @@ function toggleTheme(){
 }
 applyTheme();
 
+// ── DOM helpers — null-safe wrappers ─────────────────────────
+function byId(id){ return document.getElementById(id); }
+function setText(id,v){ const e=byId(id); if(e) e.textContent=v; }
+function setHTML(id,v){ const e=byId(id); if(e) e.innerHTML=v; }
+function showEl(id,d){ const e=byId(id); if(e) e.style.display=(d===undefined?'':d); }
+function addCls(id,c){ const e=byId(id); if(e) e.classList.add(c); }
+function rmCls(id,c){ const e=byId(id); if(e) e.classList.remove(c); }
+
 // ── Language & flags ──────────────────────────────────────────
 const LANGS  = ['ua','ru','en'];
 const FLAGS  = ['🇺🇦','🐷','🇬🇧'];
@@ -6178,11 +6186,11 @@ const RTYPES = {
 
 function updateStaticText(){
   const u = UI[lang];
-  document.getElementById('nav-news').textContent      = u.news;
-  document.getElementById('nav-reports').textContent   = u.reports;
-  document.getElementById('nav-add').textContent       = u.add;
-  document.getElementById('nav-markets').textContent   = u.markets;
-  document.getElementById('nav-tracking').textContent  = u.tracking;
+  setText('nav-news',      u.news);
+  setText('nav-reports',   u.reports);
+  setText('nav-add',       u.add);
+  setText('nav-markets',   u.markets);
+  setText('nav-tracking',  u.tracking);
   const hPrices = document.getElementById('h-prices');
   if(hPrices) hPrices.textContent = u.pricesNow;
   const mkNewsHdr = document.getElementById('mk-news-hdr');
@@ -6192,15 +6200,15 @@ function updateStaticText(){
   const lm = document.getElementById('lmore');
   if(lm && lm.style.display !== 'none') lm.textContent = u.loadMore;
   // Widget tab
-  document.getElementById('wgt-title').textContent    = u.wgtTitle;
-  document.getElementById('wgt-sub').textContent      = u.wgtSub;
-  document.getElementById('wgt-b-active').textContent = u.wgtActive;
+  setText('wgt-title',     u.wgtTitle);
+  setText('wgt-sub',       u.wgtSub);
+  setText('wgt-b-active',  u.wgtActive);
   document.querySelectorAll('.wgt-badge.wgt-on').forEach(el => el.textContent = u.wgtActive);
   document.querySelectorAll('.wgt-badge.wgt-off').forEach(el => el.textContent = u.wgtSoon);
-  document.getElementById('wgt-n-news').textContent      = u.news;
-  document.getElementById('wgt-n-reports').textContent   = u.reports;
-  document.getElementById('wgt-n-markets').textContent   = u.markets;
-  document.getElementById('wgt-n-tracking').textContent  = u.tracking;
+  setText('wgt-n-news',     u.news);
+  setText('wgt-n-reports',  u.reports);
+  setText('wgt-n-markets',  u.markets);
+  setText('wgt-n-tracking', u.tracking);
   // Tracking tab labels
   const trkLblP = document.getElementById('trk-lbl-parcel');
   if(trkLblP) trkLblP.textContent = u.trkParcel;
@@ -6499,11 +6507,12 @@ function renderGrid(data){
 
 async function openMkDetail(m){
   currentMkKey = m.key;
-  document.getElementById('mk-grid-wrap').style.display = 'none';
-  document.getElementById('mk-detail').classList.add('on');
+  showEl('mk-grid-wrap', 'none');
+  addCls('mk-detail', 'on');
 
-  const chartWrap = document.getElementById('mk-chart-wrap');
-  const newsArea  = document.getElementById('mk-news');
+  const chartWrap = byId('mk-chart-wrap');
+  const newsArea  = byId('mk-news');
+  if(!chartWrap || !newsArea) return;
   chartWrap.innerHTML = '<div class="sk sk-ch"></div>';
   newsArea.innerHTML  = '<div class="sk sk-card"></div><div class="sk sk-card"></div>';
 
@@ -6574,8 +6583,8 @@ async function redrawDetailChart(key){
 function closeMkDetail(){ closeMkDetailSilent(); }
 function closeMkDetailSilent(){
   if(detailChart){detailChart.destroy();detailChart=null;}
-  document.getElementById('mk-detail').classList.remove('on');
-  document.getElementById('mk-grid-wrap').style.display = '';
+  rmCls('mk-detail', 'on');
+  showEl('mk-grid-wrap');
   currentMkKey = null;
 }
 
@@ -6609,7 +6618,7 @@ async function loadCurrencies(){
     if(list) list.innerHTML = `<div class="empty"><div class="ei">⚠️</div><p>${UI[lang].loadError}</p></div>`;
   }
   // Auto-refresh every 15 min
-  setTimeout(()=>{ _currLoaded=false; if(document.getElementById('padd-curr').classList.contains('on')) loadCurrencies(); }, 15*60*1000);
+  setTimeout(()=>{ _currLoaded=false; const pc=byId('padd-curr'); if(pc && pc.classList.contains('on')) loadCurrencies(); }, 15*60*1000);
 }
 function renderCurrencies(data){
   const list = document.getElementById('curr-list');
@@ -6650,21 +6659,21 @@ function renderWarehouse(items){
   });
 }
 function openWhDetail(item){
-  document.getElementById('wh-list-wrap').style.display='none';
-  const det = document.getElementById('wh-detail'); det.classList.add('on');
-  document.getElementById('wh-det-title').textContent = item.name;
+  showEl('wh-list-wrap', 'none');
+  addCls('wh-detail', 'on');
+  setText('wh-det-title', item.name);
   const apps = (item.applications||[]).map(a=>`<li>${esc(a)}</li>`).join('');
-  document.getElementById('wh-det-content').innerHTML =
+  setHTML('wh-det-content',
     `<div class="wh-det-row"><div class="wh-det-lbl">Категорія</div><div class="wh-det-val">${esc(item.category)}</div></div>
      <div class="wh-det-row"><div class="wh-det-lbl">Опис</div><div class="wh-det-val">${esc(item.description)}</div></div>
      <div class="wh-det-row"><div class="wh-det-lbl">Застосування</div><div class="wh-det-val">${esc(item.used_for)}</div></div>
      <div class="wh-det-row"><div class="wh-det-lbl">Форми</div><div class="wh-det-val"><ul style="margin:0;padding-left:16px">${apps}</ul></div></div>
      <div class="wh-det-row"><div class="wh-det-lbl">Зберігання</div><div class="wh-det-val">${esc(item.storage_notes)}</div></div>
-     <div class="wh-det-row"><div class="wh-det-lbl">Статус</div><div class="wh-det-val" style="color:var(--sub)">${esc(item.status)}</div></div>`;
+     <div class="wh-det-row"><div class="wh-det-lbl">Статус</div><div class="wh-det-val" style="color:var(--sub)">${esc(item.status)}</div></div>`);
 }
 function closeWhDetail(){
-  document.getElementById('wh-list-wrap').style.display='';
-  document.getElementById('wh-detail').classList.remove('on');
+  showEl('wh-list-wrap');
+  rmCls('wh-detail', 'on');
 }
 
 // ── MARKETS EDIT MODE ─────────────────────────────────────────
@@ -6703,11 +6712,11 @@ function removeMkChart(ev, key){
 function openMkAddModal(){
   if(!_allMkData.length){ fetchMarkets().then(openMkAddModal); return; }
   _mkModalSel = (_mkPrefs||_MK_DEFAULT_KEYS).slice();
-  document.getElementById('mk-modal-ov').classList.add('on');
-  document.getElementById('mk-modal-srch').value='';
+  addCls('mk-modal-ov', 'on');
+  const srch=byId('mk-modal-srch'); if(srch) srch.value='';
   renderMkModalList('');
 }
-function hideMkAddModal(){ document.getElementById('mk-modal-ov').classList.remove('on'); }
+function hideMkAddModal(){ rmCls('mk-modal-ov', 'on'); }
 function renderMkModalList(q){
   const list=document.getElementById('mk-modal-list'); if(!list) return;
   list.innerHTML='';
@@ -6796,16 +6805,16 @@ function trkNav(screen){
     trkMode = 'parcel';
     trkCarrier = null;
     document.querySelectorAll('.trk-car-btn').forEach(b => b.classList.remove('on'));
-    document.getElementById('trk-input-wrap').style.display = 'none';
-    document.getElementById('trk-result').innerHTML = '';
+    showEl('trk-input-wrap', 'none');
+    setHTML('trk-result', '');
     if(_trkAutoRetryTimer){ clearTimeout(_trkAutoRetryTimer); _trkAutoRetryTimer = null; }
   } else if(screen === 'container'){
     trkMode = 'container';
     trkCarrier = 'auto';
     _trkCntLine = null;
     document.querySelectorAll('.trk-cnt-btn').forEach(b => b.classList.remove('on'));
-    document.getElementById('trk-cnt-input-wrap').style.display = 'none';
-    document.getElementById('trk-cnt-result').innerHTML = '';
+    showEl('trk-cnt-input-wrap', 'none');
+    setHTML('trk-cnt-result', '');
     if(_trkAutoRetryTimer){ clearTimeout(_trkAutoRetryTimer); _trkAutoRetryTimer = null; }
   } else if(screen === 'list'){
     _trkFilter = 'all';
@@ -6841,10 +6850,17 @@ function selectCntCarrier(btn){
   setTimeout(() => document.getElementById('trk-cnt-num').focus(), 80);
 }
 
+// Safe tracking number normalizer -- pure ASCII, all Unicode as \uXXXX escapes.
+function normalizeTrackingNumber(raw){
+  return String(raw || '')
+    .replace(/[\s\u0020\u00A0\u200B\u200C\u200D\u200E\u200F\u202F\u205F\u3000\uFEFF\u002D\u2010\u2011\u2012\u2013\u2014\u2015]/g, '')
+    .toUpperCase();
+}
+
 async function doTrackContainer(){
   const raw = document.getElementById('trk-cnt-num').value.trim();
   if(!raw){ document.getElementById('trk-cnt-num').focus(); return; }
-  const num = raw.replace(/[\s ​‌‍ -‏    　﻿\-‐-―]/g,'').toUpperCase();
+  const num = normalizeTrackingNumber(raw);
   const res = document.getElementById('trk-cnt-result');
   res.innerHTML =
     `<div class="trk-loading">
@@ -6882,7 +6898,7 @@ async function doTrack(){
   const raw = document.getElementById('trk-num').value.trim();
   if(!raw){ document.getElementById('trk-num').focus(); return; }
   // Normalize: remove spaces (including non-breaking), dashes, zero-width chars, uppercase
-  const num = raw.replace(/[\s ​‌‍ -‏    　﻿\-‐-―]/g,'').toUpperCase();
+    const num = normalizeTrackingNumber(raw);
   if(!num){ document.getElementById('trk-num').focus(); return; }
   const res = document.getElementById('trk-result');
   const ico = trkMode==='container' ? '🚢' : '📦';
@@ -7397,9 +7413,10 @@ _NO_CACHE_HEADERS = {
 
 @app.get("/webapp")
 async def serve_webapp():
-    path = os.path.join(_BASE_DIR, "webapp.html")
-    if os.path.exists(path):
-        return FileResponse(path, media_type="text/html", headers=_NO_CACHE_HEADERS)
+    # Always serve _WEBAPP_HTML from main.py — do NOT fall back to external webapp.html.
+    # A stale webapp.html was found on 2026-05-14 (dated 2026-04-28) and renamed to .bak.
+    # If you need to use an external file again, update this route explicitly.
+    print("[webapp] serving embedded _WEBAPP_HTML from main.py")
     return HTMLResponse(content=_WEBAPP_HTML, status_code=200, headers=_NO_CACHE_HEADERS)
 
 
