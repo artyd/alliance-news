@@ -6225,28 +6225,62 @@ let _mkEditMode = false;
 let _mkModalSel = null;
 const _MK_DEFAULT_KEYS = ['НАФТА','ГАЗ','КУКУРУДЗА','ПШЕНИЦЯ','СОЄВІ_БОБИ','СОЄВА_ОЛІЯ','ПАЛЬМОВА','ЦУКОР','ЄВРО','ЮАНЬ'];
 
+// ── Splash ────────────────────────────────────────────────────
+function hideSplash(){
+  const sp = document.getElementById('splash');
+  const app = document.getElementById('app');
+  if(sp){ sp.style.opacity='0'; sp.style.pointerEvents='none'; setTimeout(()=>{ sp.style.display='none'; },300); }
+  if(app) app.classList.add('on');
+}
+
+window.onerror = function(msg, src, line, col, err){
+  console.error('WEBAPP JS ERROR:', msg, src, line, col, err);
+  hideSplash();
+};
+
+window.addEventListener('unhandledrejection', function(ev){
+  console.error('WEBAPP PROMISE ERROR:', ev.reason);
+  hideSplash();
+});
+
 // ── Boot ──────────────────────────────────────────────────────
 window.addEventListener('load', () => {
-  document.getElementById('lbtn').textContent = FLAGS[langIdx];
-  buildChips();
-  fetchNews(true);
-  setTimeout(() => {
-    const sp = document.getElementById('splash');
-    sp.style.opacity = '0'; sp.style.pointerEvents = 'none';
-    setTimeout(() => { sp.style.display='none'; document.getElementById('app').classList.add('on'); }, 500);
-  }, 2200);
+  setTimeout(hideSplash, 2500);
+
+  try {
+    const lbtn = document.getElementById('lbtn');
+    if(lbtn) lbtn.textContent = FLAGS[langIdx];
+
+    try { buildChips(); } catch(e){ console.error('buildChips failed', e); }
+    try { fetchNews(true); } catch(e){ console.error('fetchNews failed', e); }
+
+  } catch(e){
+    console.error('Boot failed', e);
+    hideSplash();
+  }
 });
 
 // ── Tabs ──────────────────────────────────────────────────────
 const ALL_TABS = ['news','reports','add','markets','tracking'];
 function tab(name, btn){
   ALL_TABS.forEach(n => {
-    document.getElementById('p'+n).classList.toggle('on', n===name);
-    document.getElementById('btn-'+n).classList.toggle('on', n===name);
+    const panel = document.getElementById('p'+n);
+    const button = document.getElementById('btn-'+n);
+    if(panel) panel.classList.toggle('on', n===name);
+    if(button) button.classList.toggle('on', n===name);
   });
-  if(name==='markets' && mkData.length===0) fetchMarkets();
-  if(name==='reports' && document.getElementById('rlist').children.length===0) fetchReports();
-  if(name==='tracking'){ trkNav('home'); loadSavedShipments(); }
+
+  if(btn) btn.classList.add('on');
+
+  try {
+    if(name==='markets' && mkData.length===0) fetchMarkets();
+    if(name==='reports' && document.getElementById('rlist')?.children.length===0) fetchReports();
+    if(name==='tracking'){ trkNav('home'); loadSavedShipments(); }
+    if(name==='currency' && typeof fetchCurrencies==='function') fetchCurrencies();
+    if(name==='warehouse' && typeof fetchWarehouse==='function') fetchWarehouse();
+  } catch(e){
+    console.error('tab switch failed', e);
+  }
 }
 
 // ── Chips ─────────────────────────────────────────────────────
