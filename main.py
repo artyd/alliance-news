@@ -1,6 +1,7 @@
 import asyncio
 import os
 import json
+import time
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, Response
@@ -816,7 +817,7 @@ async def poll_telegram_updates():
                                     inline_rows = [lang_row]
                                     if WEBAPP_URL:
                                         inline_rows.append([
-                                            {"text": "📱 Відкрити додаток", "web_app": {"url": WEBAPP_URL}}
+                                            {"text": "📱 Відкрити додаток", "web_app": {"url": webapp_url_with_version()}}
                                         ])
                                     await client.post(f"{TELEGRAM_API_URL}/sendMessage", json={
                                         "chat_id": chat_id,
@@ -930,7 +931,7 @@ async def poll_telegram_updates():
                                             "chat_id": chat_id,
                                             "text": "📱 Натисни кнопку нижче, щоб відкрити додаток:",
                                             "reply_markup": {"inline_keyboard": [[
-                                                {"text": "📱 Відкрити MacroHarvey", "web_app": {"url": WEBAPP_URL}}
+                                                {"text": "📱 Відкрити MacroHarvey", "web_app": {"url": webapp_url_with_version()}}
                                             ]]},
                                         })
                                     else:
@@ -952,7 +953,7 @@ async def poll_telegram_updates():
                                     ]
                                     if WEBAPP_URL:
                                         menu_rows.append([
-                                            {"text": "📱 Відкрити додаток", "web_app": {"url": WEBAPP_URL}}
+                                            {"text": "📱 Відкрити додаток", "web_app": {"url": webapp_url_with_version()}}
                                         ])
                                     await client.post(f"{TELEGRAM_API_URL}/sendMessage", json={
                                         "chat_id": chat_id,
@@ -5099,6 +5100,16 @@ async def trigger_midday_report():
 # ═══════════════════════════════════════════════════════════════
 
 WEBAPP_URL = os.getenv("WEBAPP_URL", "")
+# Versioned URL appended with startup timestamp — forces Telegram to bypass its webview cache.
+_WEBAPP_V = str(int(time.time()))
+_WEBAPP_URL_VERSIONED = (WEBAPP_URL + "?v=" + _WEBAPP_V) if WEBAPP_URL else ""
+
+def webapp_url_with_version() -> str:
+    """Returns WEBAPP_URL with a fresh timestamp query param to bust Telegram webview cache."""
+    if not WEBAPP_URL:
+        return ""
+    sep = "&" if "?" in WEBAPP_URL else "?"
+    return f"{WEBAPP_URL}{sep}v={int(time.time())}"
 
 _BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -5159,8 +5170,21 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);fon
 }
 
 /* ── APP SHELL ── */
-#app{display:none;flex-direction:column;height:100vh;overflow:hidden}
-#app.on{display:flex}
+#app{
+  opacity:0;visibility:hidden;pointer-events:none;
+  display:flex;flex-direction:column;height:100vh;overflow:hidden;
+}
+#app.on{opacity:1;visibility:visible;pointer-events:auto;}
+
+/* ── CSS-ONLY BOOT FALLBACK (fires even if all JS fails) ── */
+@keyframes forceShowApp{to{opacity:1;visibility:visible;pointer-events:auto}}
+@keyframes forceHideSplash{to{opacity:0;visibility:hidden;pointer-events:none}}
+#app{animation:forceShowApp .1s linear 3s forwards}
+#splash{animation:forceHideSplash .1s linear 3s forwards}
+
+body.boot-fallback #app{opacity:1!important;visibility:visible!important;pointer-events:auto!important;}
+body.boot-fallback #splash{display:none!important;}
+body.boot-error .safe-mode-msg{display:block!important;}
 
 /* ── HEADER ── */
 header{
@@ -5718,6 +5742,21 @@ body.mk-edit .pcard{cursor:default}
 </head>
 <body>
 
+<!-- EARLY BOOT FALLBACK: minimal script, runs before main bundle -->
+<script>
+(function(){
+  function _earlyShow(){
+    try{
+      document.body.classList.add('boot-fallback');
+      var a=document.getElementById('app'),s=document.getElementById('splash');
+      if(a){a.classList.add('on');a.style.opacity='1';a.style.visibility='visible';a.style.pointerEvents='auto';}
+      if(s){s.style.display='none';}
+    }catch(e){}
+  }
+  setTimeout(_earlyShow,3000);
+})();
+</script>
+
 <!-- SPLASH: logo 72% screen, pulse only, no rings, no text, no box -->
 <div id="splash">
   <img class="sp-logo-img" src="/logo.png" alt="" onerror="this.style.display='none'">
@@ -5725,6 +5764,11 @@ body.mk-edit .pcard{cursor:default}
 
 <!-- APP -->
 <div id="app">
+
+  <!-- Safe-mode banner: shown only when body.boot-error is set by JS -->
+  <div class="safe-mode-msg" style="display:none;background:#1a1a1a;color:#8a8a8a;font-size:13px;text-align:center;padding:8px 16px;border-bottom:1px solid #2a2a2a;">
+    ⚠️ App loaded in safe mode. Some widgets may be unavailable.
+  </div>
 
   <header>
     <img class="h-logo-img" src="/logo.png" alt="" onerror="this.style.display='none'">
@@ -5999,7 +6043,8 @@ let light = false;
 function applyTheme(){
   if(light) document.documentElement.setAttribute('data-light','');
   else document.documentElement.removeAttribute('data-light');
-  document.getElementById('tbtn').textContent = light ? '🌙' : '☀️';
+  const tbtn = document.getElementById('tbtn');
+  if(tbtn) tbtn.textContent = light ? '🌙' : '☀️';
 }
 function toggleTheme(){
   light=!light; applyTheme();
@@ -6017,11 +6062,13 @@ let lang = LANGS[langIdx];
 function cycleLang(){
   langIdx = (langIdx+1) % LANGS.length;
   lang = LANGS[langIdx];
-  document.getElementById('lbtn').textContent = FLAGS[langIdx];
+  const lbtn = document.getElementById('lbtn');
+  if(lbtn) lbtn.textContent = FLAGS[langIdx];
   updateStaticText();
   buildChips();
   fetchNews(true);
-  document.getElementById('rlist').innerHTML = '';
+  const rlist = document.getElementById('rlist');
+  if(rlist) rlist.innerHTML = '';
   mkData = []; closeMkDetailSilent();
 }
 
@@ -6136,11 +6183,14 @@ function updateStaticText(){
   document.getElementById('nav-add').textContent       = u.add;
   document.getElementById('nav-markets').textContent   = u.markets;
   document.getElementById('nav-tracking').textContent  = u.tracking;
-  document.getElementById('h-prices').textContent      = u.pricesNow;
-  document.getElementById('mk-news-hdr').textContent   = u.relNews;
-  document.getElementById('back-lbl').textContent      = u.back;
+  const hPrices = document.getElementById('h-prices');
+  if(hPrices) hPrices.textContent = u.pricesNow;
+  const mkNewsHdr = document.getElementById('mk-news-hdr');
+  if(mkNewsHdr) mkNewsHdr.textContent = u.relNews;
+  const backLbl = document.getElementById('back-lbl');
+  if(backLbl) backLbl.textContent = u.back;
   const lm = document.getElementById('lmore');
-  if(lm.style.display !== 'none') lm.textContent = u.loadMore;
+  if(lm && lm.style.display !== 'none') lm.textContent = u.loadMore;
   // Widget tab
   document.getElementById('wgt-title').textContent    = u.wgtTitle;
   document.getElementById('wgt-sub').textContent      = u.wgtSub;
@@ -6230,11 +6280,13 @@ function hideSplash(){
   const sp = document.getElementById('splash');
   const app = document.getElementById('app');
   if(sp){ sp.style.opacity='0'; sp.style.pointerEvents='none'; setTimeout(()=>{ sp.style.display='none'; },300); }
-  if(app) app.classList.add('on');
+  if(app){ app.classList.add('on'); app.style.opacity='1'; app.style.visibility='visible'; app.style.pointerEvents='auto'; }
+  document.body.classList.add('boot-fallback');
 }
 
 window.onerror = function(msg, src, line, col, err){
   console.error('WEBAPP JS ERROR:', msg, src, line, col, err);
+  document.body.classList.add('boot-error');
   hideSplash();
 };
 
@@ -6256,6 +6308,7 @@ window.addEventListener('load', () => {
 
   } catch(e){
     console.error('Boot failed', e);
+    document.body.classList.add('boot-error');
     hideSplash();
   }
 });
@@ -6276,8 +6329,8 @@ function tab(name, btn){
     if(name==='markets' && mkData.length===0) fetchMarkets();
     if(name==='reports' && document.getElementById('rlist')?.children.length===0) fetchReports();
     if(name==='tracking'){ trkNav('home'); loadSavedShipments(); }
-    if(name==='currency' && typeof fetchCurrencies==='function') fetchCurrencies();
-    if(name==='warehouse' && typeof fetchWarehouse==='function') fetchWarehouse();
+    if(name==='currency' && typeof loadCurrencies==='function') loadCurrencies();
+    if(name==='warehouse' && typeof loadWarehouse==='function') loadWarehouse();
   } catch(e){
     console.error('tab switch failed', e);
   }
@@ -6286,7 +6339,7 @@ function tab(name, btn){
 // ── Chips ─────────────────────────────────────────────────────
 function buildChips(){
   const el = document.getElementById('chips');
-  el.innerHTML = '';
+  if(!el) return;
   ['all','api','cosmetic','herbal','veterinary','food','feed','capsules','pvc','logistics','global_sources','good_news'].forEach(k => {
     const d = document.createElement('div');
     d.className = 'chip'+(k===activeCat?' on':'');
@@ -6347,8 +6400,10 @@ function toggleSumm(btn){
 
 async function fetchNews(reset){
   const u = UI[lang];
-  if(reset){ newsOff=0; document.getElementById('nlist').innerHTML=''; document.getElementById('lmore').style.display='none'; }
   const list = document.getElementById('nlist');
+  const lmBtn = document.getElementById('lmore');
+  if(!list) return;
+  if(reset){ newsOff=0; list.innerHTML=''; if(lmBtn) lmBtn.style.display='none'; }
   if(reset) list.innerHTML = [1,2,3].map(()=>'<div class="sk sk-card"></div>').join('');
   try{
     const cat = activeCat==='all'?'':'&category='+activeCat;
@@ -6358,9 +6413,7 @@ async function fetchNews(reset){
     if(!data.length && reset){ list.innerHTML=`<div class="empty"><div class="ei">📭</div><p>${u.noNews}</p></div>`; return; }
     data.forEach(a => list.appendChild(newsCard(a)));
     newsOff += data.length;
-    const lm = document.getElementById('lmore');
-    lm.style.display = data.length>=LIMIT?'block':'none';
-    if(data.length>=LIMIT) lm.textContent = u.loadMore;
+    if(lmBtn){ lmBtn.style.display=data.length>=LIMIT?'block':'none'; if(data.length>=LIMIT) lmBtn.textContent=u.loadMore; }
   } catch {
     if(reset) list.innerHTML=`<div class="empty"><div class="ei">⚠️</div><p>${u.loadError}</p></div>`;
   }
@@ -6371,6 +6424,7 @@ function loadMore(){ fetchNews(false); }
 async function fetchReports(){
   const u = UI[lang];
   const el = document.getElementById('rlist');
+  if(!el) return;
   el.innerHTML = [1,2,3].map(()=>'<div class="sk sk-rep"></div>').join('');
   try{
     const r = await fetch('/api/webapp/digest_reports?limit=10');
@@ -6378,7 +6432,7 @@ async function fetchReports(){
     el.innerHTML = '';
     if(!reps.length){ el.innerHTML=`<div class="empty"><div class="ei">📭</div><p>${u.noDataYet}</p></div>`; return; }
     reps.forEach(rep => el.appendChild(buildRepCard(rep)));
-  } catch { el.innerHTML=`<div class="empty"><div class="ei">⚠️</div><p>${u.loadError}</p></div>`; }
+  } catch { if(el) el.innerHTML=`<div class="empty"><div class="ei">⚠️</div><p>${u.loadError}</p></div>`; }
 }
 
 function buildRepCard(rep){
@@ -6412,6 +6466,7 @@ function openPdf(url){
 async function fetchMarkets(){
   const u = UI[lang];
   const grid = document.getElementById('mk-grid');
+  if(!grid) return;
   grid.innerHTML = Array(6).fill('<div class="sk sk-pcard"></div>').join('');
   try{
     if(_mkPrefs === null) await loadUserMkPrefs();
@@ -6421,12 +6476,12 @@ async function fetchMarkets(){
     mkData = _allMkData.filter(m => vis.includes(m.key));
     renderGrid(mkData);
   } catch {
-    grid.innerHTML=`<div class="empty" style="grid-column:span 2"><div class="ei">⚠️</div><p>${u.loadError}</p></div>`;
+    if(grid) grid.innerHTML=`<div class="empty" style="grid-column:span 2"><div class="ei">⚠️</div><p>${u.loadError}</p></div>`;
   }
 }
 
 function renderGrid(data){
-  const grid = document.getElementById('mk-grid'); grid.innerHTML='';
+  const grid = document.getElementById('mk-grid'); if(!grid) return; grid.innerHTML='';
   data.forEach(m => {
     const pct = m.change_pct, sign = pct>=0?'+':'';
     const cls = Math.abs(pct)<0.05?'fl':pct>=0?'up':'dn';
@@ -7334,12 +7389,18 @@ function esc(s){ return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').repla
 """
 
 
+_NO_CACHE_HEADERS = {
+    "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+    "Pragma": "no-cache",
+    "Expires": "0",
+}
+
 @app.get("/webapp")
 async def serve_webapp():
     path = os.path.join(_BASE_DIR, "webapp.html")
     if os.path.exists(path):
-        return FileResponse(path, media_type="text/html")
-    return HTMLResponse(content=_WEBAPP_HTML, status_code=200)
+        return FileResponse(path, media_type="text/html", headers=_NO_CACHE_HEADERS)
+    return HTMLResponse(content=_WEBAPP_HTML, status_code=200, headers=_NO_CACHE_HEADERS)
 
 
 @app.get("/api/webapp/news")
