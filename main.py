@@ -205,6 +205,13 @@ def init_db():
         )
     ''')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_tsv_user ON tracked_shipments(user_id, is_delivered)')
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS user_market_prefs (
+            user_id    BIGINT PRIMARY KEY,
+            keys_csv   TEXT   NOT NULL DEFAULT '',
+            updated_at TIMESTAMPTZ DEFAULT NOW()
+        )
+    ''')
     # Migration: add steps_json if missing (safe on existing DBs)
     try:
         cursor.execute("ALTER TABLE tracked_shipments ADD COLUMN IF NOT EXISTS steps_json TEXT DEFAULT ''")
@@ -2468,6 +2475,96 @@ CHART_TICKERS = {
         "emoji": "🇨🇳",
     },
 }
+CHART_TICKERS.update({
+    "ЗОЛОТО": {
+        "tickers": ("GC=F",),
+        "label": "Золото (COMEX Gold)",
+        "unit": "$/oz",
+        "te_url": "https://tradingeconomics.com/commodity/gold",
+        "tv_url": "https://www.tradingview.com/chart/?symbol=COMEX%3AGC1!",
+        "emoji": "🥇",
+    },
+    "СРІБЛО": {
+        "tickers": ("SI=F",),
+        "label": "Срібло (COMEX Silver)",
+        "unit": "$/oz",
+        "te_url": "https://tradingeconomics.com/commodity/silver",
+        "tv_url": "https://www.tradingview.com/chart/?symbol=COMEX%3ASI1!",
+        "emoji": "🥈",
+    },
+    "МІДЬ": {
+        "tickers": ("HG=F",),
+        "label": "Мідь (COMEX Copper)",
+        "unit": "$/lb",
+        "te_url": "https://tradingeconomics.com/commodity/copper",
+        "tv_url": "https://www.tradingview.com/chart/?symbol=COMEX%3AHG1!",
+        "emoji": "🟤",
+    },
+    "WTI": {
+        "tickers": ("CL=F",),
+        "label": "Нафта WTI (NYMEX)",
+        "unit": "$/barrel",
+        "te_url": "https://tradingeconomics.com/commodity/crude-oil",
+        "tv_url": "https://www.tradingview.com/chart/?symbol=NYMEX%3ACL1!",
+        "emoji": "🛢️",
+    },
+    "ПАЛАДІЙ": {
+        "tickers": ("PA=F",),
+        "label": "Паладій (NYMEX Palladium)",
+        "unit": "$/oz",
+        "te_url": "https://tradingeconomics.com/commodity/palladium",
+        "tv_url": "https://www.tradingview.com/chart/?symbol=NYMEX%3APA1!",
+        "emoji": "⬜",
+    },
+    "КАВА": {
+        "tickers": ("KC=F",),
+        "label": "Кава (ICE Coffee C)",
+        "unit": "¢/lb",
+        "te_url": "https://tradingeconomics.com/commodity/coffee",
+        "tv_url": "https://www.tradingview.com/chart/?symbol=ICEUS%3AKC1!",
+        "emoji": "☕",
+    },
+    "КАКАО": {
+        "tickers": ("CC=F",),
+        "label": "Какао (ICE Cocoa)",
+        "unit": "$/MT",
+        "te_url": "https://tradingeconomics.com/commodity/cocoa",
+        "tv_url": "https://www.tradingview.com/chart/?symbol=ICEUS%3ACC1!",
+        "emoji": "🍫",
+    },
+    "НІКЕЛЬ": {
+        "tickers": ("NI=F",),
+        "label": "Нікель (Nickel Futures)",
+        "unit": "$/MT",
+        "te_url": "https://tradingeconomics.com/commodity/nickel",
+        "tv_url": "https://www.tradingview.com/chart/?symbol=LMEFD%3ANI",
+        "emoji": "🔩",
+    },
+    "АЛЮМІНІЙ": {
+        "tickers": ("ALI=F",),
+        "label": "Алюміній (COMEX Aluminum)",
+        "unit": "¢/lb",
+        "te_url": "https://tradingeconomics.com/commodity/aluminum",
+        "tv_url": "https://www.tradingview.com/chart/?symbol=COMEX%3AAL1!",
+        "emoji": "🔮",
+    },
+    "УРАН": {
+        "tickers": ("URA",),
+        "label": "Уран (ETF URA)",
+        "unit": "USD",
+        "te_url": "https://tradingeconomics.com/commodity/uranium",
+        "tv_url": "https://www.tradingview.com/chart/?symbol=NYSE%3AURA",
+        "emoji": "☢️",
+    },
+    "ЛІТІЙ": {
+        "tickers": ("LIT",),
+        "label": "Літій (ETF LIT)",
+        "unit": "USD",
+        "te_url": "https://tradingeconomics.com/commodity/lithium",
+        "tv_url": "https://www.tradingview.com/chart/?symbol=NYSE%3ALIT",
+        "emoji": "🔋",
+    },
+})
 
 
 def _make_candle_chart(tickers: tuple[str, ...], label: str, unit: str,
@@ -5482,6 +5579,57 @@ nav button.on::after{
 .wgt-badge.wgt-on{background:#22C55E22;color:var(--green)}
 .wgt-badge.wgt-off{background:var(--surface2);color:var(--muted)}
 
+/* ── CURRENCY & WAREHOUSE sub-panels (Add tab) ── */
+.add-subpanel{display:none;flex-direction:column}
+.add-subpanel.on{display:flex}
+.subpanel-hdr{display:flex;align-items:center;gap:10px;padding:12px 14px 8px;flex-shrink:0}
+.subpanel-back{background:none;border:1px solid var(--border);color:var(--text);font-size:13px;font-weight:600;padding:5px 12px;border-radius:20px;cursor:pointer;line-height:1.4}
+.subpanel-title{font-size:15px;font-weight:800;color:var(--text);flex:1}
+.curr-list{display:flex;flex-direction:column;gap:8px;padding:0 14px 20px;overflow-y:auto}
+.curr-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:13px 14px;display:flex;justify-content:space-between;align-items:center}
+.curr-left{display:flex;flex-direction:column;gap:2px}
+.curr-code{font-size:15px;font-weight:800;color:var(--text)}
+.curr-name{font-size:11px;color:var(--sub)}
+.curr-rate{font-size:18px;font-weight:800;color:var(--green);letter-spacing:-.5px}
+.curr-footer{font-size:11px;color:var(--muted);padding:2px 14px 16px;text-align:right}
+.wh-list{display:flex;flex-direction:column;gap:8px;padding:0 14px 20px;overflow-y:auto}
+.wh-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:13px 14px;cursor:pointer;transition:border-color .15s}
+.wh-card:active{border-color:var(--sub)}
+.wh-card-name{font-size:14px;font-weight:700;color:var(--text)}
+.wh-card-cat{font-size:11px;color:var(--sub);margin-top:2px}
+.wh-card-desc{font-size:12px;color:var(--muted);margin-top:5px;line-height:1.4}
+.wh-detail{display:none;flex-direction:column;gap:0;padding:0 14px 24px}
+.wh-detail.on{display:flex}
+.wh-det-row{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:11px 13px;margin-bottom:8px}
+.wh-det-lbl{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:1px;color:var(--sub);margin-bottom:4px}
+.wh-det-val{font-size:13px;color:var(--text);line-height:1.5}
+/* ── MARKETS edit mode ── */
+.mk-toolbar{display:flex;justify-content:flex-end;gap:8px;padding:10px 14px 2px}
+.mk-tool-btn{background:none;border:1px solid var(--border);color:var(--sub);font-size:13px;font-weight:600;padding:5px 10px;border-radius:20px;cursor:pointer;line-height:1.4;transition:border-color .15s,color .15s}
+.mk-tool-btn:active,.mk-tool-btn.mk-active{border-color:var(--text);color:var(--text)}
+.pcard{position:relative}
+.pcard-del{display:none;position:absolute;top:5px;right:5px;width:20px;height:20px;background:var(--red);color:#fff;border:none;border-radius:50%;font-size:11px;line-height:1;cursor:pointer;align-items:center;justify-content:center;z-index:2}
+body.mk-edit .pcard-del{display:flex}
+body.mk-edit .pcard{cursor:default}
+/* ── CHART ADD MODAL ── */
+.mk-modal-ov{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:200;display:none;align-items:flex-end}
+.mk-modal-ov.on{display:flex}
+.mk-modal{background:var(--bg);border-radius:20px 20px 0 0;width:100%;max-height:80vh;display:flex;flex-direction:column;padding-bottom:max(16px,env(safe-area-inset-bottom))}
+.mk-modal-top{display:flex;align-items:center;justify-content:space-between;padding:16px 16px 10px;border-bottom:1px solid var(--border);flex-shrink:0}
+.mk-modal-ttl{font-size:15px;font-weight:800}
+.mk-modal-x{background:none;border:none;color:var(--sub);font-size:22px;cursor:pointer;line-height:1;padding:0}
+.mk-modal-srch{display:block;margin:10px 14px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:9px 12px;font-size:14px;color:var(--text);width:calc(100% - 28px);outline:none;box-sizing:border-box}
+.mk-modal-list{overflow-y:auto;flex:1;padding:0 14px 8px;display:flex;flex-direction:column;gap:7px}
+.mk-mi{background:var(--surface);border:1.5px solid var(--border);border-radius:var(--r);padding:11px 13px;display:flex;align-items:center;gap:10px;cursor:pointer;transition:border-color .15s}
+.mk-mi.on{border-color:var(--green);background:rgba(34,197,94,.07)}
+.mk-mi:active{border-color:var(--sub)}
+.mk-mi-ico{font-size:22px}
+.mk-mi-lbl{font-size:13px;font-weight:600;flex:1}
+.mk-mi-chk{font-size:16px;color:var(--green);display:none}
+.mk-mi.on .mk-mi-chk{display:block}
+.mk-modal-footer{padding:10px 14px;border-top:1px solid var(--border);flex-shrink:0}
+.mk-modal-save{width:100%;background:var(--green);color:#fff;border:none;border-radius:var(--r);padding:13px;font-size:14px;font-weight:700;cursor:pointer}
+
 /* ── DESKTOP LAYOUT (≥ 768 px) ─────────────────────────────────────────────── */
 @media (min-width:768px){
   /* Grid: header top row, sidebar nav left, content right */
@@ -5601,50 +5749,79 @@ nav button.on::after{
 
     <!-- ADD / Widget management -->
     <div id="padd" class="panel">
-      <div class="wgt-header">
-        <div class="wgt-title" id="wgt-title">Мої віджети</div>
-        <div class="wgt-sub" id="wgt-sub">Натисни, щоб перейти</div>
+      <!-- Home: widget grid -->
+      <div id="padd-home">
+        <div class="wgt-header">
+          <div class="wgt-title" id="wgt-title">Мої віджети</div>
+          <div class="wgt-sub" id="wgt-sub">Натисни, щоб перейти</div>
+        </div>
+        <div class="wgt-grid">
+          <div class="wgt-card wgt-active" onclick="tab('news',document.getElementById('btn-news'))">
+            <div class="wgt-ico">📰</div>
+            <div class="wgt-name" id="wgt-n-news">Новини</div>
+            <div class="wgt-badge wgt-on" id="wgt-b-active">✓ Активно</div>
+          </div>
+          <div class="wgt-card wgt-active" onclick="tab('reports',document.getElementById('btn-reports'))">
+            <div class="wgt-ico">📋</div>
+            <div class="wgt-name" id="wgt-n-reports">Звіти</div>
+            <div class="wgt-badge wgt-on">✓ Активно</div>
+          </div>
+          <div class="wgt-card wgt-active" onclick="tab('markets',document.getElementById('btn-markets'))">
+            <div class="wgt-ico">📈</div>
+            <div class="wgt-name" id="wgt-n-markets">Ринки</div>
+            <div class="wgt-badge wgt-on">✓ Активно</div>
+          </div>
+          <div class="wgt-card wgt-active" onclick="tab('tracking',document.getElementById('btn-tracking'))">
+            <div class="wgt-ico">📡</div>
+            <div class="wgt-name" id="wgt-n-tracking">Трекінг</div>
+            <div class="wgt-badge wgt-on">✓ Активно</div>
+          </div>
+          <div class="wgt-card wgt-future">
+            <div class="wgt-ico">📊</div>
+            <div class="wgt-name" id="wgt-n-analytics">Аналітика</div>
+            <div class="wgt-badge wgt-off" id="wgt-b-soon">Незабаром</div>
+          </div>
+          <div class="wgt-card wgt-active" onclick="addNav('curr')">
+            <div class="wgt-ico">💱</div>
+            <div class="wgt-name" id="wgt-n-currency">Валюти</div>
+            <div class="wgt-badge wgt-on" id="wgt-b-curr">✓ Активно</div>
+          </div>
+          <div class="wgt-card wgt-future">
+            <div class="wgt-ico">🌤</div>
+            <div class="wgt-name" id="wgt-n-weather">Погода</div>
+            <div class="wgt-badge wgt-off">Незабаром</div>
+          </div>
+          <div class="wgt-card wgt-active" onclick="addNav('wh')">
+            <div class="wgt-ico">🏭</div>
+            <div class="wgt-name" id="wgt-n-warehouse">Склад</div>
+            <div class="wgt-badge wgt-on" id="wgt-b-wh">✓ Активно</div>
+          </div>
+        </div>
       </div>
-      <div class="wgt-grid">
-        <div class="wgt-card wgt-active" onclick="tab('news',document.getElementById('btn-news'))">
-          <div class="wgt-ico">📰</div>
-          <div class="wgt-name" id="wgt-n-news">Новини</div>
-          <div class="wgt-badge wgt-on" id="wgt-b-active">✓ Активно</div>
+      <!-- Currency sub-panel -->
+      <div id="padd-curr" class="add-subpanel">
+        <div class="subpanel-hdr">
+          <button class="subpanel-back" onclick="addNav('home')">←</button>
+          <span class="subpanel-title">💱 Валюти до гривні</span>
         </div>
-        <div class="wgt-card wgt-active" onclick="tab('reports',document.getElementById('btn-reports'))">
-          <div class="wgt-ico">📋</div>
-          <div class="wgt-name" id="wgt-n-reports">Звіти</div>
-          <div class="wgt-badge wgt-on">✓ Активно</div>
+        <div id="curr-list" class="curr-list"></div>
+        <div class="curr-footer" id="curr-footer"></div>
+      </div>
+      <!-- Warehouse sub-panel -->
+      <div id="padd-wh" class="add-subpanel">
+        <div id="wh-list-wrap">
+          <div class="subpanel-hdr">
+            <button class="subpanel-back" onclick="addNav('home')">←</button>
+            <span class="subpanel-title">🏭 Довідник речовин</span>
+          </div>
+          <div id="wh-list" class="wh-list"></div>
         </div>
-        <div class="wgt-card wgt-active" onclick="tab('markets',document.getElementById('btn-markets'))">
-          <div class="wgt-ico">📈</div>
-          <div class="wgt-name" id="wgt-n-markets">Ринки</div>
-          <div class="wgt-badge wgt-on">✓ Активно</div>
-        </div>
-        <div class="wgt-card wgt-active" onclick="tab('tracking',document.getElementById('btn-tracking'))">
-          <div class="wgt-ico">📡</div>
-          <div class="wgt-name" id="wgt-n-tracking">Трекінг</div>
-          <div class="wgt-badge wgt-on">✓ Активно</div>
-        </div>
-        <div class="wgt-card wgt-future">
-          <div class="wgt-ico">📊</div>
-          <div class="wgt-name" id="wgt-n-analytics">Аналітика</div>
-          <div class="wgt-badge wgt-off" id="wgt-b-soon">Незабаром</div>
-        </div>
-        <div class="wgt-card wgt-future">
-          <div class="wgt-ico">💱</div>
-          <div class="wgt-name" id="wgt-n-currency">Валюти</div>
-          <div class="wgt-badge wgt-off">Незабаром</div>
-        </div>
-        <div class="wgt-card wgt-future">
-          <div class="wgt-ico">🌤</div>
-          <div class="wgt-name" id="wgt-n-weather">Погода</div>
-          <div class="wgt-badge wgt-off">Незабаром</div>
-        </div>
-        <div class="wgt-card wgt-future">
-          <div class="wgt-ico">🏭</div>
-          <div class="wgt-name" id="wgt-n-warehouse">Склад</div>
-          <div class="wgt-badge wgt-off">Незабаром</div>
+        <div id="wh-detail" class="wh-detail">
+          <div class="subpanel-hdr">
+            <button class="subpanel-back" onclick="closeWhDetail()">←</button>
+            <span class="subpanel-title" id="wh-det-title"></span>
+          </div>
+          <div id="wh-det-content"></div>
         </div>
       </div>
     </div>
@@ -5652,6 +5829,10 @@ nav button.on::after{
     <!-- MARKETS -->
     <div id="pmarkets" class="panel">
       <div id="mk-grid-wrap">
+        <div class="mk-toolbar">
+          <button class="mk-tool-btn" id="mk-edit-btn" onclick="toggleMkEdit()">✎</button>
+          <button class="mk-tool-btn" id="mk-add-btn" onclick="openMkAddModal()">＋</button>
+        </div>
         <div class="msec">
           <div class="msec-hdr" id="h-prices">📊 ЦІНИ ЗАРАЗ</div>
           <div class="pgrid" id="mk-grid"></div>
@@ -5767,6 +5948,21 @@ nav button.on::after{
           </div>
         </div>
 
+      </div>
+    </div>
+
+    <!-- Chart add modal -->
+    <div class="mk-modal-ov" id="mk-modal-ov" onclick="if(event.target===this)hideMkAddModal()">
+      <div class="mk-modal">
+        <div class="mk-modal-top">
+          <span class="mk-modal-ttl">📈 Додати графік</span>
+          <button class="mk-modal-x" onclick="hideMkAddModal()">×</button>
+        </div>
+        <input class="mk-modal-srch" id="mk-modal-srch" type="search" placeholder="Пошук…" oninput="renderMkModalList(this.value)">
+        <div class="mk-modal-list" id="mk-modal-list"></div>
+        <div class="mk-modal-footer">
+          <button class="mk-modal-save" onclick="saveMkModal()">Застосувати</button>
+        </div>
       </div>
     </div>
 
@@ -6023,6 +6219,11 @@ const TICKER_CATS = {
 let activeCat = 'all', newsOff = 0;
 const LIMIT = 15;
 let mkData = [], detailChart = null, currentMkKey = null;
+let _allMkData = [];
+let _mkPrefs = null;
+let _mkEditMode = false;
+let _mkModalSel = null;
+const _MK_DEFAULT_KEYS = ['НАФТА','ГАЗ','КУКУРУДЗА','ПШЕНИЦЯ','СОЄВІ_БОБИ','СОЄВА_ОЛІЯ','ПАЛЬМОВА','ЦУКОР','ЄВРО','ЮАНЬ'];
 
 // ── Boot ──────────────────────────────────────────────────────
 window.addEventListener('load', () => {
@@ -6177,10 +6378,13 @@ function openPdf(url){
 async function fetchMarkets(){
   const u = UI[lang];
   const grid = document.getElementById('mk-grid');
-  grid.innerHTML = Array(10).fill('<div class="sk sk-pcard"></div>').join('');
+  grid.innerHTML = Array(6).fill('<div class="sk sk-pcard"></div>').join('');
   try{
+    if(_mkPrefs === null) await loadUserMkPrefs();
     const r = await fetch('/api/webapp/markets');
-    mkData = await r.json();
+    _allMkData = await r.json();
+    const vis = (_mkPrefs && _mkPrefs.length) ? _mkPrefs : _MK_DEFAULT_KEYS;
+    mkData = _allMkData.filter(m => vis.includes(m.key));
     renderGrid(mkData);
   } catch {
     grid.innerHTML=`<div class="empty" style="grid-column:span 2"><div class="ei">⚠️</div><p>${u.loadError}</p></div>`;
@@ -6194,11 +6398,12 @@ function renderGrid(data){
     const cls = Math.abs(pct)<0.05?'fl':pct>=0?'up':'dn';
     const card = document.createElement('div'); card.className='pcard';
     card.innerHTML=
-      `<div class="pcico">${m.emoji}</div>
+      `<button class="pcard-del" onclick="removeMkChart(event,'${m.key.replace(/'/g,"\\'")}')" title="Видалити">✕</button>
+       <div class="pcico">${m.emoji}</div>
        <div class="pclbl">${esc(m.label)}</div>
        <div class="pcval">${m.current} <span class="pcunit">${m.unit}</span></div>
        <div class="pcchg ${cls}">${sign}${pct.toFixed(2)}%</div>`;
-    card.onclick = () => openMkDetail(m);
+    card.onclick = () => { if(!_mkEditMode) openMkDetail(m); };
     grid.appendChild(card);
   });
 }
@@ -6283,6 +6488,163 @@ function closeMkDetailSilent(){
   document.getElementById('mk-detail').classList.remove('on');
   document.getElementById('mk-grid-wrap').style.display = '';
   currentMkKey = null;
+}
+
+// ── ADD-TAB navigation ────────────────────────────────────────
+function addNav(view){
+  ['home','curr','wh'].forEach(v=>{
+    const el = document.getElementById('padd-'+v);
+    if(el) el.style.display = '';
+    if(el) el.classList.toggle('on', v===view);
+  });
+  // padd-home is a regular div, not add-subpanel, handle separately
+  const home = document.getElementById('padd-home');
+  if(home) home.style.display = view==='home' ? '' : 'none';
+  if(view==='curr' && !_currLoaded) loadCurrencies();
+  if(view==='wh' && !_whLoaded) loadWarehouse();
+  if(view==='wh') { closeWhDetail(); }
+}
+
+// ── CURRENCIES ────────────────────────────────────────────────
+let _currLoaded = false;
+async function loadCurrencies(){
+  _currLoaded = true;
+  const list = document.getElementById('curr-list');
+  if(list) list.innerHTML = '<div class="sk sk-card"></div>'.repeat(5);
+  try{
+    const r = await fetch('/api/webapp/currencies');
+    const d = await r.json();
+    if(d.ok) renderCurrencies(d);
+    else if(list) list.innerHTML = `<div class="empty"><div class="ei">⚠️</div><p>${d.error||UI[lang].loadError}</p></div>`;
+  } catch {
+    if(list) list.innerHTML = `<div class="empty"><div class="ei">⚠️</div><p>${UI[lang].loadError}</p></div>`;
+  }
+  // Auto-refresh every 15 min
+  setTimeout(()=>{ _currLoaded=false; if(document.getElementById('padd-curr').classList.contains('on')) loadCurrencies(); }, 15*60*1000);
+}
+function renderCurrencies(data){
+  const list = document.getElementById('curr-list');
+  if(!list) return;
+  list.innerHTML = '';
+  (data.rates||[]).forEach(c=>{
+    const div = document.createElement('div'); div.className='curr-card';
+    div.innerHTML = `<div class="curr-left"><div class="curr-code">${esc(c.symbol)} ${esc(c.code)}</div><div class="curr-name">${esc(c.name)}</div></div><div class="curr-rate">${c.rate_uah.toFixed(2)} ₴</div>`;
+    list.appendChild(div);
+  });
+  const ft = document.getElementById('curr-footer');
+  if(ft && data.updated_at) ft.textContent = 'НБУ · ' + data.updated_at;
+}
+
+// ── WAREHOUSE ─────────────────────────────────────────────────
+let _whLoaded = false, _whData = [];
+async function loadWarehouse(){
+  _whLoaded = true;
+  const list = document.getElementById('wh-list');
+  if(list) list.innerHTML = '<div class="sk sk-card"></div>'.repeat(5);
+  try{
+    const r = await fetch('/api/webapp/warehouse/substances');
+    const d = await r.json();
+    if(d.ok){ _whData=d.items; renderWarehouse(d.items); }
+  } catch {
+    if(list) list.innerHTML = `<div class="empty"><div class="ei">⚠️</div><p>${UI[lang].loadError}</p></div>`;
+  }
+}
+function renderWarehouse(items){
+  const list = document.getElementById('wh-list');
+  if(!list) return;
+  list.innerHTML = '';
+  items.forEach(item=>{
+    const div = document.createElement('div'); div.className='wh-card';
+    div.innerHTML = `<div class="wh-card-name">${esc(item.name)}</div><div class="wh-card-cat">${esc(item.category)}</div><div class="wh-card-desc">${esc(item.description)}</div>`;
+    div.onclick = ()=>openWhDetail(item);
+    list.appendChild(div);
+  });
+}
+function openWhDetail(item){
+  document.getElementById('wh-list-wrap').style.display='none';
+  const det = document.getElementById('wh-detail'); det.classList.add('on');
+  document.getElementById('wh-det-title').textContent = item.name;
+  const apps = (item.applications||[]).map(a=>`<li>${esc(a)}</li>`).join('');
+  document.getElementById('wh-det-content').innerHTML =
+    `<div class="wh-det-row"><div class="wh-det-lbl">Категорія</div><div class="wh-det-val">${esc(item.category)}</div></div>
+     <div class="wh-det-row"><div class="wh-det-lbl">Опис</div><div class="wh-det-val">${esc(item.description)}</div></div>
+     <div class="wh-det-row"><div class="wh-det-lbl">Застосування</div><div class="wh-det-val">${esc(item.used_for)}</div></div>
+     <div class="wh-det-row"><div class="wh-det-lbl">Форми</div><div class="wh-det-val"><ul style="margin:0;padding-left:16px">${apps}</ul></div></div>
+     <div class="wh-det-row"><div class="wh-det-lbl">Зберігання</div><div class="wh-det-val">${esc(item.storage_notes)}</div></div>
+     <div class="wh-det-row"><div class="wh-det-lbl">Статус</div><div class="wh-det-val" style="color:var(--sub)">${esc(item.status)}</div></div>`;
+}
+function closeWhDetail(){
+  document.getElementById('wh-list-wrap').style.display='';
+  document.getElementById('wh-detail').classList.remove('on');
+}
+
+// ── MARKETS EDIT MODE ─────────────────────────────────────────
+function getMkUid(){
+  const uid=tg?.initDataUnsafe?.user?.id; if(uid) return uid;
+  let l=localStorage.getItem('trk_uid'); if(!l){l=String(Date.now());localStorage.setItem('trk_uid',l);}
+  return parseInt(l);
+}
+async function loadUserMkPrefs(){
+  try{
+    const r = await fetch('/api/webapp/user/market-prefs?user_id='+getMkUid());
+    const d = await r.json();
+    _mkPrefs = (d.ok && d.selected_keys && d.selected_keys.length) ? d.selected_keys : _MK_DEFAULT_KEYS.slice();
+  } catch { _mkPrefs = _MK_DEFAULT_KEYS.slice(); }
+}
+async function saveUserMkPrefs(){
+  try{
+    await fetch('/api/webapp/user/market-prefs',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({user_id:getMkUid(),selected_keys:_mkPrefs})});
+  } catch{}
+}
+function toggleMkEdit(){
+  _mkEditMode = !_mkEditMode;
+  document.body.classList.toggle('mk-edit',_mkEditMode);
+  const btn=document.getElementById('mk-edit-btn');
+  if(btn) btn.classList.toggle('mk-active',_mkEditMode);
+}
+function removeMkChart(ev, key){
+  ev.stopPropagation();
+  if(!_mkPrefs) return;
+  _mkPrefs = _mkPrefs.filter(k=>k!==key);
+  mkData   = mkData.filter(m=>m.key!==key);
+  renderGrid(mkData);
+  saveUserMkPrefs();
+}
+function openMkAddModal(){
+  if(!_allMkData.length){ fetchMarkets().then(openMkAddModal); return; }
+  _mkModalSel = (_mkPrefs||_MK_DEFAULT_KEYS).slice();
+  document.getElementById('mk-modal-ov').classList.add('on');
+  document.getElementById('mk-modal-srch').value='';
+  renderMkModalList('');
+}
+function hideMkAddModal(){ document.getElementById('mk-modal-ov').classList.remove('on'); }
+function renderMkModalList(q){
+  const list=document.getElementById('mk-modal-list'); if(!list) return;
+  list.innerHTML='';
+  const ql=(q||'').toLowerCase();
+  (_allMkData||[])
+    .filter(m=>!ql||m.label.toLowerCase().includes(ql)||m.key.toLowerCase().includes(ql))
+    .forEach(m=>{
+      const sel=(_mkModalSel||[]).includes(m.key);
+      const div=document.createElement('div'); div.className='mk-mi'+(sel?' on':'');
+      div.innerHTML=`<div class="mk-mi-ico">${m.emoji}</div><div class="mk-mi-lbl">${esc(m.label)}</div><div class="mk-mi-chk">✓</div>`;
+      div.onclick=()=>{
+        if(!_mkModalSel) _mkModalSel=[];
+        const i=_mkModalSel.indexOf(m.key);
+        i>=0?_mkModalSel.splice(i,1):_mkModalSel.push(m.key);
+        div.classList.toggle('on',_mkModalSel.includes(m.key));
+        div.querySelector('.mk-mi-chk').style.display=_mkModalSel.includes(m.key)?'':'none';
+      };
+      list.appendChild(div);
+    });
+}
+async function saveMkModal(){
+  _mkPrefs = (_mkModalSel||[]).slice();
+  mkData = _allMkData.filter(m=>_mkPrefs.includes(m.key));
+  renderGrid(mkData);
+  await saveUserMkPrefs();
+  hideMkAddModal();
 }
 
 // ── Tracking ──────────────────────────────────────────────────
@@ -6393,7 +6755,7 @@ function selectCntCarrier(btn){
 async function doTrackContainer(){
   const raw = document.getElementById('trk-cnt-num').value.trim();
   if(!raw){ document.getElementById('trk-cnt-num').focus(); return; }
-  const num = raw.toUpperCase().replace(/[\s\-]/g,'');
+  const num = raw.replace(/[\s ​‌‍ -‏    　﻿\-‐-―]/g,'').toUpperCase();
   const res = document.getElementById('trk-cnt-result');
   res.innerHTML =
     `<div class="trk-loading">
@@ -6430,7 +6792,9 @@ function setTrkMode(mode){ /* legacy — handled by trkNav now */ }
 async function doTrack(){
   const raw = document.getElementById('trk-num').value.trim();
   if(!raw){ document.getElementById('trk-num').focus(); return; }
-  const num = raw.toUpperCase().replace(/[\s\-]/g,'');
+  // Normalize: remove spaces (including non-breaking), dashes, zero-width chars, uppercase
+  const num = raw.replace(/[\s ​‌‍ -‏    　﻿\-‐-―]/g,'').toUpperCase();
+  if(!num){ document.getElementById('trk-num').focus(); return; }
   const res = document.getElementById('trk-result');
   const ico = trkMode==='container' ? '🚢' : '📦';
   res.innerHTML =
@@ -6448,6 +6812,20 @@ async function doTrack(){
   try{
     const r = await fetch(`/api/webapp/track?number=${encodeURIComponent(num)}&carrier=${carrier}`);
     const data = await r.json();
+    // Always set _lastTrkData so the Save button works even if the API returned a pending/error state.
+    // Backend now always returns ok=true + can_save=true for valid numbers, but we keep a
+    // client-side fallback in case the response was unexpected (network hiccup, etc.).
+    _lastTrkData = data.ok
+      ? {...data, number: data.number || num}
+      : {
+          ok: true, can_save: true, is_pending: true,
+          type: trkMode || 'parcel', number: num,
+          carrier: trkCarrier || 'auto',
+          carrier_name: '',
+          status: 'Очікуємо даних від перевізника',
+          tracking_url: '',
+          steps: [],
+        };
     res.innerHTML = renderTrackResult(data, num);
     // Auto-retry if pending and NOT delivered (max 3 attempts)
     const _steps = data.steps || [];
@@ -6514,8 +6892,8 @@ function _scheduleAutoRetry(num, carrier, resEl, attempt){
 }
 
 function renderTrackResult(d, num){
-  if(!d.ok) _lastTrkData = null;  // only reset on error
   if(!d.ok){
+    // Show error but don't clear _lastTrkData — doTrack() already set it to a pending fallback
     const hint = d.hint ? `<code>${esc(d.hint)}</code>` : '';
     return `<div class="trk-error"><strong>⚠️ ${esc(d.error||'Помилка')}</strong>${hint}</div>`;
   }
@@ -6540,7 +6918,8 @@ function renderTrackResult(d, num){
 
   // ── Parcel ─────────────────────────────────────────────────────────────────
   if(d.type === 'parcel'){
-    const carrierLabel = d.carrier || '';
+    // Prefer explicit carrier_name from backend (stamped by _stamp_tracking_meta)
+    const carrierLabel = d.carrier_name || d.carrier || '';
     const scheduled = d.scheduled_delivery || '';
     const allSteps = d.steps || [];
     const isDelivered = d.status === 'Доставлено'
@@ -6566,6 +6945,10 @@ function renderTrackResult(d, num){
         </div>
       </div>`;
     }
+    // Show official carrier tracking link even when no live events
+    if(d.tracking_url){
+      html += `<button class="trk-open-btn" data-url="${esc(d.tracking_url)}" onclick="openTrkUrl(this.dataset.url)">${esc(UI[lang].trkOpenSite)}</button>`;
+    }
   }
 
   // ── Steps timeline ─────────────────────────────────────────────────────────
@@ -6573,7 +6956,7 @@ function renderTrackResult(d, num){
   // Hide 'pending' placeholder step for all types — show only real events
   const steps = rawSteps.filter(s => s.status !== 'pending');
   // isPending still based on rawSteps so auto-retry fires correctly
-  const isPending = rawSteps.length === 1 && rawSteps[0].status === 'pending';
+  const isPending = d.is_pending || (rawSteps.length === 1 && rawSteps[0].status === 'pending');
   if(steps.length){
     html += '<div class="trk-timeline">';
     steps.forEach(s => {
@@ -6590,12 +6973,15 @@ function renderTrackResult(d, num){
     html += '</div>';
   }
 
-  // Auto-retry countdown badge (shown when pending, parcels only)
-  if(isPending && d.type !== 'container'){
+  // Auto-retry countdown badge (shown when pending with steps, parcels only)
+  if(isPending && d.type !== 'container' && rawSteps.length > 0){
     html += `<div class="trk-auto-refresh"><strong id="trk-auto-countdown">45с</strong></div>`;
   }
 
-  html += `<button class="trk-save-btn" onclick="saveTrkShipment()">${UI[lang].trkSave}</button>`;
+  // Save button: always show when can_save or ok (shipment has a valid number + detected carrier)
+  if(d.can_save !== false){
+    html += `<button class="trk-save-btn" onclick="saveTrkShipment()">${UI[lang].trkSave}</button>`;
+  }
   return html;
 }
 
@@ -6615,15 +7001,17 @@ function getTrkUserId(){
 
 // ── Save shipment ─────────────────────────────────────────────
 async function saveTrkShipment(){
-  if(!_lastTrkData?.ok) return;
+  // Allow save if can_save=true OR ok=true — a valid number + detected carrier is enough
+  if(!_lastTrkData?.can_save && !_lastTrkData?.ok) return;
   const d = _lastTrkData;
   const uid = getTrkUserId();
   const body = {
     user_id: uid,
     number: d.number || '',
     carrier: trkCarrier || 'auto',
-    type: trkMode || 'parcel',
-    carrier_name: d.carrier || d.line || _trkCntLine || '',
+    type: d.type || trkMode || 'parcel',
+    // Prefer explicit carrier_name, fall back to carrier field or line/container line
+    carrier_name: d.carrier_name || d.carrier || d.line || _trkCntLine || '',
     status_text: d.status || '',
     tracking_url: d.tracking_url || '',
     steps: d.steps || [],
@@ -7160,8 +7548,146 @@ async def api_chart(key: str, days: int = 30):
     return data
 
 
+# ── Currency rates (NBU, 15 min cache) ───────────────────────
+_curr_cache: dict = {"data": None, "ts": 0.0}
+_CURR_TTL = 900
+
+_CURRENCY_META = {
+    "USD": ("US Dollar",      "$"),
+    "EUR": ("Euro",            "€"),
+    "JPY": ("Japanese Yen",    "¥"),
+    "INR": ("Indian Rupee",    "₹"),
+    "PLN": ("Polish Zloty",    "zł"),
+    "GBP": ("British Pound",   "£"),
+    "CNY": ("Chinese Yuan",    "¥"),
+    "CHF": ("Swiss Franc",     "Fr"),
+    "TRY": ("Turkish Lira",    "₺"),
+    "CZK": ("Czech Koruna",    "Kč"),
+}
+
+
+@app.get("/api/webapp/currencies")
+async def api_currencies():
+    import time as _time
+    now = _time.time()
+    if _curr_cache["data"] and (now - _curr_cache["ts"]) < _CURR_TTL:
+        return _curr_cache["data"]
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get(
+                "https://bank.gov.ua/NBUStatService/v1/statdirectory/exchange?json"
+            )
+            nbu_list = r.json()
+    except Exception:
+        if _curr_cache["data"]:
+            return _curr_cache["data"]
+        return {"ok": False, "error": "Не вдалося отримати курси валют"}
+
+    nbu = {item["cc"]: item for item in nbu_list}
+    rates = []
+    for code, (name, symbol) in _CURRENCY_META.items():
+        entry = nbu.get(code)
+        if not entry:
+            continue
+        rate = round(float(entry["rate"]), 4)
+        rates.append({
+            "code": code,
+            "name": name,
+            "symbol": symbol,
+            "rate_uah": rate,
+            "label": f"1 {code} = {rate:.2f} UAH",
+        })
+
+    import datetime as _dt
+    result = {
+        "ok": True,
+        "base": "UAH",
+        "source": "Національний банк України",
+        "updated_at": _dt.datetime.now(_dt.timezone.utc).strftime("%d.%m.%Y %H:%M UTC"),
+        "rates": rates,
+    }
+    _curr_cache["data"] = result
+    _curr_cache["ts"] = now
+    return result
+
+
+# ── Warehouse / Substances reference catalog ──────────────────
+_WAREHOUSE_SUBSTANCES = [
+    {"id":"paracetamol","name":"Paracetamol","category":"API","description":"Analgesic and antipyretic active pharmaceutical ingredient","used_for":"Pain relief and fever reduction","applications":["Tablets","Capsules","Syrups","Suppositories"],"storage_notes":"Store below 25 °C, dry place, away from light","status":"Reference item"},
+    {"id":"ibuprofen","name":"Ibuprofen","category":"API","description":"Non-steroidal anti-inflammatory drug (NSAID)","used_for":"Pain, inflammation, and fever treatment","applications":["Tablets","Capsules","Suspensions","Topical gels"],"storage_notes":"Store below 30 °C, protect from moisture","status":"Reference item"},
+    {"id":"metformin_hcl","name":"Metformin HCl","category":"API","description":"Biguanide antidiabetic active ingredient","used_for":"Type 2 diabetes management","applications":["Tablets","Extended-release tablets"],"storage_notes":"Store below 25 °C, keep dry","status":"Reference item"},
+    {"id":"amoxicillin","name":"Amoxicillin Trihydrate","category":"API","description":"Broad-spectrum penicillin antibiotic","used_for":"Bacterial infections treatment","applications":["Capsules","Powder for suspension","Tablets"],"storage_notes":"Store below 25 °C, protect from light and moisture","status":"Reference item"},
+    {"id":"azithromycin","name":"Azithromycin","category":"API","description":"Macrolide antibiotic with broad antibacterial spectrum","used_for":"Respiratory, skin and soft-tissue infections","applications":["Tablets","Capsules","Powder for suspension"],"storage_notes":"Store below 30 °C, dry conditions","status":"Reference item"},
+    {"id":"ascorbic_acid","name":"Ascorbic Acid","category":"API / Vitamin","description":"Vitamin C, essential nutrient and antioxidant","used_for":"Vitamin C deficiency, antioxidant supplementation","applications":["Tablets","Effervescent tablets","Powder","Injections"],"storage_notes":"Store below 25 °C, away from light and moisture","status":"Reference item"},
+    {"id":"magnesium_stearate","name":"Magnesium Stearate","category":"Excipient","description":"Lubricant excipient used in solid dosage forms","used_for":"Tablet and capsule manufacturing lubricant","applications":["Tablets","Capsules","Powders"],"storage_notes":"Store in cool dry place below 25 °C","status":"Reference item"},
+    {"id":"lactose_monohydrate","name":"Lactose Monohydrate","category":"Excipient","description":"Natural disaccharide used as filler and binder","used_for":"Tablet filler, binder and diluent","applications":["Tablets","Capsules","Dry powder inhalers"],"storage_notes":"Store below 25 °C, protect from moisture","status":"Reference item"},
+    {"id":"mcc","name":"Microcrystalline Cellulose","category":"Excipient","description":"Purified partially depolymerised cellulose excipient","used_for":"Binder, filler, disintegrant in solid dosage forms","applications":["Direct compression tablets","Capsules","Granulation"],"storage_notes":"Store at room temperature, protect from excessive moisture","status":"Reference item"},
+    {"id":"povidone_k30","name":"Povidone K30","category":"Excipient","description":"Synthetic polymer used as binder and solubiliser","used_for":"Tablet binder, film-coating, granulation","applications":["Tablets","Granules","Film coatings","Solutions"],"storage_notes":"Store below 30 °C, dry conditions, tightly sealed","status":"Reference item"},
+]
+
+
+@app.get("/api/webapp/warehouse/substances")
+async def api_warehouse_substances():
+    return {"ok": True, "items": _WAREHOUSE_SUBSTANCES}
+
+
+# ── User market chart preferences ────────────────────────────
+_MK_DEFAULT_KEYS = ["НАФТА","ГАЗ","КУКУРУДЗА","ПШЕНИЦЯ","СОЄВІ_БОБИ","СОЄВА_ОЛІЯ","ПАЛЬМОВА","ЦУКОР","ЄВРО","ЮАНЬ"]
+
+
+@app.get("/api/webapp/user/market-prefs")
+async def api_get_market_prefs(user_id: int):
+    conn = None
+    try:
+        conn = get_db_connection()
+        with conn.cursor() as cur:
+            cur.execute("SELECT keys_csv FROM user_market_prefs WHERE user_id=%s", (user_id,))
+            row = cur.fetchone()
+        if row and row[0]:
+            keys = [k for k in row[0].split(",") if k in CHART_TICKERS]
+            return {"ok": True, "selected_keys": keys}
+        return {"ok": True, "selected_keys": _MK_DEFAULT_KEYS, "is_default": True}
+    except Exception as e:
+        logger.error(f"market-prefs GET error: {e}")
+        return {"ok": True, "selected_keys": _MK_DEFAULT_KEYS, "is_default": True}
+    finally:
+        if conn: conn.close()
+
+
+@app.post("/api/webapp/user/market-prefs")
+async def api_set_market_prefs(request: Request):
+    body = await request.json()
+    user_id = int(body.get("user_id", 0))
+    keys = [k for k in body.get("selected_keys", []) if k in CHART_TICKERS]
+    if not user_id:
+        raise HTTPException(status_code=400, detail="user_id required")
+    conn = None
+    try:
+        conn = get_db_connection()
+        with conn.cursor() as cur:
+            cur.execute(
+                """INSERT INTO user_market_prefs (user_id, keys_csv, updated_at)
+                   VALUES (%s, %s, NOW())
+                   ON CONFLICT (user_id) DO UPDATE
+                   SET keys_csv=EXCLUDED.keys_csv, updated_at=NOW()""",
+                (user_id, ",".join(keys))
+            )
+            conn.commit()
+        return {"ok": True}
+    except Exception as e:
+        if conn: conn.rollback()
+        logger.error(f"market-prefs POST error: {e}")
+        raise HTTPException(status_code=500, detail="DB error")
+    finally:
+        if conn: conn.close()
+
+
 # ─── PARCEL & CONTAINER TRACKING ─────────────────────────────────────────────
+import logging
 import re as _tre
+
+logger = logging.getLogger(__name__)
 
 NOVA_POSHTA_API_KEY   = os.getenv("NOVA_POSHTA_API_KEY", "")
 SEVENTEEN_TRACK_KEY   = os.getenv("SEVENTEEN_TRACK_KEY", "")   # https://17track.net/en/apiDoc
@@ -7207,12 +7733,21 @@ def _container_info(num: str) -> tuple[str, str]:
 
 
 async def _track_nova_poshta(number: str) -> dict:
+    _pending_step = {
+        "status": "pending", "icon": "🔄",
+        "title": "Очікуємо даних від Нової Пошти",
+        "desc": "", "time": "",
+    }
+
     if not NOVA_POSHTA_API_KEY:
+        logger.warning("Nova Poshta: NOVA_POSHTA_API_KEY not set — saving shipment as pending")
         return {
-            "ok": False,
-            "error": "Nova Poshta API key not set",
-            "hint": "Додайте NOVA_POSHTA_API_KEY у .env (безкоштовно: developers.novaposhta.ua)",
+            "ok": True, "type": "parcel", "carrier": "Nova Poshta", "number": number,
+            "status": "Очікуємо даних (API ключ не налаштований)",
+            "steps": [_pending_step],
         }
+
+    logger.info(f"Nova Poshta: tracking request for {number}")
     try:
         async with httpx.AsyncClient(timeout=12.0) as client:
             r = await client.post(
@@ -7226,11 +7761,28 @@ async def _track_nova_poshta(number: str) -> dict:
             )
             data = r.json()
     except Exception as e:
-        return {"ok": False, "error": f"Network error: {e}"}
+        logger.error(f"Nova Poshta: network error for {number}: {e}")
+        return {
+            "ok": True, "type": "parcel", "carrier": "Nova Poshta", "number": number,
+            "status": "Тимчасова помилка зв'язку з Новою Поштою",
+            "steps": [_pending_step],
+        }
+
+    logger.info(
+        f"Nova Poshta response for {number}: "
+        f"success={data.get('success')}, data_count={len(data.get('data') or [])}, "
+        f"errors={data.get('errors', [])}"
+    )
 
     if not data.get("success") or not data.get("data"):
         errs = data.get("errors", [])
-        return {"ok": False, "error": errs[0] if errs else "Not found"}
+        err_msg = errs[0] if errs else "Дані недоступні"
+        logger.warning(f"Nova Poshta: no data for {number}: {err_msg}")
+        return {
+            "ok": True, "type": "parcel", "carrier": "Nova Poshta", "number": number,
+            "status": "Очікуємо даних від Нової Пошти",
+            "steps": [_pending_step],
+        }
 
     doc = data["data"][0]
     status_code = str(doc.get("StatusCode", ""))
@@ -7668,14 +8220,22 @@ async def _track_17track(number: str, carrier_code: int = 0, realtime: bool = Tr
             )
 
             if register_error:
-                return register_error
+                # Don't return — store error and try cached gettrackinfo as fallback
+                logger.warning(
+                    f"17TRACK register failed for {number}: {register_error.get('error')} "
+                    f"(code={register_error.get('api_code')}) — will try cached lookup"
+                )
+                last_error = register_error
+            else:
+                rejected_error = _register_rejected_error(register_data)
+                if rejected_error:
+                    # Not a fatal error if it was "already registered", but _register_rejected_error
+                    # already returns None for those. A real rejection — store and try cached.
+                    logger.warning(f"17TRACK register rejected for {number}: {rejected_error.get('error')}")
+                    last_error = rejected_error
 
-            rejected_error = _register_rejected_error(register_data)
-            if rejected_error:
-                return rejected_error
-
-            # 2. Real-time request — только для ручного запроса пользователя
-            if realtime:
+            # 2. Real-time request — only if register succeeded, only for manual requests
+            if realtime and not last_error:
                 realtime_data, realtime_error = await _post_17track(
                     client,
                     "getRealTimeTrackInfo",
@@ -7735,13 +8295,19 @@ async def _track_17track(number: str, carrier_code: int = 0, realtime: bool = Tr
                 if result2:
                     return result2
 
-            # 4. Если 17TRACK принял номер, но событий еще нет
+            # 4. 17TRACK accepted the number but has no events yet
             if result:
+                logger.info(f"17TRACK: returning realtime result for {number} (no events yet)")
                 return result
 
             if last_error:
-                return last_error
+                # Log the real error but return a user-friendly pending so shipment can be saved
+                logger.warning(
+                    f"17TRACK: all lookups exhausted for {number}: "
+                    f"{last_error.get('error')} (code={last_error.get('api_code')})"
+                )
 
+            logger.info(f"17TRACK: no data yet for {number} — returning pending")
             return {
                 "ok": True,
                 "type": "parcel",
@@ -7766,12 +8332,59 @@ async def _track_17track(number: str, carrier_code: int = 0, realtime: bool = Tr
         }
 
 
+# Official parcel tracking URLs per carrier code
+_CARRIER_INFO: dict[str, tuple[str, str]] = {
+    "nova":  ("Nova Poshta", "https://tracking.novaposhta.ua/#/uk/parcel/{n}"),
+    "dhl":   ("DHL",         "https://www.dhl.com/us-en/home/tracking.html?submit=1&tracking-id={n}"),
+    "ups":   ("UPS",         "https://www.ups.com/track?loc=en_US&tracknum={n}"),
+    "fedex": ("FedEx",       "https://www.fedex.com/fedextrack/?trknbr={n}"),
+    "ems":   ("EMS",         "https://track.ems.post/find/{n}"),
+    "meest": ("Meest",       "https://www.meestexpress.net/tracking/?trackingId={n}"),
+}
+_FALLBACK_PARCEL_URL = "https://www.17track.net/en/track#nums={n}"
+
+_PENDING_STEP = {
+    "status": "pending", "icon": "🔄",
+    "title": "Очікуємо даних від перевізника",
+    "desc": "", "time": "",
+}
+
+
+def _stamp_tracking_meta(result: dict, number: str, carrier_code: str) -> dict:
+    """
+    Mutate result in-place:
+    - Adds tracking_url from _CARRIER_INFO if not already set.
+    - Adds carrier_name if not already set.
+    - Sets can_save=True and is_pending=True when no real events.
+    Always returns result for chaining.
+    """
+    cname, url_tpl = _CARRIER_INFO.get(carrier_code, ("", _FALLBACK_PARCEL_URL))
+    if not result.get("tracking_url"):
+        result["tracking_url"] = url_tpl.format(n=number)
+    if not result.get("carrier_name"):
+        result["carrier_name"] = cname or (carrier_code if carrier_code != "auto" else "")
+    result["can_save"] = True
+    steps = result.get("steps", [])
+    has_real_events = steps and not (len(steps) == 1 and steps[0].get("status") == "pending")
+    if not has_real_events:
+        result["is_pending"] = True
+        # When no events, prefer empty steps so frontend shows URL-only card
+        if not steps:
+            result.setdefault("status", "Відстеження через офіційний сайт перевізника")
+    return result
+
+
 @app.get("/api/webapp/track")
 async def api_webapp_track(number: str, carrier: str = "auto", _bg: bool = False):
     """Unified parcel & sea-container tracking endpoint. _bg=True → background refresh (no realtime)."""
-    n = number.strip().upper().replace(" ", "").replace("-", "")
+    # Normalize: strip unicode spaces, dashes, zero-width chars
+    import unicodedata
+    n = number.strip()
+    n = "".join(c for c in n if unicodedata.category(c) not in ("Zs", "Cc", "Cf") and c not in ("-", "‑", "‒", "–", "—"))
+    n = n.upper()
     if not n:
         raise HTTPException(status_code=400, detail="number required")
+    logger.info(f"Track request: number={n!r} carrier={carrier!r} bg={_bg}")
 
     # ── Sea container (ISO 6346: 4 letters + 7 digits) ──────────────────────
     if _is_container(n):
@@ -7816,7 +8429,22 @@ async def api_webapp_track(number: str, carrier: str = "auto", _bg: bool = False
 
     # ── Parcel ───────────────────────────────────────────────────────────────
     if carrier == "nova" or (carrier == "auto" and _is_nova_poshta(n)):
-        return await _track_nova_poshta(n)
+        logger.info(f"Carrier detected: Nova Poshta for {n}")
+        result = await _track_nova_poshta(n)
+        # Safety wrap: _track_nova_poshta should always return ok=True, but guard anyway
+        if not result.get("ok"):
+            logger.warning(f"Nova Poshta returned ok=False for {n}, converting to pending")
+            result = {
+                "ok": True, "type": "parcel", "carrier": "Nova Poshta", "number": n,
+                "status": "Очікуємо даних від Нової Пошти",
+                "steps": [_PENDING_STEP],
+            }
+        _stamp_tracking_meta(result, n, "nova")
+        logger.info(
+            f"Nova Poshta result for {n}: status={result.get('status')!r} "
+            f"url={bool(result.get('tracking_url'))} can_save={result.get('can_save')}"
+        )
+        return result
 
     # DHL / FedEx / UPS / EMS / Meest → 17track
     # Carrier codes per 17track API: 0=auto, 2=DHL, 4=UPS, 100003=FedEx, 100162=Meest
@@ -7829,17 +8457,37 @@ async def api_webapp_track(number: str, carrier: str = "auto", _bg: bool = False
     }
     if SEVENTEEN_TRACK_KEY:
         code = _CARRIER_CODES.get(carrier, 0)
-        return await _track_17track(n, code, realtime=not _bg)
+        logger.info(f"Carrier detected: 17TRACK carrier_code={code} for {n} (user carrier={carrier!r})")
+        result = await _track_17track(n, code, realtime=not _bg)
+        # Safety wrap: ensure ok=True so shipment can always be saved
+        if not result.get("ok"):
+            logger.warning(f"17TRACK returned ok=False for {n}: {result.get('error')} — converting to pending")
+            result = {
+                "ok": True, "type": "parcel", "carrier": "", "number": n,
+                "status": "Очікуємо даних від перевізника",
+                "steps": [_PENDING_STEP],
+            }
+        _stamp_tracking_meta(result, n, carrier)
+        logger.info(
+            f"17TRACK result for {n}: status={result.get('status')!r} "
+            f"steps={len(result.get('steps', []))} url={bool(result.get('tracking_url'))} "
+            f"can_save={result.get('can_save')}"
+        )
+        return result
 
-    # No API keys at all
-    return {
-        "ok": False,
-        "error": "Необхідний API ключ",
-        "hint": (
-            "Для Нової Пошти: NOVA_POSHTA_API_KEY (безкоштовно на developers.novaposhta.ua)\n"
-            "Для DHL/FedEx/UPS/EMS/Meest та контейнерів: SEVENTEEN_TRACK_KEY (безкоштовно на 17track.net/en/apiDoc)"
-        ),
+    # No API keys configured — return ok=True with official URL so shipment can still be saved
+    logger.warning(f"No tracking API keys configured for {n} carrier={carrier}")
+    cname, _ = _CARRIER_INFO.get(carrier, ("", ""))
+    result = {
+        "ok": True, "type": "parcel",
+        "carrier": cname or (carrier if carrier != "auto" else ""),
+        "carrier_name": cname or (carrier if carrier != "auto" else ""),
+        "number": n,
+        "status": "Відстеження через офіційний сайт перевізника",
+        "steps": [],
     }
+    _stamp_tracking_meta(result, n, carrier)
+    return result
 
 
 # ─── SAVED SHIPMENTS (per-user tracking list) ────────────────────────────────
@@ -7869,13 +8517,15 @@ async def api_track_save(request: Request):
                 """
                 INSERT INTO tracked_shipments
                     (user_id, number, carrier, type, carrier_name, status_text, tracking_url, steps_json, last_checked)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NULL)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW())
                 ON CONFLICT (user_id, number) DO UPDATE SET
                     carrier      = EXCLUDED.carrier,
+                    type         = EXCLUDED.type,
                     carrier_name = EXCLUDED.carrier_name,
                     status_text  = EXCLUDED.status_text,
                     tracking_url = EXCLUDED.tracking_url,
-                    steps_json   = EXCLUDED.steps_json
+                    steps_json   = EXCLUDED.steps_json,
+                    last_checked = NOW()
                 RETURNING id
                 """,
                 (user_id, number, carrier, type_, cname, status, turl, steps_json),
