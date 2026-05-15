@@ -221,6 +221,13 @@ def init_db():
             updated_at TIMESTAMPTZ DEFAULT NOW()
         )
     ''')
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS user_widget_prefs (
+            user_id    BIGINT PRIMARY KEY,
+            keys_csv   TEXT   NOT NULL DEFAULT '',
+            updated_at TIMESTAMPTZ DEFAULT NOW()
+        )
+    ''')
     # Migration: add steps_json if missing (safe on existing DBs)
     try:
         cursor.execute("ALTER TABLE tracked_shipments ADD COLUMN IF NOT EXISTS steps_json TEXT DEFAULT ''")
@@ -5609,7 +5616,11 @@ nav button.on::after{
 .wgt-name{font-size:13.5px;font-weight:700;color:var(--text)}
 .wgt-badge{display:inline-block;font-size:11px;font-weight:700;padding:3px 8px;border-radius:5px}
 .wgt-badge.wgt-on{background:#22C55E22;color:var(--green)}
-.wgt-badge.wgt-off{background:var(--surface2);color:var(--muted)}
+.wgt-badge.wgt-off{background:rgba(239,68,68,.12);color:var(--red)}
+.wgt-card.wgt-inactive{border-color:rgba(239,68,68,.3);cursor:pointer}
+.wgt-card.wgt-inactive:active{background:var(--surface2)}
+.wgt-card.wgt-inactive .wgt-name{color:var(--red)}
+.wgt-toast{margin:0 14px 10px;padding:8px 14px;background:rgba(239,68,68,.10);border:1px solid rgba(239,68,68,.22);border-radius:var(--r);font-size:12px;font-weight:600;color:var(--red);text-align:center;display:none}
 
 /* ── CURRENCY & WAREHOUSE sub-panels (Add tab) ── */
 .add-subpanel{display:none;flex-direction:column}
@@ -5728,7 +5739,6 @@ body.mk-edit .pcard{cursor:default}
     width:3px;height:26px;border-radius:0 3px 3px 0;background:var(--green);
   }
   nav button.on{color:var(--text)}
-  nav button#btn-add{order:3} /* keep + in its slot */
 
   /* Content fills right column */
   #content{grid-area:cnt;overflow-y:auto;height:100%}
@@ -5832,54 +5842,9 @@ body.mk-edit .pcard{cursor:default}
 
     <!-- ADD / Widget management -->
     <div id="padd" class="panel">
-      <!-- Home: widget grid -->
+      <!-- Home: widget manager — rendered by renderWidgetManager() on load -->
       <div id="padd-home">
-        <div class="wgt-header">
-          <div class="wgt-title" id="wgt-title">Мої віджети</div>
-          <div class="wgt-sub" id="wgt-sub">Натисни, щоб перейти</div>
-        </div>
-        <div class="wgt-grid">
-          <div class="wgt-card wgt-active" onclick="tab('news',document.getElementById('btn-news'))">
-            <div class="wgt-ico">📰</div>
-            <div class="wgt-name" id="wgt-n-news">Новини</div>
-            <div class="wgt-badge wgt-on" id="wgt-b-active">✓ Активно</div>
-          </div>
-          <div class="wgt-card wgt-active" onclick="tab('reports',document.getElementById('btn-reports'))">
-            <div class="wgt-ico">📋</div>
-            <div class="wgt-name" id="wgt-n-reports">Звіти</div>
-            <div class="wgt-badge wgt-on">✓ Активно</div>
-          </div>
-          <div class="wgt-card wgt-active" onclick="tab('markets',document.getElementById('btn-markets'))">
-            <div class="wgt-ico">📈</div>
-            <div class="wgt-name" id="wgt-n-markets">Ринки</div>
-            <div class="wgt-badge wgt-on">✓ Активно</div>
-          </div>
-          <div class="wgt-card wgt-active" onclick="tab('tracking',document.getElementById('btn-tracking'))">
-            <div class="wgt-ico">📡</div>
-            <div class="wgt-name" id="wgt-n-tracking">Трекінг</div>
-            <div class="wgt-badge wgt-on">✓ Активно</div>
-          </div>
-          <div class="wgt-card wgt-future">
-            <div class="wgt-ico">📊</div>
-            <div class="wgt-name" id="wgt-n-analytics">Аналітика</div>
-            <div class="wgt-badge wgt-off" id="wgt-b-soon">Незабаром</div>
-          </div>
-          <div class="wgt-card wgt-active" onclick="addNav('curr')">
-            <div class="wgt-ico">💱</div>
-            <div class="wgt-name" id="wgt-n-currency">Валюти</div>
-            <div class="wgt-badge wgt-on" id="wgt-b-curr">✓ Активно</div>
-          </div>
-          <div class="wgt-card wgt-future">
-            <div class="wgt-ico">🌤</div>
-            <div class="wgt-name" id="wgt-n-weather">Погода</div>
-            <div class="wgt-badge wgt-off">Незабаром</div>
-          </div>
-          <div class="wgt-card wgt-active" onclick="addNav('wh')">
-            <div class="wgt-ico">🏭</div>
-            <div class="wgt-name" id="wgt-n-warehouse">Склад</div>
-            <div class="wgt-badge wgt-on" id="wgt-b-wh">✓ Активно</div>
-          </div>
-        </div>
+        <div id="wgt-manager-container"></div>
       </div>
       <!-- Currency sub-panel -->
       <div id="padd-curr" class="add-subpanel">
@@ -6072,22 +6037,22 @@ body.mk-edit .pcard{cursor:default}
 
   </div>
 
-  <!-- 5 equal nav tabs -->
-  <nav>
+  <!-- bottom nav — rendered by renderBottomNav() on load -->
+  <nav id="bottom-nav">
     <button class="on" id="btn-news" onclick="tab('news',this)">
-      <span class="ico">📰</span><span id="nav-news">Новини</span>
+      <span class="ico">📰</span><span>Новини</span>
     </button>
     <button id="btn-reports" onclick="tab('reports',this)">
-      <span class="ico">📋</span><span id="nav-reports">Звіти</span>
+      <span class="ico">📋</span><span>Звіти</span>
     </button>
     <button id="btn-add" onclick="tab('add',this)">
-      <span class="ico">➕</span><span id="nav-add">Додати</span>
+      <span class="ico" style="color:var(--green)">➕</span><span>Додати</span>
     </button>
     <button id="btn-markets" onclick="tab('markets',this)">
-      <span class="ico">📈</span><span id="nav-markets">Ринки</span>
+      <span class="ico">📈</span><span>Ринки</span>
     </button>
     <button id="btn-tracking" onclick="tab('tracking',this)">
-      <span class="ico">📡</span><span id="nav-tracking">Трекінг</span>
+      <span class="ico">📡</span><span>Трекінг</span>
     </button>
   </nav>
 
@@ -6180,6 +6145,7 @@ const UI = {
     trkCarNova:'📦 Нова Пошта', trkCarEms:'📮 EMS / Укрпошта',
     marketsNow:'📊 Ціни зараз', editOrder:'Змінити порядок', addChart:'Додати графік',
     currenciesTitle:'Курси валют', editCurrencies:'Редагувати валюти', toggleCurrencyView:'Змінити вигляд', addCurrency:'Додати валюту', chartUnavailable:'Графік недоступний',
+    myWidgets:'Мої віджети', widgetManagerSub:'Обери, що показувати в нижній панелі', activeWidget:'✓ Активний', inactiveWidget:'Неактивний', maxWidgets:'Можна обрати максимум 4 віджети', addTab:'Додати', warehouse:'Склад', analytics:'Аналітика', weather:'Погода', soon:'Незабаром',
   },
   ru:{
     loadMore:'Загрузить ещё', noNews:'Новостей пока нет', loadError:'Ошибка загрузки',
@@ -6213,6 +6179,7 @@ const UI = {
     trkCarNova:'📦 Нова Пошта', trkCarEms:'📮 EMS / Укрпошта',
     marketsNow:'📊 Цены сейчас', editOrder:'Изменить порядок', addChart:'Добавить график',
     currenciesTitle:'Курсы валют', editCurrencies:'Редактировать валюты', toggleCurrencyView:'Изменить вид', addCurrency:'Добавить валюту', chartUnavailable:'График недоступен',
+    myWidgets:'Мои виджеты', widgetManagerSub:'Выбери, что показывать в нижней панели', activeWidget:'✓ Активный', inactiveWidget:'Неактивный', maxWidgets:'Можно выбрать максимум 4 виджета', addTab:'Добавить', warehouse:'Склад', analytics:'Аналитика', weather:'Погода', soon:'Скоро',
   },
   en:{
     loadMore:'Load more', noNews:'No news yet', loadError:'Loading error',
@@ -6246,6 +6213,7 @@ const UI = {
     trkCarNova:'📦 Nova Poshta', trkCarEms:'📮 EMS / Ukrposhta',
     marketsNow:'📊 Prices now', editOrder:'Edit order', addChart:'Add chart',
     currenciesTitle:'Exchange rates', editCurrencies:'Edit currencies', toggleCurrencyView:'Change view', addCurrency:'Add currency', chartUnavailable:'Chart unavailable',
+    myWidgets:'My widgets', widgetManagerSub:'Choose what appears in the bottom bar', activeWidget:'✓ Active', inactiveWidget:'Inactive', maxWidgets:'You can select up to 4 widgets', addTab:'Add', warehouse:'Warehouse', analytics:'Analytics', weather:'Weather', soon:'Coming soon',
   },
 };
 
@@ -6258,11 +6226,7 @@ const RTYPES = {
 
 function updateStaticText(){
   const u = UI[lang];
-  setText('nav-news',      u.news);
-  setText('nav-reports',   u.reports);
-  setText('nav-add',       u.add);
-  setText('nav-markets',   u.markets);
-  setText('nav-tracking',  u.tracking);
+  if(_widgetPrefs !== null){ renderBottomNav(); renderWidgetManager(); }
   const hPrices = document.getElementById('h-prices');
   if(hPrices) hPrices.textContent = u.marketsNow;
   const mkEditBtn = document.getElementById('mk-edit-btn');
@@ -6279,16 +6243,6 @@ function updateStaticText(){
   if(backLbl) backLbl.textContent = u.back;
   const lm = document.getElementById('lmore');
   if(lm && lm.style.display !== 'none') lm.textContent = u.loadMore;
-  // Widget tab
-  setText('wgt-title',     u.wgtTitle);
-  setText('wgt-sub',       u.wgtSub);
-  setText('wgt-b-active',  u.wgtActive);
-  document.querySelectorAll('.wgt-badge.wgt-on').forEach(el => el.textContent = u.wgtActive);
-  document.querySelectorAll('.wgt-badge.wgt-off').forEach(el => el.textContent = u.wgtSoon);
-  setText('wgt-n-news',     u.news);
-  setText('wgt-n-reports',  u.reports);
-  setText('wgt-n-markets',  u.markets);
-  setText('wgt-n-tracking', u.tracking);
   // Tracking tab labels
   const trkLblP = document.getElementById('trk-lbl-parcel');
   if(trkLblP) trkLblP.textContent = u.trkParcel;
@@ -6363,6 +6317,16 @@ let _mkEditMode = false;
 let _mkModalSel = null;
 const _MK_DEFAULT_KEYS = ['НАФТА','ГАЗ','КУКУРУДЗА','ПШЕНИЦЯ','СОЄВІ_БОБИ','СОЄВА_ОЛІЯ','ПАЛЬМОВА','ЦУКОР','ЄВРО','ЮАНЬ'];
 
+const WIDGETS = [
+  { key:'news',       icon:'📰', labels:{ua:'Новини',  ru:'Новости',  en:'News'} },
+  { key:'reports',    icon:'📋', labels:{ua:'Звіти',   ru:'Отчёты',   en:'Reports'} },
+  { key:'currencies', icon:'💱', labels:{ua:'Валюти',  ru:'Валюты',   en:'Currencies'} },
+  { key:'markets',    icon:'📈', labels:{ua:'Ринки',   ru:'Рынки',    en:'Markets'} },
+  { key:'tracking',   icon:'📡', labels:{ua:'Трекінг', ru:'Трекинг',  en:'Tracking'} },
+];
+let _widgetPrefs = null;
+let _activeTab = 'news';
+
 // ── Splash ────────────────────────────────────────────────────
 function hideSplash(){
   const sp = document.getElementById('splash');
@@ -6394,6 +6358,15 @@ window.addEventListener('load', () => {
     try { buildChips(); } catch(e){ console.error('buildChips failed', e); }
     try { fetchNews(true); } catch(e){ console.error('fetchNews failed', e); }
 
+    loadUserWidgetPrefs().then(() => {
+      renderBottomNav();
+      renderWidgetManager();
+    }).catch(() => {
+      _widgetPrefs = ['news','reports','markets','tracking'];
+      renderBottomNav();
+      renderWidgetManager();
+    });
+
   } catch(e){
     console.error('Boot failed', e);
     document.body.classList.add('boot-error');
@@ -6402,23 +6375,21 @@ window.addEventListener('load', () => {
 });
 
 // ── Tabs ──────────────────────────────────────────────────────
-const ALL_TABS = ['news','reports','add','markets','tracking'];
 function tab(name, btn){
-  ALL_TABS.forEach(n => {
-    const panel = document.getElementById('p'+n);
-    const button = document.getElementById('btn-'+n);
-    if(panel) panel.classList.toggle('on', n===name);
-    if(button) button.classList.toggle('on', n===name);
+  _activeTab = name;
+  const panelId = name === 'currencies' ? 'add' : name;
+  ['news','reports','add','markets','tracking'].forEach(n => {
+    document.getElementById('p'+n)?.classList.toggle('on', n === panelId);
   });
-
-  if(btn) btn.classList.add('on');
-
+  document.querySelectorAll('#bottom-nav button').forEach(b => b.classList.remove('on'));
+  const activeBtn = document.getElementById('btn-'+name) || btn;
+  if(activeBtn) activeBtn.classList.add('on');
+  if(name === 'currencies'){ addNav('curr'); if(typeof loadCurrencies==='function') loadCurrencies(); }
+  else if(name === 'add') addNav('home');
   try {
     if(name==='markets' && mkData.length===0) fetchMarkets();
-    if(name==='reports' && document.getElementById('rlist')?.children.length===0) fetchReports();
+    if(name==='reports' && !document.getElementById('rlist')?.children.length) fetchReports();
     if(name==='tracking'){ trkNav('home'); loadSavedShipments(); }
-    if(name==='currency' && typeof loadCurrencies==='function') loadCurrencies();
-    if(name==='warehouse' && typeof loadWarehouse==='function') loadWarehouse();
   } catch(e){
     console.error('tab switch failed', e);
   }
@@ -6942,6 +6913,117 @@ function openWhDetail(item){
 function closeWhDetail(){
   showEl('wh-list-wrap');
   rmCls('wh-detail', 'on');
+}
+
+// ── WIDGET PREFS ──────────────────────────────────────────────
+function getWidgetUid(){ return getMkUid(); }
+
+async function loadUserWidgetPrefs(){
+  try{
+    const r = await fetch('/api/webapp/user/widget-prefs?user_id='+getWidgetUid());
+    const d = await r.json();
+    _widgetPrefs = (d.ok && d.selected_keys && d.selected_keys.length)
+      ? d.selected_keys
+      : ['news','reports','markets','tracking'];
+  } catch { _widgetPrefs = ['news','reports','markets','tracking']; }
+}
+
+async function saveUserWidgetPrefs(){
+  try{
+    await fetch('/api/webapp/user/widget-prefs',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({user_id:getWidgetUid(), selected_keys:_widgetPrefs})});
+  } catch {}
+}
+
+function orderedWidgets(){
+  return (_widgetPrefs||[]).map(key=>WIDGETS.find(w=>w.key===key)).filter(Boolean);
+}
+
+function renderBottomNav(){
+  const nav = document.getElementById('bottom-nav'); if(!nav) return;
+  const u = UI[lang];
+  const active = orderedWidgets().slice(0,4);
+  const left  = active.slice(0,2);
+  const right  = active.slice(2,4);
+  const mkBtn = w => {
+    const isOn = _activeTab === w.key;
+    return `<button id="btn-${w.key}"${isOn?' class="on"':''} onclick="tab('${w.key}',this)">
+      <span class="ico">${w.icon}</span><span>${w.labels[lang]||w.key}</span>
+    </button>`;
+  };
+  const isAddOn = _activeTab === 'add';
+  const addBtn = `<button id="btn-add"${isAddOn?' class="on"':''} onclick="tab('add',this)">
+    <span class="ico" style="color:var(--green)">➕</span><span>${u.addTab||u.add}</span>
+  </button>`;
+  nav.innerHTML = [...left.map(mkBtn), addBtn, ...right.map(mkBtn)].join('');
+}
+
+function renderWidgetManager(){
+  const c = document.getElementById('wgt-manager-container'); if(!c) return;
+  const u = UI[lang];
+  const prefs = _widgetPrefs || [];
+  let html = `
+    <div class="wgt-header">
+      <div class="wgt-title">${u.myWidgets||u.wgtTitle}</div>
+      <div class="wgt-sub">${u.widgetManagerSub||u.wgtSub}</div>
+    </div>
+    <div class="wgt-grid">`;
+  WIDGETS.forEach(w => {
+    const isActive = prefs.includes(w.key);
+    const label = w.labels[lang] || w.key;
+    const cardCls = isActive ? 'wgt-active' : 'wgt-inactive';
+    const badgeCls = isActive ? 'wgt-on' : 'wgt-off';
+    const badgeTxt = isActive ? (u.activeWidget||'✓ Активний') : (u.inactiveWidget||'Неактивний');
+    html += `<div class="wgt-card ${cardCls}" onclick="toggleWidget('${w.key}')">
+      <div class="wgt-ico">${w.icon}</div>
+      <div class="wgt-name">${label}</div>
+      <div class="wgt-badge ${badgeCls}">${badgeTxt}</div>
+    </div>`;
+  });
+  html += `
+    <div class="wgt-card wgt-active" onclick="addNav('wh')">
+      <div class="wgt-ico">🏭</div>
+      <div class="wgt-name">${u.warehouse||'Склад'}</div>
+      <div class="wgt-badge wgt-on">${u.activeWidget||'✓ Активний'}</div>
+    </div>
+    <div class="wgt-card wgt-future">
+      <div class="wgt-ico">📊</div>
+      <div class="wgt-name">${u.analytics||'Аналітика'}</div>
+      <div class="wgt-badge wgt-off">${u.soon||u.wgtSoon||'Незабаром'}</div>
+    </div>
+    <div class="wgt-card wgt-future">
+      <div class="wgt-ico">🌤</div>
+      <div class="wgt-name">${u.weather||'Погода'}</div>
+      <div class="wgt-badge wgt-off">${u.soon||u.wgtSoon||'Незабаром'}</div>
+    </div>`;
+  html += `</div><div id="wgt-toast" class="wgt-toast"></div>`;
+  c.innerHTML = html;
+}
+
+function toggleWidget(key){
+  if(!_widgetPrefs) _widgetPrefs = ['news','reports','markets','tracking'];
+  const isActive = _widgetPrefs.includes(key);
+  if(isActive){
+    _widgetPrefs = _widgetPrefs.filter(k => k !== key);
+    if(_activeTab === key) tab('add', document.getElementById('btn-add'));
+  } else {
+    if(_widgetPrefs.length >= 4){
+      showWidgetToast(UI[lang].maxWidgets || 'Максимум 4 віджети');
+      return;
+    }
+    _widgetPrefs.push(key);
+  }
+  saveUserWidgetPrefs();
+  renderWidgetManager();
+  renderBottomNav();
+}
+
+function showWidgetToast(msg){
+  const t = document.getElementById('wgt-toast'); if(!t) return;
+  t.textContent = msg;
+  t.style.display = 'block';
+  clearTimeout(t._tid);
+  t._tid = setTimeout(() => { t.style.display = 'none'; }, 2500);
 }
 
 // ── MARKETS EDIT MODE ─────────────────────────────────────────
@@ -7982,6 +8064,8 @@ _curr_cache: dict = {"data": None, "ts": 0.0}
 _CURR_TTL = 900
 _curr_chart_cache: dict = {}   # code -> {"data": ..., "ts": float}
 _CURR_CHART_TTL = 3600         # 1 hour
+_VALID_WIDGET_KEYS = {'news', 'reports', 'currencies', 'markets', 'tracking'}
+_DEFAULT_WIDGET_KEYS = ['news', 'reports', 'markets', 'tracking']
 
 _CURRENCY_META = {
     "USD": ("US Dollar",      "$"),
@@ -8212,6 +8296,53 @@ async def api_currency_chart(code: str, days: int = 30):
         result = {"ok": True, "code": code, "name": name, "symbol": symbol, "base": "UAH", "dates": dates, "prices": prices}
     _curr_chart_cache[code] = {"data": result, "ts": now}
     return result
+
+
+@app.get("/api/webapp/user/widget-prefs")
+async def api_get_widget_prefs(user_id: int):
+    conn = None
+    try:
+        conn = get_db_connection()
+        with conn.cursor() as cur:
+            cur.execute("SELECT keys_csv FROM user_widget_prefs WHERE user_id=%s", (user_id,))
+            row = cur.fetchone()
+        if row and row[0]:
+            keys = [k for k in row[0].split(",") if k in _VALID_WIDGET_KEYS]
+            return {"ok": True, "selected_keys": keys}
+        return {"ok": True, "selected_keys": _DEFAULT_WIDGET_KEYS, "is_default": True}
+    except Exception as e:
+        logger.error(f"widget-prefs GET error: {e}")
+        return {"ok": True, "selected_keys": _DEFAULT_WIDGET_KEYS, "is_default": True}
+    finally:
+        if conn: conn.close()
+
+
+@app.post("/api/webapp/user/widget-prefs")
+async def api_set_widget_prefs(request: Request):
+    body = await request.json()
+    user_id = int(body.get("user_id", 0))
+    keys = [k for k in body.get("selected_keys", []) if k in _VALID_WIDGET_KEYS][:4]
+    if not user_id:
+        raise HTTPException(status_code=400, detail="user_id required")
+    conn = None
+    try:
+        conn = get_db_connection()
+        with conn.cursor() as cur:
+            cur.execute(
+                """INSERT INTO user_widget_prefs (user_id, keys_csv, updated_at)
+                   VALUES (%s, %s, NOW())
+                   ON CONFLICT (user_id) DO UPDATE
+                   SET keys_csv=EXCLUDED.keys_csv, updated_at=NOW()""",
+                (user_id, ",".join(keys))
+            )
+            conn.commit()
+        return {"ok": True}
+    except Exception as e:
+        if conn: conn.rollback()
+        logger.error(f"widget-prefs POST error: {e}")
+        raise HTTPException(status_code=500, detail="DB error")
+    finally:
+        if conn: conn.close()
 
 
 # ─── PARCEL & CONTAINER TRACKING ─────────────────────────────────────────────
