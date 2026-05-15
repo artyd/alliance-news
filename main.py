@@ -5621,6 +5621,52 @@ nav button.on::after{
 .wgt-card.wgt-inactive:active{background:var(--surface2)}
 .wgt-card.wgt-inactive .wgt-name{color:var(--red)}
 .wgt-toast{margin:0 14px 10px;padding:8px 14px;background:rgba(239,68,68,.10);border:1px solid rgba(239,68,68,.22);border-radius:var(--r);font-size:12px;font-weight:600;color:var(--red);text-align:center;display:none}
+/* ── WEATHER ── */
+.weather-wrap{display:flex;flex-direction:column;padding-bottom:80px;overflow-y:auto;height:100%}
+.weather-head{padding:12px 14px 8px}
+.weather-title{font-size:18px;font-weight:800;color:var(--text);line-height:1.2}
+.weather-subtitle{font-size:12px;color:var(--sub);margin-top:2px}
+.weather-search{display:flex;gap:8px;padding:0 14px;margin-bottom:6px}
+.weather-search input{flex:1;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:9px 12px;font-size:14px;color:var(--text);outline:none;min-width:0}
+.weather-search input::placeholder{color:var(--muted)}
+.weather-search input:focus{border-color:var(--sub)}
+.weather-search button{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:9px 14px;font-size:16px;cursor:pointer;color:var(--text);flex-shrink:0;transition:background .15s}
+.weather-search button:active{background:var(--surface2)}
+.weather-results{margin:0 14px 8px;border:1px solid var(--border);border-radius:var(--r);background:var(--surface);max-height:220px;overflow-y:auto;display:none}
+.weather-result-item{padding:10px 14px;cursor:pointer;border-bottom:1px solid var(--border);font-size:13px;color:var(--text)}
+.weather-result-item:last-child{border-bottom:none}
+.weather-result-item:active{background:var(--surface2)}
+.weather-result-name{font-weight:700}
+.weather-result-sub{color:var(--sub);font-size:11px;margin-top:1px}
+.weather-popular{padding:0 14px 8px;display:flex;flex-wrap:wrap;gap:6px}
+.weather-popular-btn{background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:5px 12px;font-size:12px;color:var(--sub);cursor:pointer;white-space:nowrap;transition:background .15s}
+.weather-popular-btn:active{background:var(--surface2)}
+.weather-globe-card{margin:0 14px 12px;border-radius:14px;overflow:hidden;border:1px solid var(--border);background:#060e1a;position:relative;min-height:100px}
+html.light .weather-globe-card{background:#c8e0f8}
+#weather-globe{width:100%;height:clamp(280px,48vh,500px);touch-action:none;display:block}
+.weather-globe-fallback{padding:40px 20px;text-align:center;color:var(--sub);font-size:13px;display:none}
+.weather-card{margin:0 14px 12px;background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px;display:none}
+.weather-city{font-size:13px;color:var(--sub);font-weight:600;margin-bottom:6px}
+.weather-temp-row{display:flex;align-items:center;gap:10px;margin-bottom:4px}
+.weather-icon-big{font-size:40px;line-height:1}
+.weather-main-temp{font-size:52px;font-weight:800;color:var(--text);line-height:1}
+.weather-desc{font-size:15px;color:var(--text);margin-bottom:2px;font-weight:500}
+.weather-feels{font-size:13px;color:var(--sub);margin-bottom:14px}
+.weather-metrics{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px}
+@media(min-width:400px){.weather-metrics{grid-template-columns:repeat(3,1fr)}}
+.weather-metric{background:var(--surface2);border-radius:10px;padding:8px 10px}
+.weather-metric-label{font-size:11px;color:var(--muted);margin-bottom:2px}
+.weather-metric-value{font-size:14px;font-weight:700;color:var(--text)}
+.weather-source{font-size:11px;color:var(--muted);text-align:right;margin-top:6px}
+.weather-forecast-wrap{margin:0 14px 20px;display:none}
+.weather-forecast-title{font-size:12px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px}
+.weather-forecast{display:grid;grid-template-columns:repeat(5,1fr);gap:6px}
+.weather-day{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:8px 4px;text-align:center}
+.weather-day-date{font-size:10px;color:var(--muted);margin-bottom:4px}
+.weather-day-icon{font-size:20px;margin-bottom:4px}
+.weather-day-max{font-size:13px;font-weight:700;color:var(--text)}
+.weather-day-min{font-size:11px;color:var(--sub)}
+.weather-loading{padding:40px 14px;text-align:center;color:var(--sub);font-size:14px}
 
 /* ── CURRENCY & WAREHOUSE sub-panels (Add tab) ── */
 .add-subpanel{display:none;flex-direction:column}
@@ -6037,6 +6083,37 @@ body.mk-edit .pcard{cursor:default}
 
   </div>
 
+  <div id="pweather" class="panel">
+    <div class="weather-wrap">
+      <div class="weather-head">
+        <div class="weather-title" id="weather-title">🌍 Погода</div>
+        <div class="weather-subtitle" id="weather-subtitle">3D-глобус і погода по містах</div>
+      </div>
+      <div class="weather-search">
+        <input type="text" id="weather-input" placeholder="Пошук міста..." autocomplete="off"
+          onkeydown="if(event.key==='Enter')searchWeatherCity()">
+        <button onclick="searchWeatherCity()">🔎</button>
+      </div>
+      <div class="weather-results" id="weather-results"></div>
+      <div class="weather-popular">
+        <button class="weather-popular-btn" onclick="selectWeatherLocation({name:'Kharkiv',country:'Ukraine',latitude:49.9808,longitude:36.2527})">Kharkiv</button>
+        <button class="weather-popular-btn" onclick="selectWeatherLocation({name:'Kyiv',country:'Ukraine',latitude:50.4501,longitude:30.5234})">Kyiv</button>
+        <button class="weather-popular-btn" onclick="selectWeatherLocation({name:'Warsaw',country:'Poland',latitude:52.2297,longitude:21.0122})">Warsaw</button>
+        <button class="weather-popular-btn" onclick="selectWeatherLocation({name:'London',country:'UK',latitude:51.5074,longitude:-0.1278})">London</button>
+        <button class="weather-popular-btn" onclick="selectWeatherLocation({name:'Istanbul',country:'Turkey',latitude:41.0082,longitude:28.9784})">Istanbul</button>
+      </div>
+      <div class="weather-globe-card">
+        <div id="weather-globe"></div>
+        <div id="weather-globe-fallback" class="weather-globe-fallback"></div>
+      </div>
+      <div id="weather-card" class="weather-card"></div>
+      <div class="weather-forecast-wrap" id="weather-forecast-wrap">
+        <div class="weather-forecast-title" id="weather-forecast-lbl">Прогноз</div>
+        <div class="weather-forecast" id="weather-forecast"></div>
+      </div>
+    </div>
+  </div>
+
   <!-- bottom nav — rendered by renderBottomNav() on load -->
   <nav id="bottom-nav">
     <button class="on" id="btn-news" onclick="tab('news',this)">
@@ -6146,6 +6223,7 @@ const UI = {
     marketsNow:'📊 Ціни зараз', editOrder:'Змінити порядок', addChart:'Додати графік',
     currenciesTitle:'Курси валют', editCurrencies:'Редагувати валюти', toggleCurrencyView:'Змінити вигляд', addCurrency:'Додати валюту', chartUnavailable:'Графік недоступний',
     myWidgets:'Мої віджети', widgetManagerSub:'Обери, що показувати в нижній панелі', activeWidget:'✓ Активний', inactiveWidget:'Неактивний', maxWidgets:'Можна обрати максимум 4 віджети', addTab:'Додати', warehouse:'Склад', analytics:'Аналітика', weather:'Погода', soon:'Незабаром',
+    weatherTab:'Погода', weatherTitle:'Погода', weatherSubtitle:'3D-глобус і погода по містах', weatherSearchPlaceholder:'Пошук міста...', weatherSearch:'Пошук', weatherLoading:'Завантаження погоди...', weatherUnavailable:'Погода недоступна', globeUnavailable:'3D-глобус недоступний. Скористайтесь пошуком міста.', feelsLike:'Відчувається як', humidity:'Вологість', wind:'Вітер', clouds:'Хмарність', pressure:'Тиск', precipitation:'Опади', forecast:'Прогноз', source:'Джерело', cityNotFound:'Місто не знайдено',
   },
   ru:{
     loadMore:'Загрузить ещё', noNews:'Новостей пока нет', loadError:'Ошибка загрузки',
@@ -6180,6 +6258,7 @@ const UI = {
     marketsNow:'📊 Цены сейчас', editOrder:'Изменить порядок', addChart:'Добавить график',
     currenciesTitle:'Курсы валют', editCurrencies:'Редактировать валюты', toggleCurrencyView:'Изменить вид', addCurrency:'Добавить валюту', chartUnavailable:'График недоступен',
     myWidgets:'Мои виджеты', widgetManagerSub:'Выбери, что показывать в нижней панели', activeWidget:'✓ Активный', inactiveWidget:'Неактивный', maxWidgets:'Можно выбрать максимум 4 виджета', addTab:'Добавить', warehouse:'Склад', analytics:'Аналитика', weather:'Погода', soon:'Скоро',
+    weatherTab:'Погода', weatherTitle:'Погода', weatherSubtitle:'3D-глобус и погода по городам', weatherSearchPlaceholder:'Поиск города...', weatherSearch:'Поиск', weatherLoading:'Загрузка погоды...', weatherUnavailable:'Погода недоступна', globeUnavailable:'3D-глобус недоступен. Используйте поиск города.', feelsLike:'Ощущается как', humidity:'Влажность', wind:'Ветер', clouds:'Облачность', pressure:'Давление', precipitation:'Осадки', forecast:'Прогноз', source:'Источник', cityNotFound:'Город не найден',
   },
   en:{
     loadMore:'Load more', noNews:'No news yet', loadError:'Loading error',
@@ -6214,6 +6293,7 @@ const UI = {
     marketsNow:'📊 Prices now', editOrder:'Edit order', addChart:'Add chart',
     currenciesTitle:'Exchange rates', editCurrencies:'Edit currencies', toggleCurrencyView:'Change view', addCurrency:'Add currency', chartUnavailable:'Chart unavailable',
     myWidgets:'My widgets', widgetManagerSub:'Choose what appears in the bottom bar', activeWidget:'✓ Active', inactiveWidget:'Inactive', maxWidgets:'You can select up to 4 widgets', addTab:'Add', warehouse:'Warehouse', analytics:'Analytics', weather:'Weather', soon:'Coming soon',
+    weatherTab:'Weather', weatherTitle:'Weather', weatherSubtitle:'3D globe and city weather', weatherSearchPlaceholder:'Search city...', weatherSearch:'Search', weatherLoading:'Loading weather...', weatherUnavailable:'Weather unavailable', globeUnavailable:'3D globe unavailable. Use city search instead.', feelsLike:'Feels like', humidity:'Humidity', wind:'Wind', clouds:'Clouds', pressure:'Pressure', precipitation:'Precipitation', forecast:'Forecast', source:'Source', cityNotFound:'City not found',
   },
 };
 
@@ -6282,6 +6362,12 @@ function updateStaticText(){
   if(_trkCurrentScreen === 'list'){
     renderSavedShipments(_savedShipmentsCache);
   }
+  // Weather labels
+  const wEl = byId('weather-title'); if(wEl) wEl.textContent = '🌍 '+(u.weatherTitle||'Погода');
+  const wSub = byId('weather-subtitle'); if(wSub) wSub.textContent = u.weatherSubtitle||'';
+  const wFcl = byId('weather-forecast-lbl'); if(wFcl) wFcl.textContent = u.forecast||'Forecast';
+  const wInp = byId('weather-input'); if(wInp) wInp.placeholder = u.weatherSearchPlaceholder||'Search city...';
+  if(_currentWeatherData){ renderWeatherCard(_currentWeatherData); if(_currentWeatherData.daily) renderWeatherForecast(_currentWeatherData.daily); }
 }
 
 // ── Category config ───────────────────────────────────────────
@@ -6323,9 +6409,32 @@ const WIDGETS = [
   { key:'currencies', icon:'💱', labels:{ua:'Валюти',  ru:'Валюты',   en:'Currencies'} },
   { key:'markets',    icon:'📈', labels:{ua:'Ринки',   ru:'Рынки',    en:'Markets'} },
   { key:'tracking',   icon:'📡', labels:{ua:'Трекінг', ru:'Трекинг',  en:'Tracking'} },
+  { key:'weather',    icon:'🌍', labels:{ua:'Погода',  ru:'Погода',   en:'Weather'} },
 ];
 let _widgetPrefs = null;
 let _activeTab = 'news';
+
+let weatherGlobe = null;
+let weatherGlobeReady = false;
+let weatherGlobeScriptLoaded = false;
+let _weatherDefaultLoaded = false;
+let currentWeatherLocation = null;
+let _currentWeatherData = null;
+let _weatherCache = {};
+let _weatherSearchItems = [];
+const WEATHER_CITIES = [
+  {name:'Kharkiv',  country:'Ukraine', lat:49.9808, lng:36.2527},
+  {name:'Kyiv',     country:'Ukraine', lat:50.4501, lng:30.5234},
+  {name:'Warsaw',   country:'Poland',  lat:52.2297, lng:21.0122},
+  {name:'London',   country:'UK',      lat:51.5074, lng:-0.1278},
+  {name:'Berlin',   country:'Germany', lat:52.5200, lng:13.4050},
+  {name:'Paris',    country:'France',  lat:48.8566, lng:2.3522},
+  {name:'Istanbul', country:'Turkey',  lat:41.0082, lng:28.9784},
+  {name:'New York', country:'USA',     lat:40.7128, lng:-74.0060},
+  {name:'Tokyo',    country:'Japan',   lat:35.6762, lng:139.6503},
+  {name:'Beijing',  country:'China',   lat:39.9042, lng:116.4074},
+  {name:'Dubai',    country:'UAE',     lat:25.2048, lng:55.2708},
+];
 
 // ── Splash ────────────────────────────────────────────────────
 function hideSplash(){
@@ -6378,7 +6487,7 @@ window.addEventListener('load', () => {
 function tab(name, btn){
   _activeTab = name;
   const panelId = name === 'currencies' ? 'add' : name;
-  ['news','reports','add','markets','tracking'].forEach(n => {
+  ['news','reports','add','markets','tracking','weather'].forEach(n => {
     document.getElementById('p'+n)?.classList.toggle('on', n === panelId);
   });
   document.querySelectorAll('#bottom-nav button').forEach(b => b.classList.remove('on'));
@@ -6390,6 +6499,7 @@ function tab(name, btn){
     if(name==='markets' && mkData.length===0) fetchMarkets();
     if(name==='reports' && !document.getElementById('rlist')?.children.length) fetchReports();
     if(name==='tracking'){ trkNav('home'); loadSavedShipments(); }
+    if(name==='weather'){ ensureWeatherLoaded(); setTimeout(resizeWeatherGlobe, 300); }
   } catch(e){
     console.error('tab switch failed', e);
   }
@@ -7024,6 +7134,210 @@ function showWidgetToast(msg){
   t.style.display = 'block';
   clearTimeout(t._tid);
   t._tid = setTimeout(() => { t.style.display = 'none'; }, 2500);
+}
+
+// ── WEATHER ───────────────────────────────────────────────────
+function ensureWeatherLoaded(){
+  if(!weatherGlobeScriptLoaded){
+    weatherGlobeScriptLoaded = true;
+    const s = document.createElement('script');
+    s.src = 'https://unpkg.com/globe.gl';
+    s.onload = () => initWeatherGlobe();
+    s.onerror = () => showWeatherGlobeFallback();
+    document.head.appendChild(s);
+  } else if(window.Globe && !weatherGlobe){
+    initWeatherGlobe();
+  }
+  if(!_weatherDefaultLoaded){
+    _weatherDefaultLoaded = true;
+    selectWeatherLocation({name:'Kharkiv',country:'Ukraine',latitude:49.9808,longitude:36.2527});
+  }
+  setTimeout(resizeWeatherGlobe, 200);
+}
+
+function initWeatherGlobe(){
+  if(weatherGlobe) return;
+  const container = document.getElementById('weather-globe');
+  if(!container || !window.Globe){ showWeatherGlobeFallback(); return; }
+  try{
+    const canvas = document.createElement('canvas');
+    const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+    if(!gl){ showWeatherGlobeFallback(); return; }
+  } catch(e){ showWeatherGlobeFallback(); return; }
+  try{
+    const isLight = document.documentElement.classList.contains('light');
+    const texUrl = isLight
+      ? '//unpkg.com/three-globe/example/img/earth-blue-marble.jpg'
+      : '//unpkg.com/three-globe/example/img/earth-night.jpg';
+    weatherGlobe = Globe({animateIn:true})
+      .globeImageUrl(texUrl)
+      .backgroundColor('rgba(0,0,0,0)')
+      .width(container.clientWidth || 360)
+      .height(container.clientHeight || 300)
+      .pointsData(WEATHER_CITIES)
+      .pointLat('lat').pointLng('lng')
+      .pointColor(() => '#22C55E')
+      .pointAltitude(0.015).pointRadius(0.4)
+      .pointLabel(d => '<div style="background:rgba(0,0,0,.75);padding:4px 8px;border-radius:6px;font-size:12px;color:#fff;pointer-events:none">'+d.name+', '+d.country+'</div>')
+      .onPointClick(d => selectWeatherLocation({name:d.name,country:d.country,latitude:d.lat,longitude:d.lng}))
+      (container);
+    weatherGlobe.controls().autoRotate = true;
+    weatherGlobe.controls().autoRotateSpeed = 0.5;
+    weatherGlobe.controls().enableZoom = true;
+    container.addEventListener('pointerdown', () => {
+      if(weatherGlobe) weatherGlobe.controls().autoRotate = false;
+    }, {passive:true});
+    weatherGlobeReady = true;
+  } catch(e){
+    console.error('Globe init failed', e);
+    showWeatherGlobeFallback();
+  }
+}
+
+function showWeatherGlobeFallback(){
+  const globe = document.getElementById('weather-globe');
+  const fallback = document.getElementById('weather-globe-fallback');
+  if(globe) globe.style.display = 'none';
+  if(fallback){
+    fallback.style.display = 'block';
+    fallback.textContent = UI[lang].globeUnavailable || '3D globe unavailable. Use city search instead.';
+  }
+}
+
+function resizeWeatherGlobe(){
+  if(!weatherGlobe || !weatherGlobeReady) return;
+  const container = document.getElementById('weather-globe');
+  if(!container) return;
+  try{ weatherGlobe.width(container.clientWidth).height(container.clientHeight); } catch(e){}
+}
+
+function flyToWeatherLocation(lat, lon, altitude){
+  if(!weatherGlobe || !weatherGlobeReady) return;
+  try{ weatherGlobe.pointOfView({lat:lat, lng:lon, altitude:altitude||1.8}, 1000); } catch(e){}
+}
+
+async function searchWeatherCity(){
+  const input = document.getElementById('weather-input');
+  if(!input) return;
+  const q = input.value.trim();
+  if(!q) return;
+  const results = document.getElementById('weather-results');
+  if(results){
+    results.innerHTML = '<div class="weather-result-item">'+( UI[lang].weatherLoading||'Loading...')+'</div>';
+    results.style.display = 'block';
+  }
+  try{
+    const langMap = {ua:'uk', ru:'ru', en:'en'};
+    const apiLang = langMap[lang] || 'en';
+    const r = await fetch('/api/webapp/weather/search?q='+encodeURIComponent(q)+'&count=5&language='+apiLang);
+    const d = await r.json();
+    renderWeatherSearchResults(d.items || []);
+  } catch(e){
+    if(results) results.innerHTML = '<div class="weather-result-item">'+(UI[lang].weatherUnavailable||'Unavailable')+'</div>';
+  }
+}
+
+function renderWeatherSearchResults(items){
+  _weatherSearchItems = items;
+  const results = document.getElementById('weather-results');
+  if(!results) return;
+  if(!items.length){
+    results.innerHTML = '<div class="weather-result-item">'+esc(UI[lang].cityNotFound||'City not found')+'</div>';
+    results.style.display = 'block';
+    return;
+  }
+  results.innerHTML = items.map(function(item, i){
+    return '<div class="weather-result-item" onclick="selectWeatherLocation(_weatherSearchItems['+i+']);document.getElementById(\'weather-results\').style.display=\'none\'">'
+      +'<div class="weather-result-name">'+esc(item.name||'')+'</div>'
+      +'<div class="weather-result-sub">'+esc([item.admin1,item.country].filter(Boolean).join(', '))+'</div>'
+      +'</div>';
+  }).join('');
+  results.style.display = 'block';
+}
+
+async function selectWeatherLocation(loc){
+  currentWeatherLocation = loc;
+  const results = document.getElementById('weather-results');
+  if(results) results.style.display = 'none';
+  flyToWeatherLocation(loc.latitude, loc.longitude);
+  const card = document.getElementById('weather-card');
+  if(card){
+    card.innerHTML = '<div class="weather-loading">'+(UI[lang].weatherLoading||'Loading weather...')+'</div>';
+    card.style.display = 'block';
+  }
+  const data = await fetchWeatherCurrent(loc);
+  renderWeatherCard(data);
+  if(data && data.ok && data.daily) renderWeatherForecast(data.daily);
+}
+
+async function fetchWeatherCurrent(loc){
+  const cacheKey = Math.round(loc.latitude*10)+'_'+Math.round(loc.longitude*10);
+  const now = Date.now();
+  if(_weatherCache[cacheKey] && now - _weatherCache[cacheKey].ts < 600000) return _weatherCache[cacheKey].data;
+  try{
+    const url = '/api/webapp/weather/current?lat='+loc.latitude+'&lon='+loc.longitude
+      +'&name='+encodeURIComponent(loc.name||'')+'&country='+encodeURIComponent(loc.country||'');
+    const r = await fetch(url);
+    const d = await r.json();
+    if(d.ok) _weatherCache[cacheKey] = {data:d, ts:now};
+    return d;
+  } catch(e){ return {ok:false, error:String(e)}; }
+}
+
+function _windDir(deg){
+  if(deg == null) return '';
+  return ['N','NE','E','SE','S','SW','W','NW'][Math.round(deg/45)%8];
+}
+
+function renderWeatherCard(data){
+  const card = document.getElementById('weather-card');
+  if(!card) return;
+  if(!data || !data.ok){
+    card.innerHTML = '<div class="weather-loading">'+(UI[lang].weatherUnavailable||'Weather unavailable')+'</div>';
+    card.style.display = 'block';
+    return;
+  }
+  _currentWeatherData = data;
+  const u = UI[lang];
+  const c = data.current;
+  const loc = data.location;
+  const dir = _windDir(c.wind_direction);
+  const time = c.time ? c.time.split('T')[1] : '';
+  card.innerHTML =
+    '<div class="weather-city">'+esc(loc.name)+(loc.country?', '+esc(loc.country):'')+'</div>'
+    +'<div class="weather-temp-row">'
+    +'<span class="weather-icon-big">'+c.weather_icon+'</span>'
+    +'<span class="weather-main-temp">'+Math.round(c.temperature)+'°</span>'
+    +'</div>'
+    +'<div class="weather-desc">'+esc(c.weather_text)+'</div>'
+    +'<div class="weather-feels">'+(u.feelsLike||'Feels like')+' '+Math.round(c.apparent_temperature)+'°C</div>'
+    +'<div class="weather-metrics">'
+    +'<div class="weather-metric"><div class="weather-metric-label">'+(u.humidity||'Humidity')+'</div><div class="weather-metric-value">'+c.humidity+'%</div></div>'
+    +'<div class="weather-metric"><div class="weather-metric-label">'+(u.wind||'Wind')+'</div><div class="weather-metric-value">'+Math.round(c.wind_speed)+' km/h'+(dir?' '+dir:'')+'</div></div>'
+    +'<div class="weather-metric"><div class="weather-metric-label">'+(u.clouds||'Clouds')+'</div><div class="weather-metric-value">'+c.cloud_cover+'%</div></div>'
+    +'<div class="weather-metric"><div class="weather-metric-label">'+(u.pressure||'Pressure')+'</div><div class="weather-metric-value">'+Math.round(c.pressure)+' hPa</div></div>'
+    +'<div class="weather-metric"><div class="weather-metric-label">'+(u.precipitation||'Precipitation')+'</div><div class="weather-metric-value">'+c.precipitation+' mm</div></div>'
+    +'</div>'
+    +'<div class="weather-source">'+(u.source||'Source')+': '+data.source+(time?' · '+time:'')+'</div>';
+  card.style.display = 'block';
+}
+
+function renderWeatherForecast(daily){
+  const wrap = document.getElementById('weather-forecast-wrap');
+  const fc = document.getElementById('weather-forecast');
+  if(!wrap || !fc || !daily || !daily.length){ if(wrap) wrap.style.display='none'; return; }
+  const dnames = {ua:['Нд','Пн','Вт','Ср','Чт','Пт','Сб'], ru:['Вс','Пн','Вт','Ср','Чт','Пт','Сб'], en:['Sun','Mon','Tue','Wed','Thu','Fri','Sat']};
+  const dn = dnames[lang] || dnames.en;
+  fc.innerHTML = daily.slice(0,5).map(function(d){
+    const dayIdx = new Date(d.date+'T12:00:00').getDay();
+    return '<div class="weather-day">'
+      +'<div class="weather-day-date">'+dn[dayIdx]+'</div>'
+      +'<div class="weather-day-icon">'+d.weather_icon+'</div>'
+      +'<div class="weather-day-max">'+(d.temp_max!=null?Math.round(d.temp_max)+'°':'--')+'</div>'
+      +'<div class="weather-day-min">'+(d.temp_min!=null?Math.round(d.temp_min)+'°':'--')+'</div>'
+      +'</div>';
+  }).join('');
+  wrap.style.display = 'block';
 }
 
 // ── MARKETS EDIT MODE ─────────────────────────────────────────
@@ -8064,7 +8378,11 @@ _curr_cache: dict = {"data": None, "ts": 0.0}
 _CURR_TTL = 900
 _curr_chart_cache: dict = {}   # code -> {"data": ..., "ts": float}
 _CURR_CHART_TTL = 3600         # 1 hour
-_VALID_WIDGET_KEYS = {'news', 'reports', 'currencies', 'markets', 'tracking'}
+_weather_search_cache: dict = {}   # "q_lang" -> {"data":..., "ts":float}
+_WEATHER_SEARCH_TTL = 1800         # 30 min
+_weather_current_cache: dict = {}  # "lat_lon" -> {"data":..., "ts":float}
+_WEATHER_CURRENT_TTL = 600         # 10 min
+_VALID_WIDGET_KEYS = {'news', 'reports', 'currencies', 'markets', 'tracking', 'weather'}
 _DEFAULT_WIDGET_KEYS = ['news', 'reports', 'markets', 'tracking']
 
 _CURRENCY_META = {
@@ -8343,6 +8661,118 @@ async def api_set_widget_prefs(request: Request):
         raise HTTPException(status_code=500, detail="DB error")
     finally:
         if conn: conn.close()
+
+
+# ── WEATHER ───────────────────────────────────────────────────────────────────
+def _wmo_weather(code: int) -> tuple:
+    m = {
+        0:("Clear sky","☀️"), 1:("Mainly clear","🌤"), 2:("Partly cloudy","⛅"),
+        3:("Overcast","☁️"), 45:("Fog","🌫"), 48:("Rime fog","🌫"),
+        51:("Light drizzle","🌦"), 53:("Drizzle","🌦"), 55:("Heavy drizzle","🌧"),
+        56:("Freezing drizzle","🌧"), 57:("Heavy freezing drizzle","🌧"),
+        61:("Slight rain","🌧"), 63:("Rain","🌧"), 65:("Heavy rain","🌧"),
+        66:("Freezing rain","🌨"), 67:("Heavy freezing rain","🌨"),
+        71:("Light snow","🌨"), 73:("Snow","❄️"), 75:("Heavy snow","❄️"),
+        77:("Snow grains","❄️"), 80:("Rain showers","🌦"), 81:("Rain showers","🌧"),
+        82:("Heavy showers","⛈"), 85:("Snow showers","🌨"), 86:("Heavy snow showers","🌨"),
+        95:("Thunderstorm","⛈"), 96:("Thunderstorm with hail","⛈"),
+        99:("Thunderstorm with heavy hail","⛈"),
+    }
+    return m.get(code, ("Unknown","🌡"))
+
+
+@app.get("/api/webapp/weather/search")
+async def api_weather_search(q: str, count: int = 5, language: str = "en"):
+    cache_key = f"{q.strip().lower()}_{count}_{language}"
+    now = time.time()
+    if cache_key in _weather_search_cache:
+        if now - _weather_search_cache[cache_key]["ts"] < _WEATHER_SEARCH_TTL:
+            return _weather_search_cache[cache_key]["data"]
+    try:
+        async with httpx.AsyncClient(timeout=8) as client:
+            r = await client.get(
+                "https://geocoding-api.open-meteo.com/v1/search",
+                params={"name": q, "count": count, "language": language, "format": "json"}
+            )
+            r.raise_for_status()
+            raw = r.json()
+        items = []
+        for row in (raw.get("results") or []):
+            parts = [row.get("name",""), row.get("admin1",""), row.get("country","")]
+            label = ", ".join(p for p in parts if p)
+            items.append({
+                "id": row.get("id"), "name": row.get("name"),
+                "country": row.get("country"), "country_code": row.get("country_code"),
+                "admin1": row.get("admin1"), "latitude": row.get("latitude"),
+                "longitude": row.get("longitude"), "timezone": row.get("timezone"),
+                "label": label,
+            })
+        result = {"ok": True, "items": items}
+        _weather_search_cache[cache_key] = {"data": result, "ts": now}
+        return result
+    except Exception as e:
+        logger.error(f"weather search error: {e}")
+        return {"ok": True, "items": []}
+
+
+@app.get("/api/webapp/weather/current")
+async def api_weather_current(lat: float, lon: float, name: str = "", country: str = ""):
+    cache_key = f"{round(lat,2)}_{round(lon,2)}"
+    now = time.time()
+    if cache_key in _weather_current_cache:
+        if now - _weather_current_cache[cache_key]["ts"] < _WEATHER_CURRENT_TTL:
+            return _weather_current_cache[cache_key]["data"]
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            r = await client.get(
+                "https://api.open-meteo.com/v1/forecast",
+                params={
+                    "latitude": lat, "longitude": lon,
+                    "current": "temperature_2m,relative_humidity_2m,apparent_temperature,is_day,precipitation,weather_code,cloud_cover,pressure_msl,wind_speed_10m,wind_direction_10m",
+                    "daily": "weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,wind_speed_10m_max",
+                    "timezone": "auto", "forecast_days": 5,
+                }
+            )
+            r.raise_for_status()
+            data = r.json()
+        cur = data.get("current", {})
+        wcode = cur.get("weather_code", 0)
+        wtext, wicon = _wmo_weather(wcode)
+        current = {
+            "temperature": cur.get("temperature_2m"),
+            "apparent_temperature": cur.get("apparent_temperature"),
+            "humidity": cur.get("relative_humidity_2m"),
+            "wind_speed": cur.get("wind_speed_10m"),
+            "wind_direction": cur.get("wind_direction_10m"),
+            "cloud_cover": cur.get("cloud_cover"),
+            "pressure": cur.get("pressure_msl"),
+            "precipitation": cur.get("precipitation", 0),
+            "weather_code": wcode, "weather_text": wtext, "weather_icon": wicon,
+            "is_day": bool(cur.get("is_day", 1)),
+            "time": cur.get("time"),
+        }
+        dd = data.get("daily", {})
+        dates = dd.get("time", [])
+        daily = []
+        for i, dt in enumerate(dates):
+            def _idx(key, ii=i): return (dd.get(key) or [])[ii] if ii < len(dd.get(key) or []) else None
+            dc = _idx("weather_code") or 0
+            dtext, dicon = _wmo_weather(dc)
+            daily.append({"date": dt, "weather_code": dc, "weather_text": dtext, "weather_icon": dicon,
+                "temp_max": _idx("temperature_2m_max"), "temp_min": _idx("temperature_2m_min"),
+                "precipitation_sum": _idx("precipitation_sum") or 0,
+                "wind_speed_max": _idx("wind_speed_10m_max")})
+        result = {
+            "ok": True,
+            "location": {"name": name or str(lat), "country": country,
+                         "latitude": lat, "longitude": lon, "timezone": data.get("timezone","")},
+            "current": current, "daily": daily, "source": "Open-Meteo",
+        }
+        _weather_current_cache[cache_key] = {"data": result, "ts": now}
+        return result
+    except Exception as e:
+        logger.error(f"weather current error: {e}")
+        return {"ok": False, "error": str(e)}
 
 
 # ─── PARCEL & CONTAINER TRACKING ─────────────────────────────────────────────
