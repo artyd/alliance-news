@@ -213,6 +213,14 @@ def init_db():
             updated_at TIMESTAMPTZ DEFAULT NOW()
         )
     ''')
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS user_currency_prefs (
+            user_id    BIGINT PRIMARY KEY,
+            codes_csv  TEXT   NOT NULL DEFAULT '',
+            view_mode  TEXT   NOT NULL DEFAULT 'compact',
+            updated_at TIMESTAMPTZ DEFAULT NOW()
+        )
+    ''')
     # Migration: add steps_json if missing (safe on existing DBs)
     try:
         cursor.execute("ALTER TABLE tracked_shipments ADD COLUMN IF NOT EXISTS steps_json TEXT DEFAULT ''")
@@ -5609,13 +5617,31 @@ nav button.on::after{
 .subpanel-hdr{display:flex;align-items:center;gap:10px;padding:12px 14px 8px;flex-shrink:0}
 .subpanel-back{background:none;border:1px solid var(--border);color:var(--text);font-size:13px;font-weight:600;padding:5px 12px;border-radius:20px;cursor:pointer;line-height:1.4}
 .subpanel-title{font-size:15px;font-weight:800;color:var(--text);flex:1}
+/* ── CURRENCIES ── */
+.curr-head-actions{display:flex;gap:6px;flex-shrink:0}
 .curr-list{display:flex;flex-direction:column;gap:8px;padding:0 14px 20px;overflow-y:auto}
-.curr-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:13px 14px;display:flex;justify-content:space-between;align-items:center}
+.curr-list.compact{display:grid;grid-template-columns:1fr 1fr;gap:9px;padding:0 14px 20px}
+.curr-list.chart{display:flex;flex-direction:column;gap:12px;padding:0 14px 20px}
+.curr-footer{font-size:11px;color:var(--muted);padding:2px 14px 16px;text-align:right}
+.curr-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:13px 13px 12px;position:relative;transition:border-color .15s}
+.curr-card.compact{cursor:default}
 .curr-left{display:flex;flex-direction:column;gap:2px}
 .curr-code{font-size:15px;font-weight:800;color:var(--text)}
-.curr-name{font-size:11px;color:var(--sub)}
-.curr-rate{font-size:18px;font-weight:800;color:var(--green);letter-spacing:-.5px}
-.curr-footer{font-size:11px;color:var(--muted);padding:2px 14px 16px;text-align:right}
+.curr-name{font-size:10.5px;color:var(--sub);line-height:1.3}
+.curr-rate{font-size:18px;font-weight:800;color:var(--green);letter-spacing:-.5px;margin-top:6px}
+.curr-label{font-size:10px;color:var(--sub);margin-top:1px}
+.curr-card.chart{padding:13px 14px 10px}
+.curr-chart-hdr{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px}
+.curr-chart-info{display:flex;flex-direction:column;gap:2px}
+.curr-chart-code{font-size:14px;font-weight:800;color:var(--text)}
+.curr-chart-name{font-size:10.5px;color:var(--sub)}
+.curr-chart-rate{font-size:16px;font-weight:800;color:var(--green);letter-spacing:-.5px}
+.curr-chart-area{position:relative;height:100px;margin-top:4px}
+.curr-chart-area canvas{width:100%!important}
+.curr-chart-fallback{display:flex;align-items:center;justify-content:center;height:80px;color:var(--sub);font-size:12px}
+.curr-remove-btn{display:none;position:absolute;top:5px;right:5px;width:20px;height:20px;background:var(--red);color:#fff;border:none;border-radius:50%;font-size:11px;cursor:pointer;align-items:center;justify-content:center;z-index:2;line-height:1}
+body.curr-edit .curr-remove-btn{display:flex}
+body.curr-edit .curr-card{cursor:default}
 .wh-list{display:flex;flex-direction:column;gap:8px;padding:0 14px 20px;overflow-y:auto}
 .wh-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:13px 14px;cursor:pointer;transition:border-color .15s}
 .wh-card:active{border-color:var(--sub)}
@@ -5720,6 +5746,11 @@ body.mk-edit .pcard{cursor:default}
   /* Markets: 3-column */
   .pgrid{grid-template-columns:repeat(3,1fr);gap:12px}
   .msec{padding:16px 24px 0}
+
+  /* Currencies: 3-column compact */
+  .curr-list.compact{grid-template-columns:1fr 1fr 1fr}
+  .curr-list{padding:0 24px 20px}
+  .curr-list.compact{padding:0 24px 20px}
 
   /* Reports: 2-column */
   .rlist{
@@ -5854,10 +5885,29 @@ body.mk-edit .pcard{cursor:default}
       <div id="padd-curr" class="add-subpanel">
         <div class="subpanel-hdr">
           <button class="subpanel-back" onclick="addNav('home')">←</button>
-          <span class="subpanel-title">💱 Валюти до гривні</span>
+          <span class="subpanel-title" id="curr-head-title">💱 Курси валют</span>
+          <div class="curr-head-actions">
+            <button class="mk-icon-btn" id="curr-edit-btn" onclick="toggleCurrencyEdit()" title="Редагувати валюти">✎</button>
+            <button class="mk-icon-btn" id="curr-view-btn" onclick="toggleCurrencyViewMode()" title="Змінити вигляд">▭</button>
+            <button class="mk-icon-btn" id="curr-add-btn" onclick="openCurrencyModal()" title="Додати валюту">＋</button>
+          </div>
         </div>
-        <div id="curr-list" class="curr-list"></div>
+        <div id="curr-list" class="curr-list compact"></div>
         <div class="curr-footer" id="curr-footer"></div>
+      </div>
+      <!-- Currency add/restore modal -->
+      <div class="mk-modal-ov" id="curr-modal-ov" onclick="if(event.target===this)hideCurrencyModal()">
+        <div class="mk-modal">
+          <div class="mk-modal-top">
+            <span class="mk-modal-ttl">💱 Валюти</span>
+            <button class="mk-modal-x" onclick="hideCurrencyModal()">×</button>
+          </div>
+          <input class="mk-modal-srch" id="curr-modal-srch" type="search" placeholder="Пошук…" oninput="renderCurrencyModalList(this.value)">
+          <div class="mk-modal-list" id="curr-modal-list"></div>
+          <div class="mk-modal-footer">
+            <button class="mk-modal-save" onclick="saveCurrencyModal()">Застосувати</button>
+          </div>
+        </div>
       </div>
       <!-- Warehouse sub-panel -->
       <div id="padd-wh" class="add-subpanel">
@@ -6129,6 +6179,7 @@ const UI = {
     trkMaxRetriesHint:'Дані ще не надійшли від перевізника. Збережіть відправлення — перевіримо автоматично через 3 години.',
     trkCarNova:'📦 Нова Пошта', trkCarEms:'📮 EMS / Укрпошта',
     marketsNow:'📊 Ціни зараз', editOrder:'Змінити порядок', addChart:'Додати графік',
+    currenciesTitle:'Курси валют', editCurrencies:'Редагувати валюти', toggleCurrencyView:'Змінити вигляд', addCurrency:'Додати валюту', chartUnavailable:'Графік недоступний',
   },
   ru:{
     loadMore:'Загрузить ещё', noNews:'Новостей пока нет', loadError:'Ошибка загрузки',
@@ -6161,6 +6212,7 @@ const UI = {
     trkMaxRetriesHint:'Данные ещё не поступили от перевозчика. Сохраните отправление — проверим автоматически через 3 часа.',
     trkCarNova:'📦 Нова Пошта', trkCarEms:'📮 EMS / Укрпошта',
     marketsNow:'📊 Цены сейчас', editOrder:'Изменить порядок', addChart:'Добавить график',
+    currenciesTitle:'Курсы валют', editCurrencies:'Редактировать валюты', toggleCurrencyView:'Изменить вид', addCurrency:'Добавить валюту', chartUnavailable:'График недоступен',
   },
   en:{
     loadMore:'Load more', noNews:'No news yet', loadError:'Loading error',
@@ -6193,6 +6245,7 @@ const UI = {
     trkMaxRetriesHint:'Data not yet available from carrier. Save this shipment — we will check automatically every 3 hours.',
     trkCarNova:'📦 Nova Poshta', trkCarEms:'📮 EMS / Ukrposhta',
     marketsNow:'📊 Prices now', editOrder:'Edit order', addChart:'Add chart',
+    currenciesTitle:'Exchange rates', editCurrencies:'Edit currencies', toggleCurrencyView:'Change view', addCurrency:'Add currency', chartUnavailable:'Chart unavailable',
   },
 };
 
@@ -6216,6 +6269,10 @@ function updateStaticText(){
   if(mkEditBtn) mkEditBtn.title = u.editOrder;
   const mkAddBtn = document.getElementById('mk-add-btn');
   if(mkAddBtn) mkAddBtn.title = u.addChart;
+  setText('curr-head-title', '💱 ' + u.currenciesTitle);
+  const cEditBtn = byId('curr-edit-btn'); if(cEditBtn) cEditBtn.title = u.editCurrencies;
+  const cViewBtn = byId('curr-view-btn'); if(cViewBtn) cViewBtn.title = u.toggleCurrencyView;
+  const cAddBtn  = byId('curr-add-btn');  if(cAddBtn)  cAddBtn.title  = u.addCurrency;
   const mkNewsHdr = document.getElementById('mk-news-hdr');
   if(mkNewsHdr) mkNewsHdr.textContent = u.relNews;
   const backLbl = document.getElementById('back-lbl');
@@ -6630,33 +6687,218 @@ function addNav(view){
 }
 
 // ── CURRENCIES ────────────────────────────────────────────────
+// ── CURRENCIES ────────────────────────────────────────────────
 let _currLoaded = false;
+let _allCurrData = [];
+let _currPrefs = null;
+let _currViewMode = 'compact';
+let _currEditMode = false;
+let _currModalSel = null;
+const _CURR_DEFAULT_CODES = ['USD','EUR','JPY','INR','PLN','GBP','CNY','CHF','TRY','CZK'];
+let _currChartCache = {};
+let _currChartInstances = {};
+
+function getCurrUid(){ return getMkUid(); }
+
+async function loadUserCurrencyPrefs(){
+  try{
+    const r = await fetch('/api/webapp/user/currency-prefs?user_id='+getCurrUid());
+    const d = await r.json();
+    if(d.ok && d.selected_codes && d.selected_codes.length){
+      _currPrefs = d.selected_codes;
+      _currViewMode = d.view_mode || 'compact';
+    } else {
+      _currPrefs = _CURR_DEFAULT_CODES.slice();
+      _currViewMode = 'compact';
+    }
+  } catch {
+    _currPrefs = _CURR_DEFAULT_CODES.slice();
+    _currViewMode = 'compact';
+  }
+}
+async function saveUserCurrencyPrefs(){
+  try{
+    await fetch('/api/webapp/user/currency-prefs',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({user_id:getCurrUid(), selected_codes:_currPrefs, view_mode:_currViewMode})});
+  } catch{}
+}
+
 async function loadCurrencies(){
   _currLoaded = true;
   const list = document.getElementById('curr-list');
   if(list) list.innerHTML = '<div class="sk sk-card"></div>'.repeat(5);
   try{
+    if(_currPrefs === null) await loadUserCurrencyPrefs();
     const r = await fetch('/api/webapp/currencies');
     const d = await r.json();
-    if(d.ok) renderCurrencies(d);
-    else if(list) list.innerHTML = `<div class="empty"><div class="ei">⚠️</div><p>${d.error||UI[lang].loadError}</p></div>`;
+    if(d.ok){
+      _allCurrData = d.rates || [];
+      _updateCurrViewBtn();
+      renderCurrencies(d);
+    } else if(list) {
+      list.innerHTML = `<div class="empty"><div class="ei">⚠️</div><p>${d.error||UI[lang].loadError}</p></div>`;
+    }
   } catch {
     if(list) list.innerHTML = `<div class="empty"><div class="ei">⚠️</div><p>${UI[lang].loadError}</p></div>`;
   }
-  // Auto-refresh every 15 min
   setTimeout(()=>{ _currLoaded=false; const pc=byId('padd-curr'); if(pc && pc.classList.contains('on')) loadCurrencies(); }, 15*60*1000);
 }
+
 function renderCurrencies(data){
+  _destroyCurrCharts();
   const list = document.getElementById('curr-list');
   if(!list) return;
+  list.className = 'curr-list ' + _currViewMode;
   list.innerHTML = '';
-  (data.rates||[]).forEach(c=>{
-    const div = document.createElement('div'); div.className='curr-card';
-    div.innerHTML = `<div class="curr-left"><div class="curr-code">${esc(c.symbol)} ${esc(c.code)}</div><div class="curr-name">${esc(c.name)}</div></div><div class="curr-rate">${c.rate_uah.toFixed(2)} ₴</div>`;
-    list.appendChild(div);
-  });
+  const prefs = (_currPrefs && _currPrefs.length) ? _currPrefs : _CURR_DEFAULT_CODES;
+  const rates = (data && data.rates) ? data.rates : _allCurrData;
+  const ordered = prefs.map(code => rates.find(c => c.code === code)).filter(Boolean);
+  if(!ordered.length){
+    list.innerHTML = `<div class="empty" style="grid-column:span 3"><div class="ei">📭</div><p>${UI[lang].noData}</p></div>`;
+  } else if(_currViewMode === 'compact'){
+    ordered.forEach(c => list.appendChild(_mkCurrCompactCard(c)));
+  } else {
+    ordered.forEach(c => { const card = _mkCurrChartCard(c); list.appendChild(card); _loadCurrChart(c.code); });
+  }
   const ft = document.getElementById('curr-footer');
-  if(ft && data.updated_at) ft.textContent = 'НБУ · ' + data.updated_at;
+  if(ft && data && data.updated_at) ft.textContent = 'НБУ · ' + data.updated_at;
+}
+
+function _mkCurrCompactCard(c){
+  const div = document.createElement('div');
+  div.className = 'curr-card compact';
+  div.innerHTML =
+    `<button class="curr-remove-btn" onclick="removeCurrCard(event,'${esc(c.code)}')" title="Видалити">✕</button>
+     <div class="curr-code">${esc(c.symbol)} ${esc(c.code)}</div>
+     <div class="curr-name">${esc(c.name)}</div>
+     <div class="curr-rate">${c.rate_uah.toFixed(2)} ₴</div>
+     <div class="curr-label">${esc(c.label)}</div>`;
+  return div;
+}
+
+function _mkCurrChartCard(c){
+  const div = document.createElement('div');
+  div.className = 'curr-card chart';
+  div.innerHTML =
+    `<button class="curr-remove-btn" onclick="removeCurrCard(event,'${esc(c.code)}')" title="Видалити">✕</button>
+     <div class="curr-chart-hdr">
+       <div class="curr-chart-info">
+         <div class="curr-chart-code">${esc(c.symbol)} ${esc(c.code)}</div>
+         <div class="curr-chart-name">${esc(c.name)}</div>
+       </div>
+       <div class="curr-chart-rate">${c.rate_uah.toFixed(2)} ₴</div>
+     </div>
+     <div class="curr-chart-area" id="curr-ca-${c.code}">
+       <div class="curr-chart-fallback">⏳</div>
+     </div>`;
+  return div;
+}
+
+async function _loadCurrChart(code){
+  if(_currChartCache[code]){
+    _drawCurrChart(code, _currChartCache[code]); return;
+  }
+  try{
+    const r = await fetch('/api/webapp/currency-chart/'+code);
+    const d = await r.json();
+    _currChartCache[code] = d;
+    _drawCurrChart(code, d);
+  } catch {
+    const area = byId('curr-ca-'+code);
+    if(area) area.innerHTML = `<div class="curr-chart-fallback">${UI[lang].chartUnavailable||'Chart unavailable'}</div>`;
+  }
+}
+
+function _drawCurrChart(code, d){
+  const area = byId('curr-ca-'+code); if(!area) return;
+  if(!d || !d.ok || !d.prices || !d.prices.length){
+    area.innerHTML = `<div class="curr-chart-fallback">${UI[lang].chartUnavailable||'Chart unavailable'}</div>`; return;
+  }
+  area.innerHTML = `<canvas id="curr-cv-${code}"></canvas>`;
+  const ctx = document.getElementById('curr-cv-'+code); if(!ctx) return;
+  const prices = d.prices;
+  const lineCol = prices[prices.length-1]>=prices[0]?'#22C55E':'#EF4444';
+  const tc = light?'#666666':'#8A8A8A';
+  const gc = light?'#DDDDDD':'#2A2A2A';
+  const bg = light?'#FFFFFF':'#0F0F0F';
+  if(_currChartInstances[code]){ try{_currChartInstances[code].destroy();}catch{} }
+  _currChartInstances[code] = new Chart(ctx.getContext('2d'),{
+    type:'line',
+    data:{labels:d.dates,datasets:[{data:prices,borderColor:lineCol,backgroundColor:lineCol+'22',borderWidth:1.5,fill:true,tension:.35,pointRadius:0,pointHitRadius:10}]},
+    options:{
+      responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:false},tooltip:{mode:'index',intersect:false,backgroundColor:bg,borderColor:gc,borderWidth:1,titleColor:tc,bodyColor:tc,callbacks:{label:c=>`${c.parsed.y.toFixed(4)} ₴`}}},
+      scales:{x:{grid:{color:gc},ticks:{color:tc,maxTicksLimit:4,maxRotation:0}},y:{grid:{color:gc},ticks:{color:tc,maxTicksLimit:4}}}
+    }
+  });
+}
+
+function _destroyCurrCharts(){
+  Object.values(_currChartInstances).forEach(ch=>{ try{ch.destroy();}catch{} });
+  _currChartInstances = {};
+}
+
+function removeCurrCard(ev, code){
+  ev.stopPropagation();
+  if(!_currPrefs) return;
+  _currPrefs = _currPrefs.filter(c=>c!==code);
+  renderCurrencies({rates:_allCurrData});
+  saveUserCurrencyPrefs();
+}
+
+function toggleCurrencyEdit(){
+  _currEditMode = !_currEditMode;
+  document.body.classList.toggle('curr-edit', _currEditMode);
+  const btn = byId('curr-edit-btn');
+  if(btn) btn.classList.toggle('active', _currEditMode);
+}
+
+function toggleCurrencyViewMode(){
+  _currViewMode = _currViewMode === 'compact' ? 'chart' : 'compact';
+  _updateCurrViewBtn();
+  renderCurrencies({rates:_allCurrData});
+  saveUserCurrencyPrefs();
+}
+
+function _updateCurrViewBtn(){
+  const btn = byId('curr-view-btn');
+  if(!btn) return;
+  btn.textContent = _currViewMode === 'compact' ? '▭' : '⊞';
+  btn.classList.toggle('active', _currViewMode === 'chart');
+}
+
+function openCurrencyModal(){
+  if(!_allCurrData.length){ loadCurrencies().then(()=>openCurrencyModal()); return; }
+  _currModalSel = (_currPrefs || _CURR_DEFAULT_CODES).slice();
+  addCls('curr-modal-ov', 'on');
+  const srch = byId('curr-modal-srch'); if(srch) srch.value='';
+  renderCurrencyModalList('');
+}
+function hideCurrencyModal(){ rmCls('curr-modal-ov','on'); }
+function renderCurrencyModalList(q){
+  const list = byId('curr-modal-list'); if(!list) return;
+  list.innerHTML='';
+  const ql = (q||'').toLowerCase();
+  (_allCurrData||[])
+    .filter(c=>!ql||c.code.toLowerCase().includes(ql)||c.name.toLowerCase().includes(ql))
+    .forEach(c=>{
+      const sel = (_currModalSel||[]).includes(c.code);
+      const div = document.createElement('div'); div.className='mk-mi'+(sel?' on':'');
+      div.innerHTML=`<div class="mk-mi-ico">${esc(c.symbol)}</div><div class="mk-mi-lbl">${esc(c.code)} — ${esc(c.name)}</div><div class="mk-mi-chk">✓</div>`;
+      div.onclick=()=>{
+        if(!_currModalSel) _currModalSel=[];
+        const i=_currModalSel.indexOf(c.code);
+        i>=0 ? _currModalSel.splice(i,1) : _currModalSel.push(c.code);
+        div.classList.toggle('on', _currModalSel.includes(c.code));
+      };
+      list.appendChild(div);
+    });
+}
+async function saveCurrencyModal(){
+  _currPrefs = (_currModalSel||[]).slice();
+  renderCurrencies({rates:_allCurrData});
+  await saveUserCurrencyPrefs();
+  hideCurrencyModal();
 }
 
 // ── WAREHOUSE ─────────────────────────────────────────────────
@@ -7738,6 +7980,8 @@ async def api_chart(key: str, days: int = 30):
 # ── Currency rates (NBU, 15 min cache) ───────────────────────
 _curr_cache: dict = {"data": None, "ts": 0.0}
 _CURR_TTL = 900
+_curr_chart_cache: dict = {}   # code -> {"data": ..., "ts": float}
+_CURR_CHART_TTL = 3600         # 1 hour
 
 _CURRENCY_META = {
     "USD": ("US Dollar",      "$"),
@@ -7868,6 +8112,106 @@ async def api_set_market_prefs(request: Request):
         raise HTTPException(status_code=500, detail="DB error")
     finally:
         if conn: conn.close()
+
+
+# ─── CURRENCY PREFERENCES ─────────────────────────────────────────────────────
+
+@app.get("/api/webapp/user/currency-prefs")
+async def api_get_currency_prefs(user_id: int):
+    default_codes = list(_CURRENCY_META.keys())
+    conn = None
+    try:
+        conn = get_db_connection()
+        with conn.cursor() as cur:
+            cur.execute("SELECT codes_csv, view_mode FROM user_currency_prefs WHERE user_id=%s", (user_id,))
+            row = cur.fetchone()
+        if row and row[0]:
+            codes = [c for c in row[0].split(",") if c in _CURRENCY_META]
+            return {"ok": True, "selected_codes": codes, "view_mode": row[1] or "compact"}
+        return {"ok": True, "selected_codes": default_codes, "view_mode": "compact", "is_default": True}
+    except Exception as e:
+        logger.error(f"currency-prefs GET error: {e}")
+        return {"ok": True, "selected_codes": default_codes, "view_mode": "compact", "is_default": True}
+    finally:
+        if conn: conn.close()
+
+
+@app.post("/api/webapp/user/currency-prefs")
+async def api_set_currency_prefs(request: Request):
+    body = await request.json()
+    user_id = int(body.get("user_id", 0))
+    codes = [c for c in body.get("selected_codes", []) if c in _CURRENCY_META]
+    view_mode = body.get("view_mode", "compact")
+    if view_mode not in ("compact", "chart"):
+        view_mode = "compact"
+    if not user_id:
+        raise HTTPException(status_code=400, detail="user_id required")
+    conn = None
+    try:
+        conn = get_db_connection()
+        with conn.cursor() as cur:
+            cur.execute(
+                """INSERT INTO user_currency_prefs (user_id, codes_csv, view_mode, updated_at)
+                   VALUES (%s, %s, %s, NOW())
+                   ON CONFLICT (user_id) DO UPDATE
+                   SET codes_csv=EXCLUDED.codes_csv, view_mode=EXCLUDED.view_mode, updated_at=NOW()""",
+                (user_id, ",".join(codes), view_mode)
+            )
+            conn.commit()
+        return {"ok": True}
+    except Exception as e:
+        if conn: conn.rollback()
+        logger.error(f"currency-prefs POST error: {e}")
+        raise HTTPException(status_code=500, detail="DB error")
+    finally:
+        if conn: conn.close()
+
+
+@app.get("/api/webapp/currency-chart/{code}")
+async def api_currency_chart(code: str, days: int = 30):
+    import time as _time
+    import datetime as _dt
+    import asyncio as _asyncio
+    code = code.upper()
+    if code not in _CURRENCY_META:
+        return {"ok": False, "error": "Unknown currency"}
+    now = _time.time()
+    cached = _curr_chart_cache.get(code)
+    if cached and (now - cached["ts"]) < _CURR_CHART_TTL:
+        return cached["data"]
+    name, symbol = _CURRENCY_META[code]
+    today = _dt.date.today()
+    dates: list = []
+    prices: list = []
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            async def _fetch_day(i):
+                d = today - _dt.timedelta(days=i)
+                url = (
+                    f"https://bank.gov.ua/NBUStatService/v1/statdirectory/exchange"
+                    f"?valcode={code}&date={d.strftime('%Y%m%d')}&json"
+                )
+                try:
+                    r = await client.get(url, timeout=5.0)
+                    j = r.json()
+                    if j and isinstance(j, list) and j[0].get("rate"):
+                        return (d.strftime("%d.%m"), round(float(j[0]["rate"]), 4))
+                except Exception:
+                    pass
+                return None
+            results = await _asyncio.gather(*[_fetch_day(i) for i in range(days - 1, -1, -1)])
+            for res in results:
+                if res:
+                    dates.append(res[0])
+                    prices.append(res[1])
+    except Exception as exc:
+        logger.warning(f"currency-chart {code} fetch error: {exc}")
+    if not prices:
+        result = {"ok": False, "code": code, "name": name, "symbol": symbol, "base": "UAH", "dates": [], "prices": []}
+    else:
+        result = {"ok": True, "code": code, "name": name, "symbol": symbol, "base": "UAH", "dates": dates, "prices": prices}
+    _curr_chart_cache[code] = {"data": result, "ts": now}
+    return result
 
 
 # ─── PARCEL & CONTAINER TRACKING ─────────────────────────────────────────────
