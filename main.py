@@ -5190,6 +5190,8 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);fon
   display:flex;flex-direction:column;height:100vh;overflow:hidden;
 }
 #app.on{opacity:1;visibility:visible;pointer-events:auto;}
+body.fullscreen-layout #app{max-width:none;width:100vw}
+.hbtn.active{border-color:var(--green);color:var(--green)}
 
 /* ── CSS-ONLY BOOT FALLBACK (fires even if all JS fails) ── */
 @keyframes forceShowApp{to{opacity:1;visibility:visible;pointer-events:auto}}
@@ -5641,10 +5643,18 @@ nav button.on::after{
 .weather-popular{padding:0 14px 8px;display:flex;flex-wrap:wrap;gap:6px}
 .weather-popular-btn{background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:5px 12px;font-size:12px;color:var(--sub);cursor:pointer;white-space:nowrap;transition:background .15s}
 .weather-popular-btn:active{background:var(--surface2)}
-.weather-globe-card{width:calc(100% - 28px);max-width:680px;aspect-ratio:1/1;margin:0 auto 12px;border-radius:20px;overflow:hidden;border:1px solid var(--border);background:#060e1a;position:relative}
+.weather-globe-card{width:calc(100% - 28px);max-width:680px;aspect-ratio:1/1;margin:0 auto 12px;border-radius:20px;overflow:hidden;border:1px solid var(--border);background:#060e1a;position:relative;min-height:280px}
 html.light .weather-globe-card{background:#c8e0f8}
-#weather-globe{width:100%;height:100%;touch-action:none;display:block}
+#weather-globe{position:absolute;inset:0;width:100%;height:100%;touch-action:none}
 .weather-globe-fallback{padding:40px 20px;text-align:center;color:var(--sub);font-size:13px;display:none}
+.weather-main{display:flex;flex-direction:column}
+.weather-side{}
+@media(min-width:980px){
+  .weather-main{display:grid;grid-template-columns:minmax(0,640px) minmax(280px,1fr);gap:16px;align-items:start;padding-right:14px}
+  .weather-main .weather-globe-card{width:100%;max-width:none;margin:0}
+  .weather-side{display:flex;flex-direction:column;gap:12px}
+  .weather-side .weather-card,.weather-side .weather-forecast-wrap{margin-left:0;margin-right:0}
+}
 .weather-card{margin:0 14px 12px;background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px;display:none}
 .weather-city{font-size:13px;color:var(--sub);font-weight:600;margin-bottom:6px}
 .weather-temp-row{display:flex;align-items:center;gap:10px;margin-bottom:4px}
@@ -5840,6 +5850,9 @@ body.mk-edit .pcard{cursor:default}
   .mk-news-hdr{padding:12px 24px 6px}
   #mk-news{padding:0 24px !important;gap:12px !important;
     display:grid;grid-template-columns:1fr 1fr;align-items:start}
+}
+@media(min-width:1280px){
+  .panel{max-width:1400px;margin-left:auto;margin-right:auto}
 }
 </style>
 </head>
@@ -6111,14 +6124,18 @@ body.mk-edit .pcard{cursor:default}
         <button class="weather-popular-btn" onclick="selectWeatherLocation({name:'London',country:'UK',latitude:51.5074,longitude:-0.1278})">London</button>
         <button class="weather-popular-btn" onclick="selectWeatherLocation({name:'Istanbul',country:'Turkey',latitude:41.0082,longitude:28.9784})">Istanbul</button>
       </div>
-      <div class="weather-globe-card">
-        <div id="weather-globe"></div>
-        <div id="weather-globe-fallback" class="weather-globe-fallback"></div>
-      </div>
-      <div id="weather-card" class="weather-card"></div>
-      <div class="weather-forecast-wrap" id="weather-forecast-wrap">
-        <div class="weather-forecast-title" id="weather-forecast-lbl">Прогноз</div>
-        <div class="weather-forecast" id="weather-forecast"></div>
+      <div class="weather-main">
+        <div class="weather-globe-card">
+          <div id="weather-globe"></div>
+          <div id="weather-globe-fallback" class="weather-globe-fallback"></div>
+        </div>
+        <div class="weather-side">
+          <div id="weather-card" class="weather-card"></div>
+          <div class="weather-forecast-wrap" id="weather-forecast-wrap">
+            <div class="weather-forecast-title" id="weather-forecast-lbl">Прогноз</div>
+            <div class="weather-forecast" id="weather-forecast"></div>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -6159,6 +6176,9 @@ if(tg){
   tg.disableVerticalSwipes?.();
   tg.setHeaderColor?.('secondary_bg_color');
   tg.setBackgroundColor?.(tg.themeParams?.secondary_bg_color||'#1C1C1E');
+  tg.onEvent?.('viewportChanged', () => {
+    setTimeout(handleAppViewportResize, 120);
+  });
 }
 
 // ── Theme — pure black by default ────────────────────────────
@@ -6433,6 +6453,8 @@ let _activeTab = 'news';
 let weatherGlobe = null;
 let weatherGlobeReady = false;
 let weatherGlobeScriptLoaded = false;
+let weatherGlobeLoadFailed = false;
+let weatherGlobeScriptPromise = null;
 let _weatherDefaultLoaded = false;
 let currentWeatherLocation = null;
 let _currentWeatherData = null;
@@ -6522,7 +6544,13 @@ window.addEventListener('unhandledrejection', function(ev){
   console.error('WEBAPP PROMISE ERROR:', ev.reason);
   hideSplash();
 });
-window.addEventListener('resize', () => { resizeWeatherGlobe(); });
+window.addEventListener('resize', () => {
+  clearTimeout(window.__appResizeT);
+  window.__appResizeT = setTimeout(handleAppViewportResize, 120);
+});
+window.addEventListener('orientationchange', () => {
+  setTimeout(handleAppViewportResize, 250);
+});
 
 // ── Boot ──────────────────────────────────────────────────────
 window.addEventListener('load', () => {
@@ -6567,7 +6595,13 @@ function tab(name, btn){
     if(name==='markets' && mkData.length===0) fetchMarkets();
     if(name==='reports' && !document.getElementById('rlist')?.children.length) fetchReports();
     if(name==='tracking'){ trkNav('home'); loadSavedShipments(); }
-    if(name==='weather'){ ensureWeatherLoaded(); setTimeout(resizeWeatherGlobe, 300); }
+    if(name==='weather'){
+      requestAnimationFrame(() => {
+        ensureWeatherLoaded();
+        setTimeout(resizeWeatherGlobe, 100);
+        setTimeout(resizeWeatherGlobe, 400);
+      });
+    }
   } catch(e){
     console.error('tab switch failed', e);
   }
@@ -7243,17 +7277,22 @@ function startPigTypingAnimation(){
 // ── FULLSCREEN ────────────────────────────────────────────────
 async function toggleDesktopFullscreen(){
   try{
+    tg?.expand?.();
     if(document.fullscreenElement){
       await document.exitFullscreen();
+      document.body.classList.remove('fullscreen-layout');
     } else {
-      await (document.documentElement.requestFullscreen?.() ||
-             document.documentElement.webkitRequestFullscreen?.());
-      tg?.expand?.();
+      const root = document.getElementById('app') || document.documentElement;
+      const req = root.requestFullscreen || root.webkitRequestFullscreen || root.msRequestFullscreen;
+      if(req){ await req.call(root); document.body.classList.add('fullscreen-layout'); }
+      else { document.body.classList.toggle('fullscreen-layout'); }
     }
   } catch(e){
     document.body.classList.toggle('fullscreen-layout');
   }
   updateFullscreenButtonState();
+  setTimeout(handleAppViewportResize, 120);
+  setTimeout(handleAppViewportResize, 450);
 }
 function updateFullscreenButtonState(){
   const btn = document.getElementById('fsbtn');
@@ -7263,37 +7302,60 @@ function updateFullscreenButtonState(){
   btn.title = isFs ? (UI[lang].exitFullscreen||'Exit fullscreen') : (UI[lang].fullscreen||'Fullscreen');
   btn.textContent = isFs ? '⛶' : '⛶';
 }
-document.addEventListener('fullscreenchange', updateFullscreenButtonState);
+document.addEventListener('fullscreenchange', () => {
+  updateFullscreenButtonState();
+  setTimeout(handleAppViewportResize, 120);
+  setTimeout(handleAppViewportResize, 450);
+});
 
 // ── WEATHER ───────────────────────────────────────────────────
+function loadGlobeGLScript(){
+  if(weatherGlobeScriptPromise) return weatherGlobeScriptPromise;
+  if(window.Globe){ weatherGlobeScriptPromise = Promise.resolve(); return weatherGlobeScriptPromise; }
+  weatherGlobeScriptPromise = new Promise((resolve, reject) => {
+    function tryLoad(src, fallback){
+      const s = document.createElement('script');
+      s.src = src;
+      s.onload = () => resolve();
+      s.onerror = () => {
+        if(fallback){ tryLoad(fallback, null); }
+        else{ weatherGlobeLoadFailed = true; reject(new Error('Globe.GL load failed')); }
+      };
+      document.head.appendChild(s);
+    }
+    tryLoad('https://cdn.jsdelivr.net/npm/globe.gl/dist/globe.gl.min.js',
+            'https://unpkg.com/globe.gl/dist/globe.gl.min.js');
+  });
+  return weatherGlobeScriptPromise;
+}
+
 function ensureWeatherLoaded(){
-  if(!weatherGlobeScriptLoaded){
-    weatherGlobeScriptLoaded = true;
-    const s = document.createElement('script');
-    s.src = 'https://unpkg.com/globe.gl';
-    s.onload = () => initWeatherGlobe();
-    s.onerror = () => showWeatherGlobeFallback();
-    document.head.appendChild(s);
-  } else if(window.Globe && !weatherGlobe){
-    initWeatherGlobe();
-  }
   if(!_weatherDefaultLoaded){
     _weatherDefaultLoaded = true;
     selectWeatherLocation({name:'Kharkiv',country:'Ukraine',latitude:49.9808,longitude:36.2527});
   }
-  setTimeout(resizeWeatherGlobe, 200);
+  loadGlobeGLScript().then(() => {
+    requestAnimationFrame(() => { initWeatherGlobe(); });
+  }).catch(() => { showWeatherGlobeFallback(); });
+  setTimeout(resizeWeatherGlobe, 150);
+  setTimeout(resizeWeatherGlobe, 500);
 }
 
 function initWeatherGlobe(){
-  if(weatherGlobe) return;
-  const container = document.getElementById('weather-globe');
-  if(!container || !window.Globe){ showWeatherGlobeFallback(); return; }
+  if(weatherGlobe){ resizeWeatherGlobe(); return; }
+  const globeEl = document.getElementById('weather-globe');
+  const card = globeEl?.closest('.weather-globe-card');
+  if(!globeEl || !card || !window.Globe){ showWeatherGlobeFallback(); return; }
   try{
-    const canvas = document.createElement('canvas');
-    const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+    const testCanvas = document.createElement('canvas');
+    const gl = testCanvas.getContext('webgl') || testCanvas.getContext('experimental-webgl');
     if(!gl){ showWeatherGlobeFallback(); return; }
   } catch(e){ showWeatherGlobeFallback(); return; }
   try{
+    const rect = card.getBoundingClientRect();
+    let size = Math.floor(rect.width || 340);
+    if(size < 200) size = 340;
+    card.style.height = size + 'px';
     const isLight = document.documentElement.classList.contains('light');
     const texUrl = isLight
       ? '//unpkg.com/three-globe/example/img/earth-blue-marble.jpg'
@@ -7301,22 +7363,25 @@ function initWeatherGlobe(){
     weatherGlobe = Globe({animateIn:true})
       .globeImageUrl(texUrl)
       .backgroundColor('rgba(0,0,0,0)')
-      .width(container.clientWidth || 360)
-      .height(container.clientHeight || 300)
+      .width(size)
+      .height(size)
       .pointsData(WEATHER_CITIES)
       .pointLat('lat').pointLng('lng')
       .pointColor(d => d.ua ? '#FBBF24' : '#22C55E')
       .pointAltitude(0.015).pointRadius(0.4)
       .pointLabel(d => '<div style="background:rgba(0,0,0,.75);padding:4px 8px;border-radius:6px;font-size:12px;color:#fff;pointer-events:none">'+d.name+', '+d.country+'</div>')
       .onPointClick(d => selectWeatherLocation({name:d.name,country:d.country,latitude:d.lat,longitude:d.lng}))
-      (container);
+      (globeEl);
     weatherGlobe.controls().autoRotate = true;
     weatherGlobe.controls().autoRotateSpeed = 0.5;
     weatherGlobe.controls().enableZoom = true;
-    container.addEventListener('pointerdown', () => {
+    globeEl.addEventListener('pointerdown', () => {
       if(weatherGlobe) weatherGlobe.controls().autoRotate = false;
     }, {passive:true});
     weatherGlobeReady = true;
+    setTimeout(resizeWeatherGlobe, 80);
+    setTimeout(resizeWeatherGlobe, 350);
+    observeWeatherGlobeResize();
   } catch(e){
     console.error('Globe init failed', e);
     showWeatherGlobeFallback();
@@ -7335,13 +7400,27 @@ function showWeatherGlobeFallback(){
 
 function resizeWeatherGlobe(){
   if(!weatherGlobe || !weatherGlobeReady) return;
-  const container = document.getElementById('weather-globe');
-  if(!container) return;
+  const globeEl = document.getElementById('weather-globe');
+  const card = globeEl?.closest('.weather-globe-card');
+  if(!globeEl || !card) return;
   try{
-    const box = container.getBoundingClientRect();
-    const size = Math.max(box.width || 300, box.height || 300);
+    const rect = card.getBoundingClientRect();
+    let size = Math.floor(rect.width || globeEl.clientWidth || 320);
+    if(size < 200) size = 320;
+    card.style.height = size + 'px';
     weatherGlobe.width(size).height(size);
-  } catch(e){}
+  } catch(e){ console.warn('resizeWeatherGlobe failed', e); }
+}
+
+function handleAppViewportResize(){
+  resizeWeatherGlobe();
+}
+
+function observeWeatherGlobeResize(){
+  const card = document.querySelector('.weather-globe-card');
+  if(!card || !window.ResizeObserver || window.__weatherResObs) return;
+  window.__weatherResObs = new ResizeObserver(() => { resizeWeatherGlobe(); });
+  window.__weatherResObs.observe(card);
 }
 
 function flyToWeatherLocation(lat, lon, altitude){
