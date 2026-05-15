@@ -5627,14 +5627,22 @@ nav button.on::after{
 .wh-det-row{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:11px 13px;margin-bottom:8px}
 .wh-det-lbl{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:1px;color:var(--sub);margin-bottom:4px}
 .wh-det-val{font-size:13px;color:var(--text);line-height:1.5}
+/* ── MARKETS header ── */
+.mk-head{display:flex;align-items:center;justify-content:space-between;padding:10px 14px 6px}
+.mk-head-title{font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--sub);white-space:nowrap}
+.mk-head-actions{display:flex;gap:6px}
+.mk-icon-btn{background:var(--surface);border:1px solid var(--border);border-radius:9px;width:32px;height:32px;padding:0;font-size:15px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background .15s,border-color .15s;color:var(--text);flex-shrink:0}
+.mk-icon-btn:active{background:var(--surface2)}
+.mk-icon-btn.active{border-color:var(--text);color:var(--text);background:var(--surface2)}
 /* ── MARKETS edit mode ── */
-.mk-toolbar{display:flex;justify-content:flex-end;gap:8px;padding:10px 14px 2px}
-.mk-tool-btn{background:none;border:1px solid var(--border);color:var(--sub);font-size:13px;font-weight:600;padding:5px 10px;border-radius:20px;cursor:pointer;line-height:1.4;transition:border-color .15s,color .15s}
-.mk-tool-btn:active,.mk-tool-btn.mk-active{border-color:var(--text);color:var(--text)}
 .pcard{position:relative}
 .pcard-del{display:none;position:absolute;top:5px;right:5px;width:20px;height:20px;background:var(--red);color:#fff;border:none;border-radius:50%;font-size:11px;line-height:1;cursor:pointer;align-items:center;justify-content:center;z-index:2}
 body.mk-edit .pcard-del{display:flex}
 body.mk-edit .pcard{cursor:default}
+/* ── DRAG & DROP ── */
+.pcard.editable{cursor:grab;touch-action:none}
+.pcard.dragging{opacity:.65;transform:scale(.98);cursor:grabbing}
+.pcard.drag-over{border-color:var(--sub)}
 /* ── CHART ADD MODAL ── */
 .mk-modal-ov{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:200;display:none;align-items:flex-end}
 .mk-modal-ov.on{display:flex}
@@ -5873,12 +5881,14 @@ body.mk-edit .pcard{cursor:default}
     <!-- MARKETS -->
     <div id="pmarkets" class="panel">
       <div id="mk-grid-wrap">
-        <div class="mk-toolbar">
-          <button class="mk-tool-btn" id="mk-edit-btn" onclick="toggleMkEdit()">✎</button>
-          <button class="mk-tool-btn" id="mk-add-btn" onclick="openMkAddModal()">＋</button>
+        <div class="mk-head">
+          <span class="mk-head-title" id="h-prices">📊 Ціни зараз</span>
+          <div class="mk-head-actions">
+            <button class="mk-icon-btn" id="mk-edit-btn" onclick="toggleMkEdit()" title="Змінити порядок">⇅</button>
+            <button class="mk-icon-btn" id="mk-add-btn" onclick="openMkAddModal()" title="Додати графік">＋</button>
+          </div>
         </div>
-        <div class="msec">
-          <div class="msec-hdr" id="h-prices">📊 ЦІНИ ЗАРАЗ</div>
+        <div class="msec" style="padding-top:0">
           <div class="pgrid" id="mk-grid"></div>
         </div>
       </div>
@@ -6036,7 +6046,13 @@ body.mk-edit .pcard{cursor:default}
 <script>
 // ── Telegram ──────────────────────────────────────────────────
 const tg = window.Telegram?.WebApp;
-if(tg){tg.ready();tg.expand();}
+if(tg){
+  tg.ready();
+  tg.expand();
+  tg.disableVerticalSwipes?.();
+  tg.setHeaderColor?.('secondary_bg_color');
+  tg.setBackgroundColor?.(tg.themeParams?.secondary_bg_color||'#1C1C1E');
+}
 
 // ── Theme — pure black by default ────────────────────────────
 let light = false;
@@ -6112,6 +6128,7 @@ const UI = {
     trkNow:'щойно', trkMin:'хв', trkHour:'год',
     trkMaxRetriesHint:'Дані ще не надійшли від перевізника. Збережіть відправлення — перевіримо автоматично через 3 години.',
     trkCarNova:'📦 Нова Пошта', trkCarEms:'📮 EMS / Укрпошта',
+    marketsNow:'📊 Ціни зараз', editOrder:'Змінити порядок', addChart:'Додати графік',
   },
   ru:{
     loadMore:'Загрузить ещё', noNews:'Новостей пока нет', loadError:'Ошибка загрузки',
@@ -6143,6 +6160,7 @@ const UI = {
     trkNow:'только что', trkMin:'мин', trkHour:'ч',
     trkMaxRetriesHint:'Данные ещё не поступили от перевозчика. Сохраните отправление — проверим автоматически через 3 часа.',
     trkCarNova:'📦 Нова Пошта', trkCarEms:'📮 EMS / Укрпошта',
+    marketsNow:'📊 Цены сейчас', editOrder:'Изменить порядок', addChart:'Добавить график',
   },
   en:{
     loadMore:'Load more', noNews:'No news yet', loadError:'Loading error',
@@ -6174,6 +6192,7 @@ const UI = {
     trkNow:'just now', trkMin:'min', trkHour:'hr',
     trkMaxRetriesHint:'Data not yet available from carrier. Save this shipment — we will check automatically every 3 hours.',
     trkCarNova:'📦 Nova Poshta', trkCarEms:'📮 EMS / Ukrposhta',
+    marketsNow:'📊 Prices now', editOrder:'Edit order', addChart:'Add chart',
   },
 };
 
@@ -6192,7 +6211,11 @@ function updateStaticText(){
   setText('nav-markets',   u.markets);
   setText('nav-tracking',  u.tracking);
   const hPrices = document.getElementById('h-prices');
-  if(hPrices) hPrices.textContent = u.pricesNow;
+  if(hPrices) hPrices.textContent = u.marketsNow;
+  const mkEditBtn = document.getElementById('mk-edit-btn');
+  if(mkEditBtn) mkEditBtn.title = u.editOrder;
+  const mkAddBtn = document.getElementById('mk-add-btn');
+  if(mkAddBtn) mkAddBtn.title = u.addChart;
   const mkNewsHdr = document.getElementById('mk-news-hdr');
   if(mkNewsHdr) mkNewsHdr.textContent = u.relNews;
   const backLbl = document.getElementById('back-lbl');
@@ -6481,7 +6504,7 @@ async function fetchMarkets(){
     const r = await fetch('/api/webapp/markets');
     _allMkData = await r.json();
     const vis = (_mkPrefs && _mkPrefs.length) ? _mkPrefs : _MK_DEFAULT_KEYS;
-    mkData = _allMkData.filter(m => vis.includes(m.key));
+    mkData = vis.map(key => _allMkData.find(m => m.key === key)).filter(Boolean);
     renderGrid(mkData);
   } catch {
     if(grid) grid.innerHTML=`<div class="empty" style="grid-column:span 2"><div class="ei">⚠️</div><p>${u.loadError}</p></div>`;
@@ -6493,8 +6516,10 @@ function renderGrid(data){
   data.forEach(m => {
     const pct = m.change_pct, sign = pct>=0?'+':'';
     const cls = Math.abs(pct)<0.05?'fl':pct>=0?'up':'dn';
-    const card = document.createElement('div'); card.className='pcard';
-    card.innerHTML=
+    const card = document.createElement('div');
+    card.className = 'pcard' + (_mkEditMode ? ' editable' : '');
+    card.dataset.key = m.key;
+    card.innerHTML =
       `<button class="pcard-del" onclick="removeMkChart(event,'${m.key.replace(/'/g,"\\'")}')" title="Видалити">✕</button>
        <div class="pcico">${m.emoji}</div>
        <div class="pclbl">${esc(m.label)}</div>
@@ -6503,6 +6528,7 @@ function renderGrid(data){
     card.onclick = () => { if(!_mkEditMode) openMkDetail(m); };
     grid.appendChild(card);
   });
+  _initMkDrag(grid);
 }
 
 async function openMkDetail(m){
@@ -6699,15 +6725,64 @@ function toggleMkEdit(){
   _mkEditMode = !_mkEditMode;
   document.body.classList.toggle('mk-edit',_mkEditMode);
   const btn=document.getElementById('mk-edit-btn');
-  if(btn) btn.classList.toggle('mk-active',_mkEditMode);
+  if(btn) btn.classList.toggle('active',_mkEditMode);
+  document.querySelectorAll('#mk-grid .pcard').forEach(c=>c.classList.toggle('editable',_mkEditMode));
 }
 function removeMkChart(ev, key){
   ev.stopPropagation();
   if(!_mkPrefs) return;
   _mkPrefs = _mkPrefs.filter(k=>k!==key);
-  mkData   = mkData.filter(m=>m.key!==key);
+  mkData   = _mkPrefs.map(k=>_allMkData.find(m=>m.key===k)).filter(Boolean);
   renderGrid(mkData);
   saveUserMkPrefs();
+}
+// ── Drag-and-drop reorder ──
+let _mkDragState = null;
+function _initMkDrag(grid){
+  if(grid._mkDragInited) return;
+  grid._mkDragInited = true;
+  grid.addEventListener('pointerdown',  _mkOnPD, {passive:true});
+  grid.addEventListener('pointermove',  _mkOnPM, {passive:true});
+  grid.addEventListener('pointerup',    _mkOnPU, {passive:true});
+  grid.addEventListener('pointercancel',_mkOnPC, {passive:true});
+}
+function _mkOnPD(e){
+  if(!_mkEditMode) return;
+  const card = e.target.closest('.pcard');
+  if(!card || e.target.closest('.pcard-del')) return;
+  e.currentTarget.setPointerCapture(e.pointerId);
+  _mkDragState = {grid:e.currentTarget, from:card, over:null, moved:false, sx:e.clientX, sy:e.clientY};
+}
+function _mkOnPM(e){
+  const s = _mkDragState; if(!s) return;
+  if(!s.moved && Math.hypot(e.clientX-s.sx, e.clientY-s.sy)<8) return;
+  s.moved = true;
+  s.from.classList.add('dragging');
+  const el = document.elementFromPoint(e.clientX, e.clientY);
+  const target = el?.closest('.pcard[data-key]');
+  if(s.over) s.over.classList.remove('drag-over');
+  s.over = (target && target !== s.from) ? target : null;
+  if(s.over) s.over.classList.add('drag-over');
+}
+function _mkOnPU(e){
+  const s = _mkDragState; if(!s) return;
+  s.from.classList.remove('dragging');
+  if(s.over) s.over.classList.remove('drag-over');
+  if(s.moved && s.over){
+    const fk=s.from.dataset.key, tk=s.over.dataset.key;
+    const fi=_mkPrefs.indexOf(fk), ti=_mkPrefs.indexOf(tk);
+    if(fi>=0 && ti>=0){ _mkPrefs.splice(fi,1); _mkPrefs.splice(ti,0,fk); }
+    mkData = _mkPrefs.map(k=>_allMkData.find(m=>m.key===k)).filter(Boolean);
+    renderGrid(mkData);
+    saveUserMkPrefs();
+  }
+  _mkDragState = null;
+}
+function _mkOnPC(e){
+  const s = _mkDragState; if(!s) return;
+  s.from.classList.remove('dragging');
+  if(s.over) s.over.classList.remove('drag-over');
+  _mkDragState = null;
 }
 function openMkAddModal(){
   if(!_allMkData.length){ fetchMarkets().then(openMkAddModal); return; }
@@ -6739,7 +6814,7 @@ function renderMkModalList(q){
 }
 async function saveMkModal(){
   _mkPrefs = (_mkModalSel||[]).slice();
-  mkData = _allMkData.filter(m=>_mkPrefs.includes(m.key));
+  mkData = _mkPrefs.map(key=>_allMkData.find(m=>m.key===key)).filter(Boolean);
   renderGrid(mkData);
   await saveUserMkPrefs();
   hideMkAddModal();
