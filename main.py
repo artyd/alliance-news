@@ -5641,9 +5641,9 @@ nav button.on::after{
 .weather-popular{padding:0 14px 8px;display:flex;flex-wrap:wrap;gap:6px}
 .weather-popular-btn{background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:5px 12px;font-size:12px;color:var(--sub);cursor:pointer;white-space:nowrap;transition:background .15s}
 .weather-popular-btn:active{background:var(--surface2)}
-.weather-globe-card{margin:0 14px 12px;border-radius:14px;overflow:hidden;border:1px solid var(--border);background:#060e1a;position:relative;min-height:100px}
+.weather-globe-card{width:calc(100% - 28px);max-width:680px;aspect-ratio:1/1;margin:0 auto 12px;border-radius:20px;overflow:hidden;border:1px solid var(--border);background:#060e1a;position:relative}
 html.light .weather-globe-card{background:#c8e0f8}
-#weather-globe{width:100%;height:clamp(280px,48vh,500px);touch-action:none;display:block}
+#weather-globe{width:100%;height:100%;touch-action:none;display:block}
 .weather-globe-fallback{padding:40px 20px;text-align:center;color:var(--sub);font-size:13px;display:none}
 .weather-card{margin:0 14px 12px;background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px;display:none}
 .weather-city{font-size:13px;color:var(--sub);font-weight:600;margin-bottom:6px}
@@ -5667,6 +5667,14 @@ html.light .weather-globe-card{background:#c8e0f8}
 .weather-day-max{font-size:13px;font-weight:700;color:var(--text)}
 .weather-day-min{font-size:11px;color:var(--sub)}
 .weather-loading{padding:40px 14px;text-align:center;color:var(--sub);font-size:14px}
+#pig-overlay{position:fixed;inset:0;z-index:500;display:none;flex-direction:column;align-items:center;justify-content:center;background:rgba(0,0,0,.88)}
+#pig-overlay.on{display:flex}
+html.light #pig-overlay{background:rgba(240,240,240,.95)}
+.pig-emoji{font-size:80px;margin-bottom:16px;animation:pig-bounce 1s infinite alternate}
+@keyframes pig-bounce{from{transform:scale(1)}to{transform:scale(1.1)}}
+.pig-text{font-size:22px;font-weight:800;color:#FF69B4;letter-spacing:2px;min-height:32px}
+.pig-close{position:absolute;top:20px;right:20px;background:none;border:1px solid rgba(255,255,255,.3);color:#fff;font-size:24px;width:40px;height:40px;border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1}
+html.light .pig-close{border-color:rgba(0,0,0,.2);color:#333}
 
 /* ── CURRENCY & WAREHOUSE sub-panels (Add tab) ── */
 .add-subpanel{display:none;flex-direction:column}
@@ -5727,7 +5735,7 @@ body.mk-edit .pcard{cursor:default}
 .pcard.dragging{opacity:.65;transform:scale(.98);cursor:grabbing}
 .pcard.drag-over{border-color:var(--sub)}
 /* ── CHART ADD MODAL ── */
-.mk-modal-ov{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:200;display:none;align-items:flex-end}
+.mk-modal-ov{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:400;display:none;align-items:flex-end}
 .mk-modal-ov.on{display:flex}
 .mk-modal{background:var(--bg);border-radius:20px 20px 0 0;width:100%;max-height:80vh;display:flex;flex-direction:column;padding-bottom:max(16px,env(safe-area-inset-bottom))}
 .mk-modal-top{display:flex;align-items:center;justify-content:space-between;padding:16px 16px 10px;border-bottom:1px solid var(--border);flex-shrink:0}
@@ -5742,7 +5750,7 @@ body.mk-edit .pcard{cursor:default}
 .mk-mi-lbl{font-size:13px;font-weight:600;flex:1}
 .mk-mi-chk{font-size:16px;color:var(--green);display:none}
 .mk-mi.on .mk-mi-chk{display:block}
-.mk-modal-footer{padding:10px 14px;border-top:1px solid var(--border);flex-shrink:0}
+.mk-modal-footer{padding:12px 14px;padding-bottom:max(16px,calc(env(safe-area-inset-bottom) + 12px));border-top:1px solid var(--border);flex-shrink:0;background:var(--bg)}
 .mk-modal-save{width:100%;background:var(--green);color:#fff;border:none;border-radius:var(--r);padding:13px;font-size:14px;font-weight:700;cursor:pointer}
 
 /* ── DESKTOP LAYOUT (≥ 768 px) ─────────────────────────────────────────────── */
@@ -5870,6 +5878,7 @@ body.mk-edit .pcard{cursor:default}
     <div class="htitle">Новинний Дайджест</div>
     <button class="hbtn" id="lbtn" onclick="cycleLang()" title="Мова / Language">🇺🇦</button>
     <button class="hbtn" id="tbtn" onclick="toggleTheme()">☀️</button>
+    <button class="hbtn" id="fsbtn" onclick="toggleDesktopFullscreen()" title="Fullscreen">⛶</button>
   </header>
 
   <div id="content">
@@ -6135,6 +6144,12 @@ body.mk-edit .pcard{cursor:default}
 
 </div>
 
+<div id="pig-overlay">
+  <button class="pig-close" onclick="closePigOverlay()">×</button>
+  <div class="pig-emoji">🐷</div>
+  <div class="pig-text" id="pig-text"></div>
+</div>
+
 <script>
 // ── Telegram ──────────────────────────────────────────────────
 const tg = window.Telegram?.WebApp;
@@ -6223,7 +6238,7 @@ const UI = {
     marketsNow:'📊 Ціни зараз', editOrder:'Змінити порядок', addChart:'Додати графік',
     currenciesTitle:'Курси валют', editCurrencies:'Редагувати валюти', toggleCurrencyView:'Змінити вигляд', addCurrency:'Додати валюту', chartUnavailable:'Графік недоступний',
     myWidgets:'Мої віджети', widgetManagerSub:'Обери, що показувати в нижній панелі', activeWidget:'✓ Активний', inactiveWidget:'Неактивний', maxWidgets:'Можна обрати максимум 4 віджети', addTab:'Додати', warehouse:'Склад', analytics:'Аналітика', weather:'Погода', soon:'Незабаром',
-    weatherTab:'Погода', weatherTitle:'Погода', weatherSubtitle:'3D-глобус і погода по містах', weatherSearchPlaceholder:'Пошук міста...', weatherSearch:'Пошук', weatherLoading:'Завантаження погоди...', weatherUnavailable:'Погода недоступна', globeUnavailable:'3D-глобус недоступний. Скористайтесь пошуком міста.', feelsLike:'Відчувається як', humidity:'Вологість', wind:'Вітер', clouds:'Хмарність', pressure:'Тиск', precipitation:'Опади', forecast:'Прогноз', source:'Джерело', cityNotFound:'Місто не знайдено',
+    weatherTab:'Погода', weatherTitle:'Погода', weatherSubtitle:'3D-глобус і погода по містах', weatherSearchPlaceholder:'Пошук міста...', weatherSearch:'Пошук', weatherLoading:'Завантаження погоди...', weatherUnavailable:'Погода недоступна', globeUnavailable:'3D-глобус недоступний. Скористайтесь пошуком міста.', feelsLike:'Відчувається як', humidity:'Вологість', wind:'Вітер', clouds:'Хмарність', pressure:'Тиск', precipitation:'Опади', forecast:'Прогноз', source:'Джерело', cityNotFound:'Місто не знайдено', fullscreen:'На весь екран', exitFullscreen:'Вийти з повного екрана', fullscreenUnavailable:'Повноекранний режим недоступний', popularCities:'Популярні міста', searchTryAgain:'Спробуйте іншу назву міста',
   },
   ru:{
     loadMore:'Загрузить ещё', noNews:'Новостей пока нет', loadError:'Ошибка загрузки',
@@ -6258,7 +6273,7 @@ const UI = {
     marketsNow:'📊 Цены сейчас', editOrder:'Изменить порядок', addChart:'Добавить график',
     currenciesTitle:'Курсы валют', editCurrencies:'Редактировать валюты', toggleCurrencyView:'Изменить вид', addCurrency:'Добавить валюту', chartUnavailable:'График недоступен',
     myWidgets:'Мои виджеты', widgetManagerSub:'Выбери, что показывать в нижней панели', activeWidget:'✓ Активный', inactiveWidget:'Неактивный', maxWidgets:'Можно выбрать максимум 4 виджета', addTab:'Добавить', warehouse:'Склад', analytics:'Аналитика', weather:'Погода', soon:'Скоро',
-    weatherTab:'Погода', weatherTitle:'Погода', weatherSubtitle:'3D-глобус и погода по городам', weatherSearchPlaceholder:'Поиск города...', weatherSearch:'Поиск', weatherLoading:'Загрузка погоды...', weatherUnavailable:'Погода недоступна', globeUnavailable:'3D-глобус недоступен. Используйте поиск города.', feelsLike:'Ощущается как', humidity:'Влажность', wind:'Ветер', clouds:'Облачность', pressure:'Давление', precipitation:'Осадки', forecast:'Прогноз', source:'Источник', cityNotFound:'Город не найден',
+    weatherTab:'Погода', weatherTitle:'Погода', weatherSubtitle:'3D-глобус и погода по городам', weatherSearchPlaceholder:'Поиск города...', weatherSearch:'Поиск', weatherLoading:'Загрузка погоды...', weatherUnavailable:'Погода недоступна', globeUnavailable:'3D-глобус недоступен. Используйте поиск города.', feelsLike:'Ощущается как', humidity:'Влажность', wind:'Ветер', clouds:'Облачность', pressure:'Давление', precipitation:'Осадки', forecast:'Прогноз', source:'Источник', cityNotFound:'Город не найден', fullscreen:'На весь экран', exitFullscreen:'Выйти из полного экрана', fullscreenUnavailable:'Полноэкранный режим недоступен', popularCities:'Популярные города', searchTryAgain:'Попробуйте другое название города',
   },
   en:{
     loadMore:'Load more', noNews:'No news yet', loadError:'Loading error',
@@ -6293,7 +6308,7 @@ const UI = {
     marketsNow:'📊 Prices now', editOrder:'Edit order', addChart:'Add chart',
     currenciesTitle:'Exchange rates', editCurrencies:'Edit currencies', toggleCurrencyView:'Change view', addCurrency:'Add currency', chartUnavailable:'Chart unavailable',
     myWidgets:'My widgets', widgetManagerSub:'Choose what appears in the bottom bar', activeWidget:'✓ Active', inactiveWidget:'Inactive', maxWidgets:'You can select up to 4 widgets', addTab:'Add', warehouse:'Warehouse', analytics:'Analytics', weather:'Weather', soon:'Coming soon',
-    weatherTab:'Weather', weatherTitle:'Weather', weatherSubtitle:'3D globe and city weather', weatherSearchPlaceholder:'Search city...', weatherSearch:'Search', weatherLoading:'Loading weather...', weatherUnavailable:'Weather unavailable', globeUnavailable:'3D globe unavailable. Use city search instead.', feelsLike:'Feels like', humidity:'Humidity', wind:'Wind', clouds:'Clouds', pressure:'Pressure', precipitation:'Precipitation', forecast:'Forecast', source:'Source', cityNotFound:'City not found',
+    weatherTab:'Weather', weatherTitle:'Weather', weatherSubtitle:'3D globe and city weather', weatherSearchPlaceholder:'Search city...', weatherSearch:'Search', weatherLoading:'Loading weather...', weatherUnavailable:'Weather unavailable', globeUnavailable:'3D globe unavailable. Use city search instead.', feelsLike:'Feels like', humidity:'Humidity', wind:'Wind', clouds:'Clouds', pressure:'Pressure', precipitation:'Precipitation', forecast:'Forecast', source:'Source', cityNotFound:'City not found', fullscreen:'Fullscreen', exitFullscreen:'Exit fullscreen', fullscreenUnavailable:'Fullscreen unavailable', popularCities:'Popular cities', searchTryAgain:'Try another city name',
   },
 };
 
@@ -6368,6 +6383,7 @@ function updateStaticText(){
   const wFcl = byId('weather-forecast-lbl'); if(wFcl) wFcl.textContent = u.forecast||'Forecast';
   const wInp = byId('weather-input'); if(wInp) wInp.placeholder = u.weatherSearchPlaceholder||'Search city...';
   if(_currentWeatherData){ renderWeatherCard(_currentWeatherData); if(_currentWeatherData.daily) renderWeatherForecast(_currentWeatherData.daily); }
+  updateFullscreenButtonState();
 }
 
 // ── Category config ───────────────────────────────────────────
@@ -6423,17 +6439,68 @@ let _currentWeatherData = null;
 let _weatherCache = {};
 let _weatherSearchItems = [];
 const WEATHER_CITIES = [
-  {name:'Kharkiv',  country:'Ukraine', lat:49.9808, lng:36.2527},
-  {name:'Kyiv',     country:'Ukraine', lat:50.4501, lng:30.5234},
-  {name:'Warsaw',   country:'Poland',  lat:52.2297, lng:21.0122},
-  {name:'London',   country:'UK',      lat:51.5074, lng:-0.1278},
-  {name:'Berlin',   country:'Germany', lat:52.5200, lng:13.4050},
-  {name:'Paris',    country:'France',  lat:48.8566, lng:2.3522},
-  {name:'Istanbul', country:'Turkey',  lat:41.0082, lng:28.9784},
-  {name:'New York', country:'USA',     lat:40.7128, lng:-74.0060},
-  {name:'Tokyo',    country:'Japan',   lat:35.6762, lng:139.6503},
-  {name:'Beijing',  country:'China',   lat:39.9042, lng:116.4074},
-  {name:'Dubai',    country:'UAE',     lat:25.2048, lng:55.2708},
+  {name:'Kyiv',           country:'Ukraine',       lat:50.4501, lng:30.5234, ua:true},
+  {name:'Kharkiv',        country:'Ukraine',       lat:49.9808, lng:36.2527, ua:true},
+  {name:'Odesa',          country:'Ukraine',       lat:46.4774, lng:30.7326, ua:true},
+  {name:'Dnipro',         country:'Ukraine',       lat:48.4647, lng:35.0462, ua:true},
+  {name:'Zaporizhzhia',   country:'Ukraine',       lat:47.8388, lng:35.1396, ua:true},
+  {name:'Lviv',           country:'Ukraine',       lat:49.8397, lng:24.0297, ua:true},
+  {name:'Mykolaiv',       country:'Ukraine',       lat:46.9750, lng:31.9946, ua:true},
+  {name:'Vinnytsia',      country:'Ukraine',       lat:49.2330, lng:28.4682, ua:true},
+  {name:'Kherson',        country:'Ukraine',       lat:46.6354, lng:32.6169, ua:true},
+  {name:'Poltava',        country:'Ukraine',       lat:49.5883, lng:34.5514, ua:true},
+  {name:'Chernihiv',      country:'Ukraine',       lat:51.4982, lng:31.2893, ua:true},
+  {name:'Cherkasy',       country:'Ukraine',       lat:49.4444, lng:32.0598, ua:true},
+  {name:'Sumy',           country:'Ukraine',       lat:50.9077, lng:34.7981, ua:true},
+  {name:'Rivne',          country:'Ukraine',       lat:50.6199, lng:26.2516, ua:true},
+  {name:'Ivano-Frankivsk',country:'Ukraine',       lat:48.9226, lng:24.7111, ua:true},
+  {name:'Lutsk',          country:'Ukraine',       lat:50.7597, lng:25.3423, ua:true},
+  {name:'Uzhhorod',       country:'Ukraine',       lat:48.6208, lng:22.2879, ua:true},
+  {name:'Chernivtsi',     country:'Ukraine',       lat:48.2916, lng:25.9352, ua:true},
+  {name:'Khmelnytskyi',   country:'Ukraine',       lat:49.4229, lng:26.9966, ua:true},
+  {name:'Kremenchuk',     country:'Ukraine',       lat:49.0663, lng:33.4199, ua:true},
+  {name:'Sloviansk',      country:'Ukraine',       lat:48.8662, lng:37.6143, ua:true},
+  {name:'Kramatorsk',     country:'Ukraine',       lat:48.7244, lng:37.5593, ua:true},
+  {name:'Melitopol',      country:'Ukraine',       lat:46.8497, lng:35.3683, ua:true},
+  {name:'Brovary',        country:'Ukraine',       lat:50.5122, lng:30.7889, ua:true},
+  {name:'Bucha',          country:'Ukraine',       lat:50.5491, lng:30.2249, ua:true},
+  {name:'Drohobych',      country:'Ukraine',       lat:49.3506, lng:23.5020, ua:true},
+  {name:'London',         country:'UK',            lat:51.5074, lng:-0.1278},
+  {name:'Paris',          country:'France',        lat:48.8566, lng:2.3522},
+  {name:'Berlin',         country:'Germany',       lat:52.5200, lng:13.4050},
+  {name:'Warsaw',         country:'Poland',        lat:52.2297, lng:21.0122},
+  {name:'Washington',     country:'USA',           lat:38.9072, lng:-77.0369},
+  {name:'New York',       country:'USA',           lat:40.7128, lng:-74.0060},
+  {name:'Tokyo',          country:'Japan',         lat:35.6762, lng:139.6503},
+  {name:'Beijing',        country:'China',         lat:39.9042, lng:116.4074},
+  {name:'Rome',           country:'Italy',         lat:41.9028, lng:12.4964},
+  {name:'Madrid',         country:'Spain',         lat:40.4168, lng:-3.7038},
+  {name:'Lisbon',         country:'Portugal',      lat:38.7223, lng:-9.1393},
+  {name:'Prague',         country:'Czech Republic',lat:50.0755, lng:14.4378},
+  {name:'Vienna',         country:'Austria',       lat:48.2082, lng:16.3738},
+  {name:'Budapest',       country:'Hungary',       lat:47.4979, lng:19.0402},
+  {name:'Bucharest',      country:'Romania',       lat:44.4268, lng:26.1025},
+  {name:'Istanbul',       country:'Turkey',        lat:41.0082, lng:28.9784},
+  {name:'Athens',         country:'Greece',        lat:37.9838, lng:23.7275},
+  {name:'Stockholm',      country:'Sweden',        lat:59.3293, lng:18.0686},
+  {name:'Oslo',           country:'Norway',        lat:59.9139, lng:10.7522},
+  {name:'Helsinki',       country:'Finland',       lat:60.1699, lng:24.9384},
+  {name:'Copenhagen',     country:'Denmark',       lat:55.6761, lng:12.5683},
+  {name:'Amsterdam',      country:'Netherlands',   lat:52.3676, lng:4.9041},
+  {name:'Brussels',       country:'Belgium',       lat:50.8503, lng:4.3517},
+  {name:'Dublin',         country:'Ireland',       lat:53.3498, lng:-6.2603},
+  {name:'Tallinn',        country:'Estonia',       lat:59.4370, lng:24.7536},
+  {name:'Riga',           country:'Latvia',        lat:56.9460, lng:24.1059},
+  {name:'Vilnius',        country:'Lithuania',     lat:54.6872, lng:25.2797},
+  {name:'Chisinau',       country:'Moldova',       lat:47.0105, lng:28.8638},
+  {name:'Tbilisi',        country:'Georgia',       lat:41.6938, lng:44.8015},
+  {name:'Yerevan',        country:'Armenia',       lat:40.1872, lng:44.5152},
+  {name:'Baku',           country:'Azerbaijan',    lat:40.4093, lng:49.8671},
+  {name:'Seoul',          country:'South Korea',   lat:37.5665, lng:126.9780},
+  {name:'New Delhi',      country:'India',         lat:28.6139, lng:77.2090},
+  {name:'Singapore',      country:'Singapore',     lat:1.3521,  lng:103.8198},
+  {name:'Dubai',          country:'UAE',           lat:25.2048, lng:55.2708},
+  {name:'Cairo',          country:'Egypt',         lat:30.0444, lng:31.2357},
 ];
 
 // ── Splash ────────────────────────────────────────────────────
@@ -6455,6 +6522,7 @@ window.addEventListener('unhandledrejection', function(ev){
   console.error('WEBAPP PROMISE ERROR:', ev.reason);
   hideSplash();
 });
+window.addEventListener('resize', () => { resizeWeatherGlobe(); });
 
 // ── Boot ──────────────────────────────────────────────────────
 window.addEventListener('load', () => {
@@ -7136,6 +7204,67 @@ function showWidgetToast(msg){
   t._tid = setTimeout(() => { t.style.display = 'none'; }, 2500);
 }
 
+// ── RUSSIAN CITY EASTER EGG ───────────────────────────────────
+const _RU_BLOCKED_JS = new Set([
+  'moscow','москва','moskva','saint petersburg','st petersburg',
+  'санкт-петербург','питер','spb','novosibirsk','новосибирск',
+  'yekaterinburg','екатеринбург','kazan','казань',
+  'nizhny novgorod','нижний новгород','samara','самара',
+  'rostov','ростов','ufa','уфа','omsk','омск',
+  'perm','пермь','voronezh','воронеж','chelyabinsk','челябинск',
+  'krasnoyarsk','красноярск','volgograd','волгоград',
+]);
+function isRussianCityQuery(q){
+  const nq = q.trim().toLowerCase().replace(/\s+/g,' ');
+  return _RU_BLOCKED_JS.has(nq) || [..._RU_BLOCKED_JS].some(b => b.length > 5 && nq.startsWith(b));
+}
+let _pigTimer = null;
+function showPigOverlay(){
+  const ov = document.getElementById('pig-overlay');
+  if(!ov) return;
+  ov.classList.add('on');
+  startPigTypingAnimation();
+}
+function closePigOverlay(){
+  const ov = document.getElementById('pig-overlay');
+  if(ov) ov.classList.remove('on');
+  if(_pigTimer){ clearTimeout(_pigTimer); _pigTimer = null; }
+}
+function startPigTypingAnimation(){
+  const el = document.getElementById('pig-text');
+  if(!el) return;
+  el.textContent = '';
+  const msg = 'хрю-хрю 🐷 хрю-хрю';
+  let i = 0;
+  function type(){ if(i < msg.length){ el.textContent += msg[i++]; _pigTimer = setTimeout(type, 120); } }
+  type();
+}
+
+// ── FULLSCREEN ────────────────────────────────────────────────
+async function toggleDesktopFullscreen(){
+  try{
+    if(document.fullscreenElement){
+      await document.exitFullscreen();
+    } else {
+      await (document.documentElement.requestFullscreen?.() ||
+             document.documentElement.webkitRequestFullscreen?.());
+      tg?.expand?.();
+    }
+  } catch(e){
+    document.body.classList.toggle('fullscreen-layout');
+  }
+  updateFullscreenButtonState();
+}
+function updateFullscreenButtonState(){
+  const btn = document.getElementById('fsbtn');
+  if(!btn) return;
+  const isFs = !!document.fullscreenElement || document.body.classList.contains('fullscreen-layout');
+  btn.classList.toggle('active', isFs);
+  btn.title = isFs ? (UI[lang].exitFullscreen||'Exit fullscreen') : (UI[lang].fullscreen||'Fullscreen');
+  btn.textContent = isFs ? '⛶' : '⛶';
+}
+document.addEventListener('fullscreenchange', updateFullscreenButtonState);
+
 // ── WEATHER ───────────────────────────────────────────────────
 function ensureWeatherLoaded(){
   if(!weatherGlobeScriptLoaded){
@@ -7176,7 +7305,7 @@ function initWeatherGlobe(){
       .height(container.clientHeight || 300)
       .pointsData(WEATHER_CITIES)
       .pointLat('lat').pointLng('lng')
-      .pointColor(() => '#22C55E')
+      .pointColor(d => d.ua ? '#FBBF24' : '#22C55E')
       .pointAltitude(0.015).pointRadius(0.4)
       .pointLabel(d => '<div style="background:rgba(0,0,0,.75);padding:4px 8px;border-radius:6px;font-size:12px;color:#fff;pointer-events:none">'+d.name+', '+d.country+'</div>')
       .onPointClick(d => selectWeatherLocation({name:d.name,country:d.country,latitude:d.lat,longitude:d.lng}))
@@ -7208,7 +7337,11 @@ function resizeWeatherGlobe(){
   if(!weatherGlobe || !weatherGlobeReady) return;
   const container = document.getElementById('weather-globe');
   if(!container) return;
-  try{ weatherGlobe.width(container.clientWidth).height(container.clientHeight); } catch(e){}
+  try{
+    const box = container.getBoundingClientRect();
+    const size = Math.max(box.width || 300, box.height || 300);
+    weatherGlobe.width(size).height(size);
+  } catch(e){}
 }
 
 function flyToWeatherLocation(lat, lon, altitude){
@@ -7221,16 +7354,16 @@ async function searchWeatherCity(){
   if(!input) return;
   const q = input.value.trim();
   if(!q) return;
+  if(isRussianCityQuery(q)){ showPigOverlay(); return; }
   const results = document.getElementById('weather-results');
   if(results){
-    results.innerHTML = '<div class="weather-result-item">'+( UI[lang].weatherLoading||'Loading...')+'</div>';
+    results.innerHTML = '<div class="weather-result-item">'+(UI[lang].weatherLoading||'Loading...')+'</div>';
     results.style.display = 'block';
   }
   try{
-    const langMap = {ua:'uk', ru:'ru', en:'en'};
-    const apiLang = langMap[lang] || 'en';
-    const r = await fetch('/api/webapp/weather/search?q='+encodeURIComponent(q)+'&count=5&language='+apiLang);
+    const r = await fetch('/api/webapp/weather/search?q='+encodeURIComponent(q)+'&count=5');
     const d = await r.json();
+    if(d.blocked){ showPigOverlay(); return; }
     renderWeatherSearchResults(d.items || []);
   } catch(e){
     if(results) results.innerHTML = '<div class="weather-result-item">'+(UI[lang].weatherUnavailable||'Unavailable')+'</div>';
@@ -8382,6 +8515,112 @@ _weather_search_cache: dict = {}   # "q_lang" -> {"data":..., "ts":float}
 _WEATHER_SEARCH_TTL = 1800         # 30 min
 _weather_current_cache: dict = {}  # "lat_lon" -> {"data":..., "ts":float}
 _WEATHER_CURRENT_TTL = 600         # 10 min
+_RU_BLOCKED_QUERIES = {
+    "moscow","москва","moskva","moskovskaya","московская",
+    "saint petersburg","st petersburg","санкт-петербург","питер","spb","спб",
+    "novosibirsk","новосибирск","yekaterinburg","екатеринбург","sverdlovsk","свердловск",
+    "kazan","казань","nizhny novgorod","нижний новгород","нижнийновгород",
+    "samara","самара","rostov","ростов","ufa","уфа","omsk","омск",
+    "perm","пермь","voronezh","воронеж","chelyabinsk","челябинск",
+    "krasnoyarsk","красноярск","saratov","саратов","vladivostok","владивосток",
+    "krasnodar","краснодар","volgograd","волгоград","irkutsk","иркутск",
+}
+_UA_CITY_INDEX = [
+  {"name":"Kyiv","alt":["Київ","Киев","Kiev"],"country":"Ukraine","country_code":"UA","admin1":"Kyiv City","lat":50.4501,"lon":30.5234,"tz":"Europe/Kyiv"},
+  {"name":"Kharkiv","alt":["Харків","Харьков","Kharkov"],"country":"Ukraine","country_code":"UA","admin1":"Kharkiv Oblast","lat":49.9808,"lon":36.2527,"tz":"Europe/Kyiv"},
+  {"name":"Odesa","alt":["Одеса","Одесса","Odessa"],"country":"Ukraine","country_code":"UA","admin1":"Odesa Oblast","lat":46.4774,"lon":30.7326,"tz":"Europe/Kyiv"},
+  {"name":"Dnipro","alt":["Дніпро","Днепр","Dnepropetrovsk","Дніпропетровськ"],"country":"Ukraine","country_code":"UA","admin1":"Dnipropetrovsk Oblast","lat":48.4647,"lon":35.0462,"tz":"Europe/Kyiv"},
+  {"name":"Donetsk","alt":["Донецьк","Донецк"],"country":"Ukraine","country_code":"UA","admin1":"Donetsk Oblast","lat":48.0159,"lon":37.8028,"tz":"Europe/Kyiv"},
+  {"name":"Zaporizhzhia","alt":["Запоріжжя","Запорожье","Zaporozhye"],"country":"Ukraine","country_code":"UA","admin1":"Zaporizhzhia Oblast","lat":47.8388,"lon":35.1396,"tz":"Europe/Kyiv"},
+  {"name":"Lviv","alt":["Львів","Львов","Lwów"],"country":"Ukraine","country_code":"UA","admin1":"Lviv Oblast","lat":49.8397,"lon":24.0297,"tz":"Europe/Kyiv"},
+  {"name":"Kryvyi Rih","alt":["Кривий Ріг","Кривой Рог"],"country":"Ukraine","country_code":"UA","admin1":"Dnipropetrovsk Oblast","lat":47.9077,"lon":33.3691,"tz":"Europe/Kyiv"},
+  {"name":"Mykolaiv","alt":["Миколаїв","Николаев"],"country":"Ukraine","country_code":"UA","admin1":"Mykolaiv Oblast","lat":46.9750,"lon":31.9946,"tz":"Europe/Kyiv"},
+  {"name":"Mariupol","alt":["Маріуполь","Мариуполь"],"country":"Ukraine","country_code":"UA","admin1":"Donetsk Oblast","lat":47.0956,"lon":37.5493,"tz":"Europe/Kyiv"},
+  {"name":"Luhansk","alt":["Луганськ","Луганск"],"country":"Ukraine","country_code":"UA","admin1":"Luhansk Oblast","lat":48.5740,"lon":39.3067,"tz":"Europe/Kyiv"},
+  {"name":"Vinnytsia","alt":["Вінниця","Винница"],"country":"Ukraine","country_code":"UA","admin1":"Vinnytsia Oblast","lat":49.2330,"lon":28.4682,"tz":"Europe/Kyiv"},
+  {"name":"Kherson","alt":["Херсон"],"country":"Ukraine","country_code":"UA","admin1":"Kherson Oblast","lat":46.6354,"lon":32.6169,"tz":"Europe/Kyiv"},
+  {"name":"Poltava","alt":["Полтава"],"country":"Ukraine","country_code":"UA","admin1":"Poltava Oblast","lat":49.5883,"lon":34.5514,"tz":"Europe/Kyiv"},
+  {"name":"Chernihiv","alt":["Чернігів","Чернигов"],"country":"Ukraine","country_code":"UA","admin1":"Chernihiv Oblast","lat":51.4982,"lon":31.2893,"tz":"Europe/Kyiv"},
+  {"name":"Cherkasy","alt":["Черкаси","Черкассы"],"country":"Ukraine","country_code":"UA","admin1":"Cherkasy Oblast","lat":49.4444,"lon":32.0598,"tz":"Europe/Kyiv"},
+  {"name":"Zhytomyr","alt":["Житомир"],"country":"Ukraine","country_code":"UA","admin1":"Zhytomyr Oblast","lat":50.2547,"lon":28.6587,"tz":"Europe/Kyiv"},
+  {"name":"Sumy","alt":["Суми","Сумы"],"country":"Ukraine","country_code":"UA","admin1":"Sumy Oblast","lat":50.9077,"lon":34.7981,"tz":"Europe/Kyiv"},
+  {"name":"Rivne","alt":["Рівне","Ровно"],"country":"Ukraine","country_code":"UA","admin1":"Rivne Oblast","lat":50.6199,"lon":26.2516,"tz":"Europe/Kyiv"},
+  {"name":"Ivano-Frankivsk","alt":["Івано-Франківськ","Ивано-Франковск","Stanislaviv"],"country":"Ukraine","country_code":"UA","admin1":"Ivano-Frankivsk Oblast","lat":48.9226,"lon":24.7111,"tz":"Europe/Kyiv"},
+  {"name":"Ternopil","alt":["Тернопіль","Тернополь"],"country":"Ukraine","country_code":"UA","admin1":"Ternopil Oblast","lat":49.5535,"lon":25.5948,"tz":"Europe/Kyiv"},
+  {"name":"Lutsk","alt":["Луцьк","Луцк"],"country":"Ukraine","country_code":"UA","admin1":"Volyn Oblast","lat":50.7597,"lon":25.3423,"tz":"Europe/Kyiv"},
+  {"name":"Uzhhorod","alt":["Ужгород"],"country":"Ukraine","country_code":"UA","admin1":"Zakarpattia Oblast","lat":48.6208,"lon":22.2879,"tz":"Europe/Kyiv"},
+  {"name":"Chernivtsi","alt":["Чернівці","Черновцы","Czernowitz"],"country":"Ukraine","country_code":"UA","admin1":"Chernivtsi Oblast","lat":48.2916,"lon":25.9352,"tz":"Europe/Kyiv"},
+  {"name":"Khmelnytskyi","alt":["Хмельницький","Хмельницкий"],"country":"Ukraine","country_code":"UA","admin1":"Khmelnytskyi Oblast","lat":49.4229,"lon":26.9966,"tz":"Europe/Kyiv"},
+  {"name":"Kropyvnytskyi","alt":["Кропивницький","Кировоград","Kirovograd"],"country":"Ukraine","country_code":"UA","admin1":"Kirovohrad Oblast","lat":48.5132,"lon":32.2597,"tz":"Europe/Kyiv"},
+  {"name":"Bila Tserkva","alt":["Біла Церква","Белая Церковь"],"country":"Ukraine","country_code":"UA","admin1":"Kyiv Oblast","lat":49.7986,"lon":30.1069,"tz":"Europe/Kyiv"},
+  {"name":"Kremenchuk","alt":["Кременчук","Кременчуг"],"country":"Ukraine","country_code":"UA","admin1":"Poltava Oblast","lat":49.0663,"lon":33.4199,"tz":"Europe/Kyiv"},
+  {"name":"Sloviansk","alt":["Слов'янськ","Славянск"],"country":"Ukraine","country_code":"UA","admin1":"Donetsk Oblast","lat":48.8662,"lon":37.6143,"tz":"Europe/Kyiv"},
+  {"name":"Kramatorsk","alt":["Краматорськ","Краматорск"],"country":"Ukraine","country_code":"UA","admin1":"Donetsk Oblast","lat":48.7244,"lon":37.5593,"tz":"Europe/Kyiv"},
+  {"name":"Melitopol","alt":["Мелітополь","Мелитополь"],"country":"Ukraine","country_code":"UA","admin1":"Zaporizhzhia Oblast","lat":46.8497,"lon":35.3683,"tz":"Europe/Kyiv"},
+  {"name":"Berdyansk","alt":["Бердянськ","Бердянск"],"country":"Ukraine","country_code":"UA","admin1":"Zaporizhzhia Oblast","lat":46.7584,"lon":36.7908,"tz":"Europe/Kyiv"},
+  {"name":"Nikopol","alt":["Нікополь","Никополь"],"country":"Ukraine","country_code":"UA","admin1":"Dnipropetrovsk Oblast","lat":47.5744,"lon":34.3978,"tz":"Europe/Kyiv"},
+  {"name":"Konotop","alt":["Конотоп"],"country":"Ukraine","country_code":"UA","admin1":"Sumy Oblast","lat":51.2369,"lon":33.2073,"tz":"Europe/Kyiv"},
+  {"name":"Nizhyn","alt":["Ніжин","Нежин"],"country":"Ukraine","country_code":"UA","admin1":"Chernihiv Oblast","lat":51.0506,"lon":31.8869,"tz":"Europe/Kyiv"},
+  {"name":"Brovary","alt":["Бровари","Бровары"],"country":"Ukraine","country_code":"UA","admin1":"Kyiv Oblast","lat":50.5122,"lon":30.7889,"tz":"Europe/Kyiv"},
+  {"name":"Bucha","alt":["Буча"],"country":"Ukraine","country_code":"UA","admin1":"Kyiv Oblast","lat":50.5491,"lon":30.2249,"tz":"Europe/Kyiv"},
+  {"name":"Irpin","alt":["Ірпінь","Ирпень"],"country":"Ukraine","country_code":"UA","admin1":"Kyiv Oblast","lat":50.5212,"lon":30.2557,"tz":"Europe/Kyiv"},
+  {"name":"Drohobych","alt":["Дрогобич","Дрогобыч"],"country":"Ukraine","country_code":"UA","admin1":"Lviv Oblast","lat":49.3506,"lon":23.5020,"tz":"Europe/Kyiv"},
+  {"name":"Chuhuiv","alt":["Чугуїв","Чугуев"],"country":"Ukraine","country_code":"UA","admin1":"Kharkiv Oblast","lat":49.8338,"lon":36.6840,"tz":"Europe/Kyiv"},
+  {"name":"Izium","alt":["Ізюм","Изюм"],"country":"Ukraine","country_code":"UA","admin1":"Kharkiv Oblast","lat":49.2081,"lon":37.2677,"tz":"Europe/Kyiv"},
+  {"name":"Enerhodar","alt":["Енергодар","Энергодар"],"country":"Ukraine","country_code":"UA","admin1":"Zaporizhzhia Oblast","lat":47.5000,"lon":34.6500,"tz":"Europe/Kyiv"},
+  {"name":"Pavlohrad","alt":["Павлоград"],"country":"Ukraine","country_code":"UA","admin1":"Dnipropetrovsk Oblast","lat":48.5358,"lon":35.8817,"tz":"Europe/Kyiv"},
+]
+_WORLD_CAPITALS_NO_RU = [
+  {"name":"London","country":"United Kingdom","country_code":"GB","admin1":"England","lat":51.5074,"lon":-0.1278,"tz":"Europe/London"},
+  {"name":"Paris","country":"France","country_code":"FR","admin1":"Île-de-France","lat":48.8566,"lon":2.3522,"tz":"Europe/Paris"},
+  {"name":"Berlin","country":"Germany","country_code":"DE","admin1":"Berlin","lat":52.5200,"lon":13.4050,"tz":"Europe/Berlin"},
+  {"name":"Warsaw","country":"Poland","country_code":"PL","admin1":"Masovian","lat":52.2297,"lon":21.0122,"tz":"Europe/Warsaw"},
+  {"name":"Washington","country":"United States","country_code":"US","admin1":"District of Columbia","lat":38.9072,"lon":-77.0369,"tz":"America/New_York"},
+  {"name":"New York","country":"United States","country_code":"US","admin1":"New York","lat":40.7128,"lon":-74.0060,"tz":"America/New_York"},
+  {"name":"Tokyo","country":"Japan","country_code":"JP","admin1":"Tokyo","lat":35.6762,"lon":139.6503,"tz":"Asia/Tokyo"},
+  {"name":"Beijing","country":"China","country_code":"CN","admin1":"Beijing","lat":39.9042,"lon":116.4074,"tz":"Asia/Shanghai"},
+  {"name":"Rome","country":"Italy","country_code":"IT","admin1":"Lazio","lat":41.9028,"lon":12.4964,"tz":"Europe/Rome"},
+  {"name":"Madrid","country":"Spain","country_code":"ES","admin1":"Community of Madrid","lat":40.4168,"lon":-3.7038,"tz":"Europe/Madrid"},
+  {"name":"Lisbon","country":"Portugal","country_code":"PT","admin1":"Lisbon","lat":38.7223,"lon":-9.1393,"tz":"Europe/Lisbon"},
+  {"name":"Prague","country":"Czech Republic","country_code":"CZ","admin1":"Prague","lat":50.0755,"lon":14.4378,"tz":"Europe/Prague"},
+  {"name":"Vienna","country":"Austria","country_code":"AT","admin1":"Vienna","lat":48.2082,"lon":16.3738,"tz":"Europe/Vienna"},
+  {"name":"Budapest","country":"Hungary","country_code":"HU","admin1":"Budapest","lat":47.4979,"lon":19.0402,"tz":"Europe/Budapest"},
+  {"name":"Bucharest","country":"Romania","country_code":"RO","admin1":"Bucharest","lat":44.4268,"lon":26.1025,"tz":"Europe/Bucharest"},
+  {"name":"Ankara","country":"Turkey","country_code":"TR","admin1":"Ankara","lat":39.9334,"lon":32.8597,"tz":"Europe/Istanbul"},
+  {"name":"Istanbul","country":"Turkey","country_code":"TR","admin1":"Istanbul","lat":41.0082,"lon":28.9784,"tz":"Europe/Istanbul"},
+  {"name":"Athens","country":"Greece","country_code":"GR","admin1":"Attica","lat":37.9838,"lon":23.7275,"tz":"Europe/Athens"},
+  {"name":"Stockholm","country":"Sweden","country_code":"SE","admin1":"Stockholm County","lat":59.3293,"lon":18.0686,"tz":"Europe/Stockholm"},
+  {"name":"Oslo","country":"Norway","country_code":"NO","admin1":"Oslo","lat":59.9139,"lon":10.7522,"tz":"Europe/Oslo"},
+  {"name":"Helsinki","country":"Finland","country_code":"FI","admin1":"Uusimaa","lat":60.1699,"lon":24.9384,"tz":"Europe/Helsinki"},
+  {"name":"Copenhagen","country":"Denmark","country_code":"DK","admin1":"Capital Region","lat":55.6761,"lon":12.5683,"tz":"Europe/Copenhagen"},
+  {"name":"Amsterdam","country":"Netherlands","country_code":"NL","admin1":"North Holland","lat":52.3676,"lon":4.9041,"tz":"Europe/Amsterdam"},
+  {"name":"Brussels","country":"Belgium","country_code":"BE","admin1":"Brussels","lat":50.8503,"lon":4.3517,"tz":"Europe/Brussels"},
+  {"name":"Bern","country":"Switzerland","country_code":"CH","admin1":"Bern","lat":46.9481,"lon":7.4474,"tz":"Europe/Zurich"},
+  {"name":"Dublin","country":"Ireland","country_code":"IE","admin1":"Leinster","lat":53.3498,"lon":-6.2603,"tz":"Europe/Dublin"},
+  {"name":"Tallinn","country":"Estonia","country_code":"EE","admin1":"Harju County","lat":59.4370,"lon":24.7536,"tz":"Europe/Tallinn"},
+  {"name":"Riga","country":"Latvia","country_code":"LV","admin1":"Riga","lat":56.9460,"lon":24.1059,"tz":"Europe/Riga"},
+  {"name":"Vilnius","country":"Lithuania","country_code":"LT","admin1":"Vilnius County","lat":54.6872,"lon":25.2797,"tz":"Europe/Vilnius"},
+  {"name":"Chisinau","country":"Moldova","country_code":"MD","admin1":"Chisinau","lat":47.0105,"lon":28.8638,"tz":"Europe/Chisinau"},
+  {"name":"Tbilisi","country":"Georgia","country_code":"GE","admin1":"Tbilisi","lat":41.6938,"lon":44.8015,"tz":"Asia/Tbilisi"},
+  {"name":"Yerevan","country":"Armenia","country_code":"AM","admin1":"Yerevan","lat":40.1872,"lon":44.5152,"tz":"Asia/Yerevan"},
+  {"name":"Baku","country":"Azerbaijan","country_code":"AZ","admin1":"Baku","lat":40.4093,"lon":49.8671,"tz":"Asia/Baku"},
+  {"name":"Nur-Sultan","country":"Kazakhstan","country_code":"KZ","admin1":"Akmola","lat":51.1801,"lon":71.4460,"tz":"Asia/Almaty"},
+  {"name":"Tashkent","country":"Uzbekistan","country_code":"UZ","admin1":"Tashkent","lat":41.2995,"lon":69.2401,"tz":"Asia/Tashkent"},
+  {"name":"Seoul","country":"South Korea","country_code":"KR","admin1":"Seoul","lat":37.5665,"lon":126.9780,"tz":"Asia/Seoul"},
+  {"name":"New Delhi","country":"India","country_code":"IN","admin1":"Delhi","lat":28.6139,"lon":77.2090,"tz":"Asia/Kolkata"},
+  {"name":"Bangkok","country":"Thailand","country_code":"TH","admin1":"Bangkok","lat":13.7563,"lon":100.5018,"tz":"Asia/Bangkok"},
+  {"name":"Singapore","country":"Singapore","country_code":"SG","admin1":"Central Region","lat":1.3521,"lon":103.8198,"tz":"Asia/Singapore"},
+  {"name":"Dubai","country":"UAE","country_code":"AE","admin1":"Dubai","lat":25.2048,"lon":55.2708,"tz":"Asia/Dubai"},
+  {"name":"Ottawa","country":"Canada","country_code":"CA","admin1":"Ontario","lat":45.4215,"lon":-75.6972,"tz":"America/Toronto"},
+  {"name":"Mexico City","country":"Mexico","country_code":"MX","admin1":"Mexico City","lat":19.4326,"lon":-99.1332,"tz":"America/Mexico_City"},
+  {"name":"Buenos Aires","country":"Argentina","country_code":"AR","admin1":"Buenos Aires","lat":-34.6118,"lon":-58.4173,"tz":"America/Argentina/Buenos_Aires"},
+  {"name":"Brasilia","country":"Brazil","country_code":"BR","admin1":"Federal District","lat":-15.7942,"lon":-47.8822,"tz":"America/Sao_Paulo"},
+  {"name":"Cairo","country":"Egypt","country_code":"EG","admin1":"Cairo","lat":30.0444,"lon":31.2357,"tz":"Africa/Cairo"},
+  {"name":"Nairobi","country":"Kenya","country_code":"KE","admin1":"Nairobi County","lat":-1.2921,"lon":36.8219,"tz":"Africa/Nairobi"},
+  {"name":"Pretoria","country":"South Africa","country_code":"ZA","admin1":"Gauteng","lat":-25.7461,"lon":28.1881,"tz":"Africa/Johannesburg"},
+  {"name":"Rabat","country":"Morocco","country_code":"MA","admin1":"Rabat-Salé-Kénitra","lat":34.0209,"lon":-6.8416,"tz":"Africa/Casablanca"},
+  {"name":"Reykjavik","country":"Iceland","country_code":"IS","admin1":"Capital Region","lat":64.1355,"lon":-21.8954,"tz":"Atlantic/Reykjavik"},
+]
 _VALID_WIDGET_KEYS = {'news', 'reports', 'currencies', 'markets', 'tracking', 'weather'}
 _DEFAULT_WIDGET_KEYS = ['news', 'reports', 'markets', 'tracking']
 
@@ -8681,38 +8920,106 @@ def _wmo_weather(code: int) -> tuple:
     return m.get(code, ("Unknown","🌡"))
 
 
+def _normalize_city_q(q: str) -> str:
+    q = q.strip().lower()
+    q = " ".join(q.split())
+    return q
+
+def _is_ru_blocked(q: str) -> bool:
+    nq = _normalize_city_q(q)
+    return nq in _RU_BLOCKED_QUERIES or any(nq.startswith(r) for r in _RU_BLOCKED_QUERIES if len(r) > 5)
+
+def _local_city_search(q: str, limit: int = 5) -> list:
+    nq = _normalize_city_q(q)
+    results = []
+    seen = set()
+    all_cities = _UA_CITY_INDEX + _WORLD_CAPITALS_NO_RU
+    for city in all_cities:
+        names_to_check = [city["name"].lower()] + [a.lower() for a in city.get("alt", [])]
+        score = 0
+        for name in names_to_check:
+            if name == nq:
+                score = 100
+            elif name.startswith(nq):
+                score = max(score, 80)
+            elif nq in name:
+                score = max(score, 60)
+            elif any(word.startswith(nq) for word in name.split()):
+                score = max(score, 40)
+        if score > 0:
+            key = (city["name"].lower(), city["country_code"])
+            if key not in seen:
+                seen.add(key)
+                parts = [city["name"], city.get("admin1",""), city["country"]]
+                label = ", ".join(p for p in parts if p)
+                results.append({
+                    "id": f"local-{city['name'].lower().replace(' ','-')}-{city['country_code'].lower()}",
+                    "name": city["name"], "country": city["country"],
+                    "country_code": city["country_code"],
+                    "admin1": city.get("admin1",""),
+                    "latitude": city["lat"], "longitude": city["lon"],
+                    "timezone": city.get("tz",""), "label": label, "source": "local",
+                    "_score": score,
+                })
+    results.sort(key=lambda x: -x["_score"])
+    for r in results: r.pop("_score", None)
+    return results[:limit]
+
+def _filter_ru_results(items: list) -> list:
+    return [i for i in items if i.get("country_code","").upper() != "RU"]
+
+def _merge_city_results(local: list, api: list, limit: int = 5) -> list:
+    seen = set()
+    merged = []
+    for item in local + api:
+        key = (item.get("name","").lower(), item.get("country_code","").upper())
+        if key not in seen:
+            seen.add(key)
+            merged.append(item)
+        if len(merged) >= limit:
+            break
+    return merged
+
+
 @app.get("/api/webapp/weather/search")
 async def api_weather_search(q: str, count: int = 5, language: str = "en"):
-    cache_key = f"{q.strip().lower()}_{count}_{language}"
+    nq = _normalize_city_q(q)
+    if not nq:
+        return {"ok": True, "items": []}
+    if _is_ru_blocked(nq):
+        return {"ok": True, "items": [], "blocked": True}
+    cache_key = f"{nq}_{count}"
     now = time.time()
     if cache_key in _weather_search_cache:
         if now - _weather_search_cache[cache_key]["ts"] < _WEATHER_SEARCH_TTL:
             return _weather_search_cache[cache_key]["data"]
+    local_items = _local_city_search(nq, limit=count)
+    api_items = []
     try:
         async with httpx.AsyncClient(timeout=8) as client:
             r = await client.get(
                 "https://geocoding-api.open-meteo.com/v1/search",
-                params={"name": q, "count": count, "language": language, "format": "json"}
+                params={"name": q.strip(), "count": count, "language": "en", "format": "json"}
             )
             r.raise_for_status()
             raw = r.json()
-        items = []
         for row in (raw.get("results") or []):
             parts = [row.get("name",""), row.get("admin1",""), row.get("country","")]
             label = ", ".join(p for p in parts if p)
-            items.append({
+            api_items.append({
                 "id": row.get("id"), "name": row.get("name"),
                 "country": row.get("country"), "country_code": row.get("country_code"),
-                "admin1": row.get("admin1"), "latitude": row.get("latitude"),
-                "longitude": row.get("longitude"), "timezone": row.get("timezone"),
-                "label": label,
+                "admin1": row.get("admin1",""), "latitude": row.get("latitude"),
+                "longitude": row.get("longitude"), "timezone": row.get("timezone",""),
+                "label": label, "source": "open-meteo",
             })
-        result = {"ok": True, "items": items}
-        _weather_search_cache[cache_key] = {"data": result, "ts": now}
-        return result
+        api_items = _filter_ru_results(api_items)
     except Exception as e:
-        logger.error(f"weather search error: {e}")
-        return {"ok": True, "items": []}
+        logger.warning(f"weather search API error: {e}")
+    items = _merge_city_results(local_items, api_items, limit=count)
+    result = {"ok": True, "items": items}
+    _weather_search_cache[cache_key] = {"data": result, "ts": now}
+    return result
 
 
 @app.get("/api/webapp/weather/current")
