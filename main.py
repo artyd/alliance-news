@@ -2760,9 +2760,13 @@ CHART_TICKERS = {
         "emoji": "🍶",
     },
     "ПАЛЬМОВА": {
-        "tickers": ("POO=F", "FCPO=F", "CPO=F"),
-        "label": "Пальмова олія (Crude Palm Oil)",
-        "unit": "$/MT",
+        # Yahoo has no tradeable USD palm-oil future with daily bars (POO=F /
+        # FCPO=F / CPO=F are all delisted). Primary = Bursa Malaysia palm-oil
+        # index (FBMPM.FGI, MYR); guaranteed fallback = soybean oil (ZL=F, the
+        # standard ~90%-correlated palm proxy) so the ±7% alert still fires.
+        "tickers": ("FBMPM.FGI", "ZL=F"),
+        "label": "Пальмова олія (Palm oil · Bursa/соя-проксі)",
+        "unit": "pts",
         "te_url": "https://tradingeconomics.com/commodity/palm-oil",
         "tv_url": "https://www.tradingview.com/chart/?symbol=MYX%3AKPO1!",
         "emoji": "🌴",
@@ -2850,9 +2854,12 @@ CHART_TICKERS.update({
         "emoji": "🍫",
     },
     "НІКЕЛЬ": {
-        "tickers": ("NI=F",),
-        "label": "Нікель (Nickel Futures)",
-        "unit": "$/MT",
+        # NI=F (LME nickel) is delisted on Yahoo. Use JJN — the iPath Bloomberg
+        # Nickel ETN (USD), which tracks nickel and has reliable daily bars, so
+        # the ±7% move alert works. Value is the ETN share price, not $/MT.
+        "tickers": ("JJN",),
+        "label": "Нікель (Nickel · JJN ETN)",
+        "unit": "$",
         "te_url": "https://tradingeconomics.com/commodity/nickel",
         "tv_url": "https://www.tradingview.com/chart/?symbol=LMEFD%3ANI",
         "emoji": "🔩",
