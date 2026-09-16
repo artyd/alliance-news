@@ -14,8 +14,50 @@ from app.telegram_articles import (
     telegram_chunks,
     format_article_html,
     collect_sources,
+    bucket_facts_by_department,
     TELEGRAM_MSG_LIMIT,
 )
+
+DEPARTMENTS = [
+    {"code": "procurement", "name": "Закупівля",
+     "sectors": ["api", "food", "pvc"], "event_types": ["price_move"]},
+    {"code": "wars", "name": "Війни",
+     "sectors": ["middle_east"], "event_types": ["geopolitical"]},
+    {"code": "laws", "name": "Закони",
+     "sectors": [], "event_types": ["regulation", "sanction", "tariff"]},
+]
+
+
+def test_bucket_by_sector():
+    facts = [{"id": 1, "affected_sectors": "api,logistics", "event_type": "corporate"}]
+    out = bucket_facts_by_department(facts, DEPARTMENTS)
+    assert out["procurement"] == facts
+    assert out["wars"] == []
+    assert out["laws"] == []
+
+
+def test_bucket_by_event_type():
+    facts = [{"id": 2, "affected_sectors": "global_sources", "event_type": "tariff"}]
+    out = bucket_facts_by_department(facts, DEPARTMENTS)
+    assert out["laws"] == facts          # matched by event_type only
+    assert out["procurement"] == []
+
+
+def test_bucket_fact_in_multiple_departments():
+    # A tariff on API is both procurement (sector) and laws (event_type).
+    facts = [{"id": 3, "affected_sectors": "api", "event_type": "tariff"}]
+    out = bucket_facts_by_department(facts, DEPARTMENTS)
+    assert out["procurement"] == facts
+    assert out["laws"] == facts
+
+
+def test_bucket_dedup_by_id():
+    facts = [
+        {"id": 4, "affected_sectors": "api", "event_type": "price_move"},
+        {"id": 4, "affected_sectors": "api", "event_type": "price_move"},  # dup id
+    ]
+    out = bucket_facts_by_department(facts, DEPARTMENTS)
+    assert len(out["procurement"]) == 1
 
 
 def test_escape_html():

@@ -1,9 +1,32 @@
 # How to add a new department / parsing source
 
-A "department" in this project is a **report category**: it has its own news
-feed, participates in fact extraction, and now gets its own Telegram article.
-Everything is config-driven — adding one touches 2–3 well-known spots in
-`main.py`.
+## Two layers
+
+1. **Sectors** (`REPORT_CATEGORIES` / `RSS_FEEDS`) — fine-grained topics with
+   their own news feed and fact extraction. These drive the PDF report.
+2. **Departments** (`DEPARTMENTS`) — the 5 business groupings that each get one
+   **Telegram article**. A department collects facts by matching either a
+   sector OR an `event_type` (both are already on every fact).
+
+Current departments: `procurement` (закупівля — all raw-material sectors),
+`logistics`, `world` (весь світ), `wars` (війни — geopolitical), `laws`
+(закони — regulation/sanction/tariff). The morning (09:00) and midday (14:00)
+schedulers now send these Telegram articles; the PDF is manual-only.
+
+### Adding a department
+
+Append to `DEPARTMENTS` in `main.py`:
+```python
+{"code": "finance", "name": "Фінанси та валюта",
+ "sectors": [], "event_types": ["investment"]},   # sector OR event_type match
+```
+Facts flow in automatically — no extractor change needed if you route by an
+existing `event_type` (regulation/sanction/tariff/geopolitical/price_move/
+supply_disruption/market_trend/investment/corporate/other).
+
+### Adding a parsing source (feed)
+
+Everything below is about the sector layer that feeds the departments.
 
 ## 1. Add the news source (`RSS_FEEDS`)
 

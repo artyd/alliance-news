@@ -61,6 +61,33 @@ def build_facts_payload(facts: list[dict], max_facts: int = 40) -> str:
     return "\n".join(lines)
 
 
+def bucket_facts_by_department(facts: list[dict], departments: list[dict]) -> dict:
+    """Group a flat list of facts into business departments.
+
+    A fact joins a department if ANY of its `affected_sectors` is in the
+    department's `sectors`, OR its `event_type` is in the department's
+    `event_types`. One fact may land in several departments (that's fine — a
+    new tariff on API is both 'laws' and 'procurement'). Order is preserved
+    (facts are already relevance-sorted) and de-duplicated by fact id.
+
+    departments: [{"code","name","sectors":[...],"event_types":[...]}, ...]
+    Returns {code: [fact, ...]}.
+    """
+    out: dict[str, list[dict]] = {d["code"]: [] for d in departments}
+    seen: dict[str, set] = {d["code"]: set() for d in departments}
+    for f in facts:
+        sectors = {s.strip() for s in (f.get("affected_sectors") or "").split(",") if s.strip()}
+        etype = (f.get("event_type") or "").strip()
+        fid = f.get("id")
+        for d in departments:
+            code = d["code"]
+            match = bool(sectors & set(d.get("sectors", []))) or etype in set(d.get("event_types", []))
+            if match and fid not in seen[code]:
+                out[code].append(f)
+                seen[code].add(fid)
+    return out
+
+
 def build_synthesis_prompt(dept_name: str, lang: str = "ua") -> str:
     """System prompt: turn a department's facts into a short Telegram briefing.
 

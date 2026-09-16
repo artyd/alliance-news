@@ -46,6 +46,7 @@ from app.telegram_articles import (
     telegram_chunks,
     format_article_html,
     collect_sources,
+    bucket_facts_by_department,
 )
 
 # ── Chart dependencies (optional — graceful fallback if missing) ──
@@ -406,6 +407,27 @@ RSS_FEEDS = {
         "Hormuz+OR+Houthi+OR+Gaza+OR+%22Persian+Gulf%22"
         "+when:5d&hl=en-US&gl=US&ceid=US:en"
     ),
+    # Wars / conflicts with economic & supply-chain angle — feeds the "wars"
+    # department. Internal: stored + fact-extracted, not pushed to subscribers.
+    "geopolitics": google_news_rss(
+        phrases=[
+            "war economy", "conflict supply chain", "shipping attack",
+            "trade route disruption", "military conflict trade",
+            "sanctions war", "export ban conflict",
+        ],
+        days=5,
+    ),
+    # Trade regulation, sanctions, tariffs, customs & Ukrainian import rules —
+    # feeds the "laws" department. Internal: stored + fact-extracted.
+    "regulation": google_news_rss(
+        phrases=[
+            "import tariff", "trade sanctions", "export control",
+            "customs regulation", "pharmaceutical regulation",
+            "chemical import ban", "EU import rules", "trade compliance",
+        ],
+        sites=["reuters.com", "ft.com"],
+        days=5,
+    ),
     # Good news — uplifting stories to boost morale. Freshest possible (2d).
     "good_news": (
         "https://news.google.com/rss/search?q=(site:goodnewsnetwork.org+OR+"
@@ -419,7 +441,7 @@ RSS_FEEDS = {
 # Categories that are fetched into DB but NOT shown as subscription options to users.
 # They exist purely to feed the daily report.
 # `global_sources` is a 10th Block-1 category — it IS user-visible in Telegram.
-INTERNAL_CATEGORIES = {"middle_east"}
+INTERNAL_CATEGORIES = {"middle_east", "geopolitics", "regulation"}
 
 # Categories that ARE visible to Telegram subscribers and appear in /news panel,
 # but DO NOT participate in the B2B daily/midday report, full-text extraction,
@@ -2883,6 +2905,47 @@ REPORT_CATEGORIES = [
     ("global_sources", "Глобальна економіка та торгівля"),
 ]
 
+# ── Business DEPARTMENTS (Telegram-article grouping) ───────────────────────────
+# Higher-level grouping on top of the fine-grained REPORT_CATEGORIES sectors.
+# The daily/midday Telegram briefing sends ONE article per department.
+# A fact joins a department by matching either an affected_sector OR an
+# event_type — event_type ("regulation"/"sanction"/"tariff"/"geopolitical") is
+# already extracted for every fact, so "laws" and "wars" work on existing data
+# with no extractor change and no migration. To add a department, append here.
+DEPARTMENTS = [
+    {
+        "code": "procurement",
+        "name": "Закупівля — сировина та матеріали",
+        "sectors": ["api", "cosmetic", "herbal", "veterinary", "food",
+                    "feed", "capsules", "pvc"],
+        "event_types": ["price_move", "supply_disruption"],
+    },
+    {
+        "code": "logistics",
+        "name": "Логістика та постачання",
+        "sectors": ["logistics"],
+        "event_types": [],
+    },
+    {
+        "code": "world",
+        "name": "Весь світ — економіка й торгівля",
+        "sectors": ["global_sources"],
+        "event_types": ["market_trend", "investment", "corporate"],
+    },
+    {
+        "code": "wars",
+        "name": "Війни та геополітика",
+        "sectors": ["middle_east"],
+        "event_types": ["geopolitical"],
+    },
+    {
+        "code": "laws",
+        "name": "Закони, санкції та тарифи",
+        "sectors": [],
+        "event_types": ["regulation", "sanction", "tariff"],
+    },
+]
+
 # Keywords to identify Middle East news in title/summary
 MIDDLE_EAST_KEYWORDS = [
     "iran", "israel", "israeli", "iranian", "tehran", "middle east",
@@ -4994,8 +5057,10 @@ async def lifespan(app: FastAPI):
     # FIX: Added day_of_week='mon-fri' to prevent spurious Saturday/Sunday triggers.
     # send_daily_report_to_users already switches to 'weekly' mode on Fridays
     # (is_friday check) and 'daily_brief' Mon-Thu, so one cron rule is sufficient.
+    # Morning briefing: per-department Telegram articles (replaced the PDF report).
+    # The PDF is still available on demand via /generate_report.
     scheduler.add_job(
-        send_daily_report_to_users, 'cron',
+        send_daily_articles_dispatch, 'cron',
         day_of_week='mon-fri', hour=9, minute=0,
         id='morning_report'
     )
@@ -5003,7 +5068,7 @@ async def lifespan(app: FastAPI):
     # window = today 00:00 .. now). Same recipients as the morning report.
     # Restricted to Mon-Fri — no need for weekend midday updates.
     scheduler.add_job(
-        send_midday_report_to_users, 'cron',
+        send_midday_articles_dispatch, 'cron',
         day_of_week='mon-fri', hour=14, minute=0,
         id='midday_report'
     )
@@ -5258,11 +5323,25 @@ async def generate_department_articles(mode: str = "daily_brief",
     data = fetch_facts_for_report(subject.date(), end_time=end_time, window_start=window_start)
     by_cat = data.get("by_category", {})
 
+    # Flatten all sector-bucketed facts + middle_east into one de-duplicated list,
+    # then re-bucket into the 5 business departments by sector OR event_type.
+    flat: list[dict] = []
+    seen_ids: set = set()
+    for bucket in list(by_cat.values()) + [data.get("middle_east", [])]:
+        for f in bucket:
+            fid = f.get("id")
+            if fid not in seen_ids:
+                seen_ids.add(fid)
+                flat.append(f)
+
+    by_dept = bucket_facts_by_department(flat, DEPARTMENTS)
+
     articles: list[dict] = []
-    for code, name in REPORT_CATEGORIES:
+    for d in DEPARTMENTS:
+        code, name = d["code"], d["name"]
         if only_dept and code != only_dept:
             continue
-        facts = by_cat.get(code) or []
+        facts = by_dept.get(code) or []
         html = await generate_department_article(code, name, facts, date_str)
         if html:
             articles.append({"dept": code, "name": name, "html": html})
@@ -5313,6 +5392,19 @@ async def send_department_articles_to_users(mode: str = "daily_brief",
     logger.info("telegram-articles: %d departments -> %d recipients (%d messages)",
                 len(articles), len(recipients), sent)
     return {"sent": sent, "articles": len(articles), "recipients": len(recipients)}
+
+
+async def send_daily_articles_dispatch():
+    """09:00 Kyiv: weekly window on Friday, else daily_brief. Sends per-department
+    Telegram articles (the PDF report is no longer scheduled, only manual)."""
+    now = datetime.datetime.now(pytz.timezone("Europe/Kyiv"))
+    mode = "weekly" if now.weekday() == 4 else "daily_brief"
+    await send_department_articles_to_users(mode=mode)
+
+
+async def send_midday_articles_dispatch():
+    """14:00 Kyiv: today-so-far department articles."""
+    await send_department_articles_to_users(mode="midday")
 
 
 @app.get("/generate_telegram_articles")
