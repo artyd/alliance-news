@@ -1,0 +1,184 @@
+"""Telegram-article generation — pure, testable helpers.
+
+The project historically produced a single PDF report. This module supports the
+move to *Telegram articles*: one concise message per department (report
+category), built from the same structured facts that feed the PDF.
+
+Only pure logic lives here (prompt building, fact serialization, HTML escaping,
+message chunking) so it can be unit-tested without a network or DB. The async
+orchestration (LLM call, Telegram send, DB) lives in main.py where the shared
+clients already exist.
+"""
+
+from __future__ import annotations
+
+# Telegram hard limit for a text message. We keep a margin for safety.
+TELEGRAM_MSG_LIMIT = 4096
+_CHUNK_TARGET = 3900
+
+
+def escape_html(text: str) -> str:
+    """Escape the characters Telegram's HTML parse_mode is sensitive to."""
+    if not text:
+        return ""
+    return (
+        text.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+    )
+
+
+def build_facts_payload(facts: list[dict], max_facts: int = 40) -> str:
+    """Serialize department facts into a compact, deterministic block for the LLM.
+
+    Facts are already ordered by relevance/confidence by the caller. We cap the
+    count to keep the prompt bounded and the signal high.
+    """
+    lines: list[str] = []
+    n = 0
+    for f in facts[:max_facts]:
+        what = (f.get("what_happened") or "").strip()
+        if not what:
+            continue
+        n += 1
+        parts = [f"{n}. {what}"]
+        who = (f.get("who") or "").strip()
+        where = (f.get("where_loc") or "").strip()
+        mag = (f.get("magnitude") or "").strip()
+        impact = (f.get("supply_chain_impact") or "").strip()
+        rel = (f.get("ukraine_relevance") or "").strip()
+        if who:
+            parts.append(f"   who: {who}")
+        if where:
+            parts.append(f"   where: {where}")
+        if mag:
+            parts.append(f"   magnitude: {mag}")
+        if impact:
+            parts.append(f"   supply-chain impact: {impact}")
+        if rel:
+            parts.append(f"   ukraine relevance: {rel}")
+        lines.append("\n".join(parts))
+    return "\n".join(lines)
+
+
+def build_synthesis_prompt(dept_name: str, lang: str = "ua") -> str:
+    """System prompt: turn a department's facts into a short Telegram briefing.
+
+    Output is plain text with short paragraphs / bullet lines — NO markdown
+    headings, NO tables (Telegram HTML supports neither). The caller wraps it in
+    the final HTML envelope.
+    """
+    lang_name = {"ua": "Ukrainian", "ru": "Russian", "en": "English"}.get(lang, "Ukrainian")
+    return (
+        "You are a senior B2B market-intelligence analyst for a Ukrainian importer "
+        "of pharmaceutical and chemical raw materials. Write a SHORT briefing for "
+        f"the '{dept_name}' department, in {lang_name}.\n\n"
+        "Rules:\n"
+        f"- Base every statement ONLY on the facts provided. If there is nothing "
+        f"material, reply with exactly the single word: SKIP.\n"
+        "- 3-6 tight bullet points, each one line, most important first.\n"
+        "- Start each bullet with '• '. Lead with the concrete number/price/change "
+        "when there is one, then the 'so what' for procurement.\n"
+        "- No preamble, no headings, no closing summary — bullets only.\n"
+        "- Plain text only: no markdown, no asterisks, no '#'.\n"
+        "- Be concrete and skimmable; a busy buyer reads this on a phone."
+    )
+
+
+def telegram_chunks(text: str, limit: int = TELEGRAM_MSG_LIMIT) -> list[str]:
+    """Split a message so each chunk is <= limit, breaking on line boundaries
+    (and, if a single line is too long, on spaces / hard character cuts)."""
+    if text is None:
+        return []
+    text = text.strip()
+    if not text:
+        return []
+    if len(text) <= limit:
+        return [text]
+
+    target = min(_CHUNK_TARGET, limit)
+    chunks: list[str] = []
+    current = ""
+    for line in text.split("\n"):
+        # A single oversized line: flush current, then hard-split the line.
+        if len(line) > target:
+            if current:
+                chunks.append(current.rstrip("\n"))
+                current = ""
+            chunks.extend(_split_long_line(line, target))
+            continue
+        candidate = f"{current}{line}\n"
+        if len(candidate) > target and current:
+            chunks.append(current.rstrip("\n"))
+            current = f"{line}\n"
+        else:
+            current = candidate
+    if current.strip():
+        chunks.append(current.rstrip("\n"))
+    return chunks
+
+
+def _split_long_line(line: str, target: int) -> list[str]:
+    out: list[str] = []
+    words = line.split(" ")
+    cur = ""
+    for w in words:
+        if len(w) > target:  # single monster token — hard cut
+            if cur:
+                out.append(cur)
+                cur = ""
+            for k in range(0, len(w), target):
+                out.append(w[k:k + target])
+            continue
+        cand = f"{cur} {w}".strip()
+        if len(cand) > target and cur:
+            out.append(cur)
+            cur = w
+        else:
+            cur = cand
+    if cur:
+        out.append(cur)
+    return out
+
+
+def format_article_html(dept_name: str, body: str, date_str: str,
+                        sources: list[tuple[str, str]] | None = None,
+                        max_sources: int = 5) -> str:
+    """Assemble the final Telegram HTML message for one department.
+
+    sources: list of (title, url) tuples appended as a compact source list.
+    """
+    header = f"📊 <b>{escape_html(dept_name)}</b>\n<i>{escape_html(date_str)}</i>\n\n"
+    out = header + escape_html(body).strip()
+    if sources:
+        seen = set()
+        lines = ["\n\n<b>Джерела:</b>"]
+        n = 0
+        for title, url in sources:
+            if not url or url in seen:
+                continue
+            seen.add(url)
+            n += 1
+            label = escape_html((title or url)[:80])
+            lines.append(f'• <a href="{escape_html(url)}">{label}</a>')
+            if n >= max_sources:
+                break
+        if n:
+            out += "\n".join(lines)
+    return out
+
+
+def collect_sources(facts: list[dict], limit: int = 5) -> list[tuple[str, str]]:
+    """Pull (title, link) source pairs from a department's facts, de-duplicated."""
+    out: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for f in facts:
+        url = (f.get("link") or f.get("source_url") or "").strip()
+        if not url or url in seen:
+            continue
+        seen.add(url)
+        title = (f.get("title") or f.get("source_publisher") or "").strip()
+        out.append((title, url))
+        if len(out) >= limit:
+            break
+    return out

@@ -39,6 +39,15 @@ from app.security import (
     user_id_from_init_data,
 )
 
+# ── Telegram-article helpers (PDF -> per-department Telegram briefings) ──
+from app.telegram_articles import (
+    build_facts_payload,
+    build_synthesis_prompt,
+    telegram_chunks,
+    format_article_html,
+    collect_sources,
+)
+
 # ── Chart dependencies (optional — graceful fallback if missing) ──
 try:
     import yfinance as yf
@@ -284,6 +293,32 @@ if gemini_api_key:
 # returned mostly evergreen results from 2014-2019, leaving the DB empty).
 GLOBAL_SOURCES_RAW = "(site:reuters.com OR site:bloomberg.com OR site:ft.com OR site:wto.org OR site:bbc.com OR site:imf.org OR site:worldbank.org OR site:iccwbo.org OR site:theloadstar.com OR site:joc.com)"
 GLOBAL_SOURCES = urllib.parse.quote_plus(GLOBAL_SOURCES_RAW)
+
+
+def google_news_rss(phrases: list[str], sites: list[str] | None = None,
+                    days: int = 5, hl: str = "en-US", gl: str = "US") -> str:
+    """Build a Google News RSS search URL from readable inputs.
+
+    Use this for NEW feeds so a department/source can be added without hand
+    URL-encoding. Multi-word phrases are wrapped in quotes and OR-joined;
+    `sites` become site: filters OR-ed into the same query.
+
+    Example:
+        RSS_FEEDS["excipients"] = google_news_rss(
+            ["pharmaceutical excipients", "excipient shortage", "microcrystalline cellulose price"],
+            sites=["pharmaexcipients.com"], days=5,
+        )
+    See docs: news/docs/03_categories_pipeline/notes/note-adding-department.md
+    """
+    terms = [f'"{p}"' if " " in p else p for p in phrases]
+    for s in (sites or []):
+        terms.append(f"site:{s}")
+    query = " OR ".join(terms)
+    encoded = urllib.parse.quote_plus(query)
+    return (
+        f"https://news.google.com/rss/search?q={encoded}"
+        f"+when:{days}d&hl={hl}&gl={gl}&ceid={gl}:en"
+    )
 
 # Thematic category queries. Broadened with OR-unions of synonyms and
 # stripped of site: filter — they now capture the full Google News universe
@@ -5163,6 +5198,138 @@ def get_category_news(category: str):
     )
     conn.close()
     return rows
+
+
+# ═══════════════════════════════════════════════════════════════
+# TELEGRAM ARTICLES — one briefing message per department
+# (additive alternative to the PDF report; reuses the same facts)
+# ═══════════════════════════════════════════════════════════════
+
+async def generate_department_article(dept_code: str, dept_name: str,
+                                      facts: list[dict], date_str: str,
+                                      lang: str = "ua") -> str | None:
+    """Synthesize one department's facts into a ready-to-send Telegram HTML message.
+    Returns None when there is nothing material (LLM replies SKIP) or on error."""
+    if not aclient or not facts:
+        return None
+    payload = build_facts_payload(facts)
+    if not payload.strip():
+        return None
+    system_prompt = build_synthesis_prompt(dept_name, lang)
+    try:
+        resp = await aclient.chat.completions.create(
+            model="gpt-4o-mini",
+            max_tokens=700,
+            temperature=0.3,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": payload},
+            ],
+        )
+        body = (resp.choices[0].message.content or "").strip()
+    except Exception as e:
+        logger.warning("telegram-article synthesis failed for %s: %s", dept_code, e)
+        return None
+    if not body or body.strip().upper().startswith("SKIP"):
+        return None
+    sources = collect_sources(facts)
+    return format_article_html(dept_name, body, date_str, sources)
+
+
+async def generate_department_articles(mode: str = "daily_brief",
+                                       only_dept: str | None = None) -> list[dict]:
+    """Build per-department Telegram articles for the given report mode.
+    Returns [{dept, name, html}, ...] only for departments with material news."""
+    kyiv = pytz.timezone("Europe/Kyiv")
+    now = datetime.datetime.now(kyiv)
+    yesterday = now - datetime.timedelta(days=1)
+    end_time = None
+    window_start = None
+    if mode == "midday":
+        subject = now
+        end_time = now.replace(tzinfo=None)
+    elif mode == "weekly":
+        subject = yesterday
+        window_start = (now - datetime.timedelta(days=7)).date()
+    else:  # daily_brief
+        subject = yesterday
+    date_str = subject.strftime("%d.%m.%Y")
+
+    data = fetch_facts_for_report(subject.date(), end_time=end_time, window_start=window_start)
+    by_cat = data.get("by_category", {})
+
+    articles: list[dict] = []
+    for code, name in REPORT_CATEGORIES:
+        if only_dept and code != only_dept:
+            continue
+        facts = by_cat.get(code) or []
+        html = await generate_department_article(code, name, facts, date_str)
+        if html:
+            articles.append({"dept": code, "name": name, "html": html})
+    return articles
+
+
+async def send_department_articles_to_users(mode: str = "daily_brief",
+                                            only_dept: str | None = None) -> dict:
+    """Generate and push per-department Telegram articles to all subscribers."""
+    articles = await generate_department_articles(mode, only_dept)
+    if not articles:
+        logger.info("telegram-articles: nothing material for mode=%s", mode)
+        return {"sent": 0, "articles": 0, "recipients": 0}
+
+    conn = get_db_connection()
+    cur = conn.cursor()
+    users = db_fetchall(cur, "SELECT chat_id FROM telegram_users") or []
+    conn.close()
+
+    recipients: list = [u["chat_id"] for u in users]
+    recipients += [c.strip() for c in os.getenv("TELEGRAM_CHAT_ID", "").split(",") if c.strip()]
+    # De-duplicate (a subscriber may also be an env admin id).
+    seen: set[str] = set()
+    recipients = [r for r in recipients if not (str(r) in seen or seen.add(str(r)))]
+
+    sent = 0
+    async with httpx.AsyncClient(timeout=30) as client:
+        for chat_id in recipients:
+            for art in articles:
+                for chunk in telegram_chunks(art["html"]):
+                    try:
+                        r = await client.post(
+                            f"{TELEGRAM_API_URL}/sendMessage",
+                            json={
+                                "chat_id": chat_id,
+                                "text": chunk,
+                                "parse_mode": "HTML",
+                                "disable_web_page_preview": True,
+                            },
+                        )
+                        if r.status_code == 200:
+                            sent += 1
+                        else:
+                            logger.warning("tg-article send %s->%s failed: %s",
+                                           art["dept"], chat_id, r.text[:200])
+                    except Exception as e:
+                        logger.warning("tg-article send error to %s: %s", chat_id, e)
+    logger.info("telegram-articles: %d departments -> %d recipients (%d messages)",
+                len(articles), len(recipients), sent)
+    return {"sent": sent, "articles": len(articles), "recipients": len(recipients)}
+
+
+@app.get("/generate_telegram_articles")
+async def trigger_telegram_articles(request: Request, mode: str = "daily_brief",
+                                    dept: str = "", preview: int = 0):
+    """Admin: generate per-department Telegram articles.
+    ?preview=1 returns the HTML without sending. ?dept=api limits to one department.
+    ?mode=daily_brief|midday|weekly selects the time window."""
+    _require_admin_token(request)
+    if mode not in ("daily_brief", "midday", "weekly"):
+        mode = "daily_brief"
+    only = dept or None
+    if preview:
+        arts = await generate_department_articles(mode, only)
+        return {"mode": mode, "count": len(arts), "articles": arts}
+    result = await send_department_articles_to_users(mode, only)
+    return {"ok": True, "mode": mode, **result}
 
 
 @app.get("/generate_report")
