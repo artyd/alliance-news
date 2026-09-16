@@ -410,6 +410,37 @@ RSS_FEEDS = {
         "%22port+congestion%22+OR+%22air+cargo+rates%22+OR+(site:theloadstar.com)"
         "+when:3d&hl=en-US&gl=US&ceid=US:en"
     ),
+    # ── Extra logistics topics (curated from the NewsBotForOlesya source set) ──
+    # Red Sea / Strait of Hormuz shipping security: tanker/vessel attacks,
+    # Houthi strikes, Bab el-Mandeb, reroutes around the Cape.
+    "red_sea": google_news_rss(
+        phrases=[
+            "Strait of Hormuz shipping", "Red Sea shipping attack",
+            "Bab el-Mandeb", "Houthi vessel attack", "tanker attack",
+            "Suez Canal traffic", "shipping reroute Cape of Good Hope",
+        ],
+        days=4,
+    ),
+    # Ukrainian ports, shelling of ports, customs, war-risk insurance — the
+    # import corridor (Odesa / Chornomorsk / Pivdennyi / Izmail). Ukrainian.
+    "ports_customs": google_news_rss(
+        phrases=[
+            "обстріл порту", "порт Одеса", "порт Чорноморськ", "порт Південний",
+            "митниця імпорт", "воєнне страхування суден", "морський коридор",
+            "затримка суден порт",
+        ],
+        days=4, hl="uk-UA", gl="UA",
+    ),
+    # Container line status: blank sailings, service suspensions/withdrawals,
+    # reroutes, port omissions from the major carriers.
+    "carriers": google_news_rss(
+        phrases=[
+            "Maersk blank sailing", "MSC service suspension", "CMA CGM reroute",
+            "Hapag-Lloyd schedule change", "container line port omission",
+            "carrier service withdrawal",
+        ],
+        days=5,
+    ),
     # Tier-1 macro/trade news from Reuters, Bloomberg, FT, WTO, IMF etc.
     "global_sources": (
         f"https://news.google.com/rss/search?q=%22global+trade%22+OR+tariffs+OR+"
@@ -421,6 +452,14 @@ RSS_FEEDS = {
         "https://news.google.com/rss/search?q=Iran+OR+Israel+OR+%22Red+Sea%22+OR+"
         "Hormuz+OR+Houthi+OR+Gaza+OR+%22Persian+Gulf%22"
         "+when:5d&hl=en-US&gl=US&ceid=US:en"
+    ),
+    # US–Iran negotiations / nuclear talks / sanctions track — feeds "wars".
+    "us_iran": google_news_rss(
+        phrases=[
+            "US Iran talks", "US Iran negotiations", "Iran nuclear deal",
+            "Iran sanctions relief", "Iran nuclear talks", "Witkoff Iran",
+        ],
+        days=6,
     ),
     # Wars / conflicts with economic & supply-chain angle — feeds the "wars"
     # department. Internal: stored + fact-extracted, not pushed to subscribers.
@@ -3103,7 +3142,10 @@ DEPARTMENT_TOPICS = [
      ]},
     {"code": "logistics", "name": {"ua": "Логістика", "en": "Logistics"},
      "topics": [
-         ("logistics",  {"ua": "Логістика та фрахт", "en": "Logistics & freight"}),
+         ("logistics",     {"ua": "Логістика та фрахт",       "en": "Logistics & freight"}),
+         ("red_sea",       {"ua": "Червоне море / Ормуз",      "en": "Red Sea / Hormuz"}),
+         ("ports_customs", {"ua": "Порти, обстріли, митниця",  "en": "Ports, shelling, customs"}),
+         ("carriers",      {"ua": "Контейнерні лінії",          "en": "Container carriers"}),
      ]},
     {"code": "world", "name": {"ua": "Світ", "en": "World"},
      "topics": [
@@ -3115,6 +3157,7 @@ DEPARTMENT_TOPICS = [
      "topics": [
          ("geopolitics", {"ua": "Геополітика / конфлікти", "en": "Geopolitics"}),
          ("middle_east", {"ua": "Близький Схід",           "en": "Middle East"}),
+         ("us_iran",     {"ua": "Переговори США–Іран",     "en": "US–Iran talks"}),
      ]},
     {"code": "laws", "name": {"ua": "Закони", "en": "Laws"},
      "topics": [
@@ -3126,6 +3169,18 @@ DEPARTMENT_TOPICS = [
 ]
 
 _ALL_TOPIC_CODES = all_topic_codes(DEPARTMENT_TOPICS)
+
+# Self-check (logged at import): every menu topic must be a pushable category —
+# an RSS_FEEDS key or a known virtual category — and must not be INTERNAL, or the
+# live push would silently drop it. Catches typos / config drift early.
+_VIRTUAL_PUSHABLE = {"market_alerts"}
+for _code in _ALL_TOPIC_CODES:
+    if _code not in RSS_FEEDS and _code not in _VIRTUAL_PUSHABLE:
+        logger.warning("DEPARTMENT_TOPICS: '%s' is not a known pushable category", _code)
+    if _code in INTERNAL_CATEGORIES:
+        logger.warning("DEPARTMENT_TOPICS: '%s' is INTERNAL — it won't be pushed live", _code)
+if len(_ALL_TOPIC_CODES) != len(set(_ALL_TOPIC_CODES)):
+    logger.warning("DEPARTMENT_TOPICS: duplicate topic codes detected")
 
 # Keywords to identify Middle East news in title/summary
 MIDDLE_EAST_KEYWORDS = [
@@ -5469,7 +5524,7 @@ async def generate_department_article(dept_code: str, dept_name: str,
     try:
         resp = await aclient.chat.completions.create(
             model="gpt-4o-mini",
-            max_tokens=700,
+            max_tokens=1100,
             temperature=0.3,
             messages=[
                 {"role": "system", "content": system_prompt},

@@ -95,20 +95,31 @@ def build_synthesis_prompt(dept_name: str, lang: str = "ua") -> str:
     headings, NO tables (Telegram HTML supports neither). The caller wraps it in
     the final HTML envelope.
     """
-    lang_name = {"ua": "Ukrainian", "ru": "Russian", "en": "English"}.get(lang, "Ukrainian")
+    lang_name = {"ua": "Ukrainian", "en": "English"}.get(lang, "Ukrainian")
+    action_word = "Дія" if lang == "ua" else "Action"
     return (
-        "You are a senior B2B market-intelligence analyst for a Ukrainian importer "
-        "of pharmaceutical and chemical raw materials. Write a SHORT briefing for "
-        f"the '{dept_name}' department, in {lang_name}.\n\n"
-        "Rules:\n"
-        f"- Base every statement ONLY on the facts provided. If there is nothing "
-        f"material, reply with exactly the single word: SKIP.\n"
-        "- 3-6 tight bullet points, each one line, most important first.\n"
-        "- Start each bullet with '• '. Lead with the concrete number/price/change "
-        "when there is one, then the 'so what' for procurement.\n"
-        "- No preamble, no headings, no closing summary — bullets only.\n"
-        "- Plain text only: no markdown, no asterisks, no '#'.\n"
-        "- Be concrete and skimmable; a busy buyer reads this on a phone."
+        "You are a senior B2B procurement & market-intelligence analyst for a "
+        "Ukrainian importer of pharmaceutical and chemical raw materials. Write a "
+        f"concrete, actionable briefing for the '{dept_name}' department, in {lang_name}.\n\n"
+        "HARD RULES:\n"
+        "- Use ONLY the facts provided. If nothing is material, reply with exactly "
+        "the single word: SKIP.\n"
+        "- 4-7 bullets, most important first. Each bullet MUST have three parts:\n"
+        "  1) LEAD with the concrete datum from the facts — a number, %, price, "
+        "date, company, country or volume. Never open with a vague phrase.\n"
+        "  2) Then the concrete consequence for OUR sourcing / logistics / costs / "
+        "lead times.\n"
+        f"  3) End with '→ {action_word}:' and ONE specific step the team should take "
+        "(e.g. lock in a price now, qualify an alternative supplier, pre-order "
+        "buffer stock, expedite a shipment, re-check a contract clause, switch "
+        "route). Make it realistic and specific to the datum.\n"
+        "- If several facts are the same story, MERGE them into one richer bullet "
+        "keeping all numbers; do not repeat.\n"
+        "- NEVER invent a number that is not in the facts. If a fact has no number, "
+        "still name the concrete actor/event and give the action.\n"
+        "- Start each bullet with '• '. No headings, no preamble, no closing "
+        "summary. Plain text only — no markdown, asterisks or '#'.\n"
+        "- Be dense and skimmable; a busy buyer reads this on a phone."
     )
 
 

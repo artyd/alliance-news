@@ -36,6 +36,25 @@ Scrapers fail soft (return no entries) so a markup change never crashes the
 news loop — but selectors may then need a tweak (see tests/test_scrapers.py).
 All three are normal pushable categories.
 
+## Expanded logistics & wars coverage (from NewsBotForOlesya source set)
+
+Logistics department topics now: `logistics` (general), `red_sea` (Red Sea /
+Strait of Hormuz shipping attacks, reroutes), `ports_customs` (Ukrainian ports
+Odesa/Chornomorsk/Pivdennyi/Izmail, shelling, customs, war-risk insurance, uk),
+`carriers` (Maersk/MSC/CMA CGM blank sailings, suspensions, reroutes).
+
+Wars department adds `us_iran` (US–Iran talks / nuclear / sanctions track).
+
+A startup self-check logs a warning if any `DEPARTMENT_TOPICS` code is not a
+pushable category or is INTERNAL — closes a silent-drop gap.
+
+## Article synthesis is now concrete + actionable
+
+`build_synthesis_prompt` requires each bullet to (1) lead with a concrete datum
+(number/%/price/date/company), (2) state the consequence for our
+sourcing/logistics/costs, (3) end with `→ Дія:` / `→ Action:` — one specific
+step. max_tokens raised to 1100.
+
 ## Language toggle in the menu
 
 The department keyboard has a language button (🇬🇧 English / 🇺🇦 Українська)
