@@ -1294,20 +1294,39 @@ function updateStaticText(){
 }
 
 // ── Category config ───────────────────────────────────────────
+// Categories shown as filter chips, ordered by business department:
+// Закупівля → Логістика → Світ → Війни → Закони. (ru kept = ua for safety; the
+// app is UA/EN only now.)
 const CATS = {
-  all:           {ua:'Всі',          ru:'Все',           en:'All',          c:'#4B5563',e:'📋'},
-  api:           {ua:'Фарм API',     ru:'Фарм API',      en:'Pharm API',    c:'#2563EB',e:'💊'},
-  cosmetic:      {ua:'Косметика',    ru:'Косметика',     en:'Cosmetics',    c:'#DB2777',e:'🧴'},
-  herbal:        {ua:'Трави',        ru:'Травы',         en:'Herbal',       c:'#16A34A',e:'🌿'},
-  veterinary:    {ua:'Ветеринарія',  ru:'Ветеринария',   en:'Veterinary',   c:'#7C3AED',e:'🐾'},
-  food:          {ua:'Харчова',      ru:'Пищевая',       en:'Food',         c:'#B45309',e:'🌾'},
-  feed:          {ua:'Амінокислоти', ru:'Аминокислоты',  en:'Amino',        c:'#92400E',e:'🐄'},
-  capsules:      {ua:'Капсули',      ru:'Капсулы',       en:'Capsules',     c:'#0E7490',e:'🔬'},
-  pvc:           {ua:'ПВХ / Пак.',   ru:'ПВХ / Упак.',   en:'PVC / Pack.',  c:'#4338CA',e:'📦'},
-  logistics:     {ua:'Логістика',    ru:'Логистика',     en:'Logistics',    c:'#B91C1C',e:'🚢'},
-  global_sources:{ua:'Глобально',    ru:'Глобально',     en:'Global',       c:'#374151',e:'🌐'},
-  good_news:     {ua:'Позитив',      ru:'Позитив',       en:'Positive',     c:'#059669',e:'✨'},
-  market_alerts: {ua:'Алерти',       ru:'Алерты',        en:'Alerts',       c:'#C2410C',e:'⚡'},
+  all:           {ua:'Всі',           ru:'Всі',           en:'All',            c:'#4B5563',e:'📋'},
+  // ── Закупівля ──
+  api:           {ua:'Фарм API',      ru:'Фарм API',      en:'Pharma API',     c:'#2563EB',e:'💊'},
+  cosmetic:      {ua:'Косметика',     ru:'Косметика',     en:'Cosmetics',      c:'#DB2777',e:'🧴'},
+  herbal:        {ua:'Трави',         ru:'Трави',         en:'Herbal',         c:'#16A34A',e:'🌿'},
+  veterinary:    {ua:'Ветеринарія',   ru:'Ветеринарія',   en:'Veterinary',     c:'#7C3AED',e:'🐾'},
+  food:          {ua:'Харчова',       ru:'Харчова',       en:'Food',           c:'#B45309',e:'🌾'},
+  feed:          {ua:'Амінокислоти',  ru:'Амінокислоти',  en:'Feed',           c:'#92400E',e:'🐄'},
+  capsules:      {ua:'Капсули',       ru:'Капсули',       en:'Capsules',       c:'#0E7490',e:'🔬'},
+  pvc:           {ua:'ПВХ / Пак.',    ru:'ПВХ / Пак.',    en:'PVC / Pack.',    c:'#4338CA',e:'📦'},
+  // ── Логістика ──
+  logistics:     {ua:'Логістика',     ru:'Логістика',     en:'Logistics',      c:'#B91C1C',e:'🚢'},
+  maritime:      {ua:'Море',          ru:'Море',          en:'Maritime',       c:'#0369A1',e:'⚓'},
+  red_sea:       {ua:'Червоне море',  ru:'Червоне море',  en:'Red Sea',        c:'#DC2626',e:'🔴'},
+  ports_customs: {ua:'Порти/Митниця', ru:'Порти/Митниця', en:'Ports/Customs',  c:'#0D9488',e:'🛃'},
+  carriers:      {ua:'Лінії',         ru:'Лінії',         en:'Carriers',       c:'#1D4ED8',e:'🛳️'},
+  // ── Світ ──
+  global_sources:{ua:'Глобально',     ru:'Глобально',     en:'Global',         c:'#374151',e:'🌐'},
+  market_alerts: {ua:'Алерти',        ru:'Алерти',        en:'Alerts',         c:'#C2410C',e:'⚡'},
+  good_news:     {ua:'Позитив',       ru:'Позитив',       en:'Positive',       c:'#059669',e:'✨'},
+  // ── Війни ──
+  geopolitics:   {ua:'Геополітика',   ru:'Геополітика',   en:'Geopolitics',    c:'#7C2D12',e:'🌍'},
+  middle_east:   {ua:'Близький Схід', ru:'Близький Схід', en:'Middle East',    c:'#A16207',e:'🕌'},
+  us_iran:       {ua:'США–Іран',      ru:'США–Іран',      en:'US–Iran',        c:'#9333EA',e:'🤝'},
+  // ── Закони ──
+  regulation:    {ua:'Регуляції',     ru:'Регуляції',     en:'Regulation',     c:'#475569',e:'⚖️'},
+  apteka:        {ua:'Аптека.ua',     ru:'Аптека.ua',     en:'Apteka.ua',      c:'#059669',e:'💊'},
+  dls:           {ua:'Держлікслужба', ru:'Держлікслужба', en:'State Medicines',c:'#334155',e:'🏛️'},
+  kmu:           {ua:'КМУ / НПА',     ru:'КМУ / НПА',     en:'Cabinet (KMU)',  c:'#1E293B',e:'📜'},
 };
 
 const TICKER_CATS = {
