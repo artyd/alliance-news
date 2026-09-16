@@ -1517,7 +1517,18 @@ function tab(name, btn){
 function buildChips(){
   const el = document.getElementById('chips');
   if(!el) return;
-  ['all','api','cosmetic','herbal','veterinary','food','feed','capsules','pvc','logistics','global_sources','good_news'].forEach(k => {
+  ['all',
+   // Закупівля
+   'api','cosmetic','herbal','veterinary','food','feed','capsules','pvc',
+   // Логістика
+   'logistics','maritime','red_sea','ports_customs','carriers',
+   // Світ
+   'global_sources','good_news',
+   // Війни
+   'geopolitics','middle_east','us_iran',
+   // Закони
+   'regulation','apteka','dls','kmu'
+  ].forEach(k => {
     const d = document.createElement('div');
     d.className = 'chip'+(k===activeCat?' on':'');
     d.dataset.k = k;
