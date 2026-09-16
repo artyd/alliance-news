@@ -1,0 +1,27 @@
+# Secrets & config
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+news/.venv/
+
+# App data / artifacts
+*.db
+*.pdf
+/tmp/
+
+# Editor / OS / local tooling
+.obsidian/
+.claude/
+.DS_Store
+*.swp
+
+# Local backups (kept out of git; historical copies live in archive/)
+archive/*.bak
+archive/*.legacy
+archive/*.pre-refactor.bak

@@ -1,0 +1,3214 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
+<title>Новинний Дайджест</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+
+/* ── PURE BLACK THEME ── */
+:root{
+  --bg:#000000;--surface:#0F0F0F;--surface2:#1A1A1A;--border:#2A2A2A;
+  --text:#FFFFFF;--sub:#8A8A8A;--muted:#555555;
+  --green:#22C55E;--red:#EF4444;
+  --shadow:0 2px 16px rgba(0,0,0,.9);
+  --r:13px;--font:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+}
+/* Light mode (optional toggle) */
+[data-light]{
+  --bg:#F5F5F5;--surface:#FFFFFF;--surface2:#EBEBEB;--border:#DDDDDD;
+  --text:#0A0A0A;--sub:#666666;--muted:#AAAAAA;
+  --shadow:0 2px 10px rgba(0,0,0,.08);
+}
+
+html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:var(--font);-webkit-font-smoothing:antialiased;font-size:15px}
+
+/* ── SPLASH ── large logo + grey water rings, no text ── */
+#splash{
+  position:fixed;inset:0;display:flex;
+  align-items:center;justify-content:center;
+  background:var(--bg);z-index:9999;transition:opacity .5s ease;
+  overflow:hidden;
+}
+/* Logo — 72% screen width, no background, pulsing */
+.sp-logo-img{
+  width:72vw;max-width:360px;height:auto;
+  object-fit:contain;
+  z-index:2;position:relative;
+  animation:logo-pulse 2s ease-in-out infinite;
+}
+@keyframes logo-pulse{
+  0%,100%{transform:scale(1);opacity:1}
+  50%{transform:scale(1.06);opacity:.85}
+}
+
+/* ── APP SHELL ── */
+#app{
+  opacity:0;visibility:hidden;pointer-events:none;
+  display:flex;flex-direction:column;height:100vh;overflow:hidden;
+}
+#app.on{opacity:1;visibility:visible;pointer-events:auto;}
+body.fullscreen-layout #app{max-width:none;width:100vw}
+.hbtn.active{border-color:var(--green);color:var(--green)}
+
+/* ── CSS-ONLY BOOT FALLBACK (fires even if all JS fails) ── */
+@keyframes forceShowApp{to{opacity:1;visibility:visible;pointer-events:auto}}
+@keyframes forceHideSplash{to{opacity:0;visibility:hidden;pointer-events:none}}
+#app{animation:forceShowApp .1s linear 3s forwards}
+#splash{animation:forceHideSplash .1s linear 3s forwards}
+
+body.boot-fallback #app{opacity:1!important;visibility:visible!important;pointer-events:auto!important;}
+body.boot-fallback #splash{display:none!important;}
+body.boot-error .safe-mode-msg{display:block!important;}
+
+/* ── HEADER ── */
+header{
+  display:flex;align-items:center;gap:10px;padding:12px 16px;
+  background:var(--bg);border-bottom:1px solid var(--border);
+  flex-shrink:0;z-index:50;
+}
+/* Header logo — no background box */
+.h-logo-img{width:28px;height:28px;object-fit:contain;flex-shrink:0}
+header .htitle{flex:1;font-size:15px;font-weight:800;letter-spacing:-.2px;color:var(--text)}
+.hbtn{
+  background:var(--surface);border:1px solid var(--border);border-radius:9px;
+  min-width:36px;height:32px;padding:0 6px;
+  font-size:16px;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;
+  transition:background .15s;color:var(--text);
+}
+.hbtn:active{background:var(--surface2)}
+#tbtn{font-size:14px}
+
+/* ── BOTTOM NAV — 5 equal tabs ── */
+nav{
+  display:flex;background:var(--bg);border-top:1px solid var(--border);
+  flex-shrink:0;padding-bottom:env(safe-area-inset-bottom,0);
+}
+nav button{
+  flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  padding:8px 2px 9px;background:none;border:none;
+  font-size:10px;font-weight:500;color:var(--sub);cursor:pointer;gap:4px;
+  transition:color .15s;position:relative;
+}
+nav button .ico{font-size:25px;display:block;line-height:1}
+nav button#btn-add .ico{color:var(--green)}
+nav button.on{color:var(--text)}
+nav button.on::after{
+  content:'';position:absolute;bottom:0;left:50%;transform:translateX(-50%);
+  width:20px;height:2px;border-radius:1px 1px 0 0;background:var(--text);
+}
+
+/* ── CONTENT ── */
+#content{flex:1;overflow:hidden;position:relative}
+.panel{display:none;height:100%;overflow-y:auto;-webkit-overflow-scrolling:touch;padding-bottom:16px}
+.panel.on{display:block}
+
+/* ── CHIPS ── */
+.chips{padding:12px 14px 6px;overflow-x:auto;white-space:nowrap;scrollbar-width:none}
+.chips::-webkit-scrollbar{display:none}
+.chip{
+  display:inline-flex;align-items:center;gap:5px;
+  padding:6px 13px;border-radius:20px;font-size:12px;font-weight:600;
+  margin-right:7px;border:1.5px solid var(--border);color:var(--sub);
+  background:var(--surface);cursor:pointer;transition:all .15s;user-select:none;
+}
+.chip.on{border-color:var(--text);color:var(--text);background:var(--surface2)}
+
+/* ── NEWS CARDS ── */
+.nlist{padding:10px 14px;display:flex;flex-direction:column;gap:10px}
+.ncard{
+  background:var(--surface);border-radius:var(--r);
+  border:1px solid var(--border);
+}
+.ncard-body{padding:12px 13px}
+.nbadge{
+  display:inline-flex;align-items:center;gap:4px;
+  padding:3px 9px;border-radius:5px;font-size:11px;font-weight:700;
+  color:#fff;margin-bottom:8px;letter-spacing:.1px;
+}
+.ntitle{
+  font-size:13.5px;font-weight:700;line-height:1.45;
+  color:var(--text);text-decoration:none;display:block;margin-bottom:6px;
+}
+.ntitle:active{opacity:.7}
+/* Truncated summary — 2 lines with "..." */
+.nsumm{
+  font-size:12.5px;color:var(--sub);line-height:1.5;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
+  margin-bottom:8px;
+}
+.nsumm.exp{display:block;overflow:visible;-webkit-line-clamp:unset}
+/* Full text hidden until expanded */
+.nsumm-full{
+  font-size:12.5px;color:var(--sub);line-height:1.55;
+  max-height:0;overflow:hidden;transition:max-height .35s ease,margin .2s ease;
+  margin-bottom:0;
+}
+.nsumm-full.exp{max-height:800px;margin-bottom:8px}
+.ncard-footer{display:flex;align-items:center;justify-content:space-between}
+.ntime{font-size:11px;color:var(--muted);display:flex;align-items:center;gap:4px}
+.read-btn{
+  font-size:12px;font-weight:700;color:var(--text);opacity:.6;
+  background:none;border:none;padding:0;cursor:pointer;flex-shrink:0;
+  transition:opacity .15s;
+}
+.read-btn:active{opacity:1}
+
+/* ── LOAD MORE ── */
+.lmore{
+  display:block;margin:6px 14px 0;padding:12px;border-radius:var(--r);
+  background:var(--surface);border:1px solid var(--border);
+  color:var(--sub);font-size:13px;font-weight:600;
+  cursor:pointer;text-align:center;transition:background .15s;
+}
+.lmore:active{background:var(--surface2)}
+
+/* ── REPORTS (digest PDFs) ── */
+.rlist{padding:12px 14px;display:flex;flex-direction:column;gap:10px}
+.rep-card{
+  background:var(--surface);border-radius:var(--r);
+  border:1px solid var(--border);padding:14px 15px;
+  display:flex;align-items:center;gap:12px;
+}
+.rep-ico{font-size:26px;flex-shrink:0}
+.rep-info{flex:1;min-width:0}
+.rep-type{font-size:13px;font-weight:700;color:var(--text);margin-bottom:3px}
+.rep-date{font-size:11.5px;color:var(--sub)}
+.rep-btn{
+  background:var(--surface2);border:1px solid var(--border);
+  border-radius:9px;padding:8px 11px;font-size:12px;font-weight:700;
+  color:var(--text);cursor:pointer;white-space:nowrap;flex-shrink:0;
+  transition:background .15s;
+}
+.rep-btn:active{background:var(--border)}
+
+/* ── MARKETS ── */
+.msec{padding:14px 14px 0}
+.msec-hdr{font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:1px;color:var(--sub);margin-bottom:12px}
+.pgrid{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-bottom:4px}
+.pcard{
+  background:var(--surface);border:1px solid var(--border);border-radius:var(--r);
+  padding:13px 13px 12px;cursor:pointer;transition:border-color .15s;
+}
+.pcard:active{border-color:var(--sub)}
+.pcico{font-size:22px;margin-bottom:4px}
+.pclbl{font-size:10.5px;color:var(--sub);line-height:1.3;margin-bottom:8px;min-height:28px}
+.pcval{font-size:17px;font-weight:800;letter-spacing:-.5px}
+.pcunit{font-size:10px;font-weight:400;color:var(--sub)}
+.pcchg{font-size:13px;font-weight:700;margin-top:2px}
+.pcchg.up{color:var(--green)}.pcchg.dn{color:var(--red)}.pcchg.fl{color:var(--muted)}
+
+/* ── MARKET DETAIL ── */
+.mk-detail{display:none;flex-direction:column}
+.mk-detail.on{display:flex}
+.mk-back-row{padding:12px 14px 4px}
+.mk-back{
+  display:inline-flex;align-items:center;gap:7px;
+  padding:9px 16px;background:var(--surface);border:1px solid var(--border);
+  border-radius:20px;font-size:13px;font-weight:700;color:var(--text);
+  cursor:pointer;transition:background .15s;
+}
+.mk-back:active{background:var(--surface2)}
+.chcard{
+  background:var(--surface);border:1px solid var(--border);border-radius:var(--r);
+  padding:14px;margin:8px 14px 4px;
+}
+.chtitle{font-size:13px;font-weight:700;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center}
+.chpct{font-size:12px;font-weight:700}
+.mk-news-hdr{font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:1px;color:var(--sub);padding:10px 14px 4px}
+
+/* ── SKELETON ── */
+.sk{border-radius:var(--r);background:linear-gradient(90deg,var(--surface) 25%,var(--surface2) 50%,var(--surface) 75%);background-size:200% 100%;animation:shimmer 1.5s infinite}
+@keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
+.sk-card{height:90px;margin-bottom:10px}
+.sk-pcard{height:90px;border-radius:var(--r)}
+.sk-rep{height:72px;border-radius:var(--r)}
+.sk-ch{height:190px;border-radius:var(--r);margin:8px 14px 4px}
+
+/* ── EMPTY ── */
+.empty{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:60px 20px;text-align:center;gap:8px}
+.empty .ei{font-size:44px}.empty p{font-size:13.5px;color:var(--sub)}
+
+/* ── TRACKING ── */
+.trk-wrap{padding:14px;display:flex;flex-direction:column;min-height:100%;box-sizing:border-box}
+/* Step 1: Mode picker — two big cards */
+.trk-mode-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px}
+.trk-mode-btn{
+  padding:22px 8px;border-radius:var(--r);
+  background:var(--surface);border:1.5px solid var(--border);
+  font-size:13px;font-weight:700;color:var(--sub);cursor:pointer;
+  transition:all .2s;display:flex;flex-direction:column;align-items:center;gap:8px;
+}
+.trk-mode-ico{font-size:34px;line-height:1}
+.trk-mode-btn.on{border-color:var(--green);color:var(--text);background:var(--surface2)}
+/* Step 2: Carrier grid — hidden until parcel chosen */
+.trk-carriers{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px}
+.trk-car-btn{
+  padding:12px 8px;border-radius:var(--r);
+  background:var(--surface);border:1.5px solid var(--border);
+  font-size:13px;font-weight:700;color:var(--sub);cursor:pointer;
+  transition:all .15s;text-align:center;
+}
+.trk-car-btn.on{border-color:var(--text);color:var(--text);background:var(--surface2)}
+.trk-input-row{display:flex;flex-direction:column;gap:10px;margin-bottom:4px}
+.trk-input{
+  width:100%;padding:13px 16px;border-radius:var(--r);
+  background:var(--surface);border:1px solid var(--border);
+  color:var(--text);font-size:15px;font-family:var(--font);
+  outline:none;transition:border-color .2s;
+}
+.trk-input:focus{border-color:var(--green)}
+.trk-go{
+  width:100%;padding:15px;border-radius:var(--r);
+  background:var(--green);border:none;color:#000;
+  font-size:15px;font-weight:800;cursor:pointer;letter-spacing:.3px;
+  transition:opacity .15s,transform .1s;
+}
+.trk-go:active{opacity:.85;transform:scale(.98)}
+/* Loading radar animation */
+.trk-loading{display:flex;flex-direction:column;align-items:center;padding:44px 20px 32px;gap:20px}
+.trk-radar{position:relative;width:80px;height:80px}
+.trk-radar-ring{
+  position:absolute;inset:0;border-radius:50%;
+  border:1.5px solid var(--green);
+  animation:trk-ping 1.8s ease-out infinite;
+}
+.trk-radar-ring:nth-child(2){animation-delay:.6s}
+.trk-radar-ring:nth-child(3){animation-delay:1.2s}
+@keyframes trk-ping{
+  0%{transform:scale(.3);opacity:.9}
+  100%{transform:scale(2.6);opacity:0}
+}
+.trk-radar-center{
+  position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+  font-size:40px;z-index:2;
+}
+.trk-loading-txt{font-size:13.5px;font-weight:600;color:var(--sub)}
+.trk-result{margin-top:14px}
+.trk-error{
+  background:var(--surface);border:1px solid var(--border);border-radius:var(--r);
+  padding:16px 15px;font-size:13px;color:var(--sub);line-height:1.6;
+}
+.trk-error strong{color:var(--text);display:block;margin-bottom:6px;font-size:14px}
+.trk-error code{font-size:11.5px;color:var(--green);display:block;margin-top:8px;word-break:break-all}
+.trk-open-btn{
+  display:block;width:100%;margin-top:12px;padding:13px;border-radius:var(--r);
+  background:var(--surface2);border:1px solid var(--border);
+  color:var(--text);font-size:13px;font-weight:700;cursor:pointer;text-align:center;
+  transition:background .15s;
+}
+.trk-open-btn:active{background:var(--border)}
+.trk-delivery{
+  background:var(--surface);border:1px solid var(--border);border-radius:var(--r);
+  padding:14px 15px;margin-bottom:14px;
+  display:flex;align-items:center;gap:12px;
+}
+.trk-del-ico{font-size:28px;flex-shrink:0}
+.trk-del-info{flex:1;min-width:0}
+.trk-del-label{font-size:11.5px;color:var(--sub);margin-bottom:4px;line-height:1.4}
+.trk-del-date{font-size:16px;font-weight:800;color:var(--text)}
+.trk-carrier-banner{
+  border-radius:var(--r);padding:14px 15px;margin-bottom:14px;
+  border:2px solid var(--border);background:var(--surface);
+}
+.trk-carrier-bname{font-size:22px;font-weight:900;margin-bottom:6px}
+.trk-carrier-bnum{font-size:11.5px;color:var(--sub);margin-bottom:4px;font-variant-numeric:tabular-nums}
+.trk-carrier-bstat{font-size:14px;font-weight:700;color:var(--text)}
+.trk-timeline{display:flex;flex-direction:column;margin-bottom:4px}
+/* Each step has a fixed minimum height so dots are always evenly spaced */
+.trk-step{
+  display:flex;align-items:flex-start;gap:13px;
+  position:relative;min-height:72px;
+}
+/* Vertical connector line — fixed top anchor (bottom of dot = top+36px), fixed bottom gap */
+.trk-step:not(:last-child)::before{
+  content:'';position:absolute;left:17px;top:37px;width:2px;
+  bottom:0;background:var(--border);z-index:0;
+}
+.trk-dot{
+  width:36px;height:36px;border-radius:50%;flex-shrink:0;
+  display:flex;align-items:center;justify-content:center;
+  font-size:16px;z-index:1;position:relative;margin-top:2px;
+}
+.trk-dot.done{background:#22C55E22;border:2px solid var(--green)}
+.trk-dot.active{background:var(--green);border:2px solid var(--green);box-shadow:0 0 0 4px #22c55e22}
+.trk-dot.fail{background:#EF444422;border:2px solid #EF4444}
+.trk-dot.pending{background:var(--surface2);border:2px solid var(--border)}
+.trk-step-info{padding:4px 0 20px;flex:1;min-width:0}
+.trk-step-title{font-size:13.5px;font-weight:700;color:var(--text);margin-bottom:3px;line-height:1.35}
+.trk-step-title.dim{color:var(--muted)}
+/* Timestamp — shown in accent green, clearly readable */
+.trk-step-time{
+  font-size:11.5px;font-weight:600;color:var(--green);
+  margin-bottom:2px;font-variant-numeric:tabular-nums;
+}
+.trk-step-desc{font-size:11.5px;color:var(--sub);line-height:1.45}
+
+/* ── SAVED SHIPMENTS ── */
+.trk-saved-wrap{margin-top:0;padding-top:0}
+.trk-sec-hdr{
+  font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:1.2px;
+  color:var(--sub);margin-bottom:10px;display:flex;align-items:center;gap:6px;
+}
+.trk-sec-cnt{font-size:11px;font-weight:700;background:var(--surface2);
+  padding:2px 7px;border-radius:20px;color:var(--muted)}
+.trk-saved-list{display:flex;flex-direction:column;gap:8px;margin-bottom:18px}
+.trk-sv-card{
+  background:var(--surface);border:1px solid var(--border);border-radius:var(--r);
+  padding:11px 12px;display:flex;align-items:center;gap:11px;
+  cursor:pointer;transition:background .15s;
+}
+.trk-sv-card:active{background:var(--surface2)}
+.trk-sv-card.arc{opacity:.65}
+.trk-sv-ico{font-size:22px;flex-shrink:0}
+.trk-sv-info{flex:1;min-width:0}
+.trk-sv-num{font-size:13px;font-weight:700;color:var(--text);margin-bottom:2px}
+.trk-sv-stat{
+  font-size:11.5px;color:var(--sub);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.trk-sv-time{font-size:10px;color:var(--muted);margin-top:2px}
+.trk-sv-del{
+  background:var(--red);border:none;border-radius:20px;
+  font-size:11px;font-weight:700;color:#fff;
+  cursor:pointer;padding:6px 11px;flex-shrink:0;line-height:1;
+  transition:opacity .15s;white-space:nowrap;
+}
+.trk-sv-del:active{opacity:.8}
+.trk-save-btn{
+  display:block;width:100%;margin-top:14px;padding:13px;border-radius:var(--r);
+  background:var(--surface);border:1.5px solid var(--green);
+  color:var(--green);font-size:14px;font-weight:700;cursor:pointer;text-align:center;
+  transition:background .15s,opacity .15s;
+}
+.trk-save-btn:active{background:var(--surface2)}
+.trk-save-btn:disabled{opacity:.5;cursor:default;border-color:var(--border);color:var(--sub)}
+
+/* ── TRACKING TABS + FILTER CHIPS ── */
+.trk-tab-row{display:flex;gap:8px;margin-bottom:16px;flex-shrink:0}
+.trk-tab-btn{
+  flex:1;padding:10px 12px;border-radius:20px;font-size:13px;font-weight:700;
+  text-align:center;background:var(--surface);border:1.5px solid var(--border);
+  color:var(--sub);cursor:pointer;transition:all .15s;
+}
+.trk-tab-btn.on{border-color:var(--text);color:var(--text);background:var(--surface2)}
+.trk-filter-row{
+  display:flex;overflow-x:auto;gap:8px;padding-bottom:12px;flex-shrink:0;
+  -webkit-overflow-scrolling:touch;scrollbar-width:none;
+}
+.trk-filter-row::-webkit-scrollbar{display:none}
+.trk-fchip{
+  padding:6px 14px;border-radius:20px;font-size:12px;font-weight:700;
+  border:1.5px solid var(--border);color:var(--sub);background:var(--surface);
+  cursor:pointer;white-space:nowrap;transition:all .15s;flex-shrink:0;
+}
+.trk-fchip.on{color:#fff;border-color:transparent}
+
+/* ── TRACKING SCREEN NAVIGATION ── */
+.trk-screen{display:none;flex-direction:column;flex:1}
+.trk-screen.active{display:flex}
+.trk-big-wrap{display:flex;flex-direction:column;flex:1;gap:12px;padding-bottom:4px}
+.trk-big-btn{
+  flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:10px;border-radius:var(--r);border:1.5px solid var(--border);
+  background:var(--surface);color:var(--sub);cursor:pointer;min-height:130px;
+  transition:all .2s;
+}
+.trk-big-btn:active{background:var(--surface2);border-color:var(--green)}
+.trk-big-ico{font-size:44px;line-height:1}
+.trk-big-title{font-size:18px;font-weight:800;color:var(--text);margin-top:2px}
+.trk-big-sub{font-size:11.5px;color:var(--muted);text-align:center;padding:0 12px;line-height:1.4}
+.trk-nav-back{
+  display:inline-flex;align-items:center;gap:7px;
+  padding:9px 16px;background:var(--surface);border:1px solid var(--border);
+  border-radius:20px;font-size:13px;font-weight:700;color:var(--text);
+  cursor:pointer;transition:background .15s;margin-bottom:14px;
+}
+.trk-nav-back:active{background:var(--surface2)}
+.trk-nav-row{display:flex;gap:8px;margin-bottom:14px;flex-shrink:0}
+.trk-nav-row .trk-nav-back{margin-bottom:0}
+.trk-sv-badge{
+  display:inline-block;padding:2px 8px;border-radius:5px;
+  font-size:10px;font-weight:700;color:#fff;margin-bottom:4px;
+}
+
+/* ── TRACKING DETAIL VIEW ── */
+.trk-detail-back{
+  display:inline-flex;align-items:center;gap:7px;
+  padding:9px 16px;background:var(--surface);border:1px solid var(--border);
+  border-radius:20px;font-size:13px;font-weight:700;color:var(--text);
+  cursor:pointer;transition:background .15s;margin-bottom:14px;
+}
+.trk-detail-back:active{background:var(--surface2)}
+.trk-refresh-btn{
+  display:block;width:100%;margin-top:14px;padding:13px;border-radius:var(--r);
+  background:var(--surface);border:1.5px solid var(--border);
+  color:var(--sub);font-size:14px;font-weight:700;cursor:pointer;text-align:center;
+  transition:background .15s,opacity .15s;
+}
+.trk-refresh-btn:active{background:var(--surface2)}
+.trk-refresh-btn:disabled{opacity:.5;cursor:default}
+.trk-auto-refresh{
+  margin-top:12px;padding:10px 14px;border-radius:var(--r);
+  background:var(--surface2);border:1px solid var(--border);
+  font-size:12px;color:var(--sub);text-align:center;
+}
+.trk-list-empty{
+  padding:40px 20px;text-align:center;color:var(--muted);font-size:13px;line-height:1.6;
+}
+
+/* ── WIDGETS (Add tab) ── */
+.wgt-header{padding:16px 14px 10px}
+.wgt-title{font-size:16px;font-weight:800;color:var(--text);margin-bottom:3px}
+.wgt-sub{font-size:12px;color:var(--sub)}
+.wgt-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:0 14px 24px}
+.wgt-card{
+  background:var(--surface);border:1.5px solid var(--border);
+  border-radius:var(--r);padding:16px 14px 14px;
+  display:flex;flex-direction:column;gap:7px;
+  transition:border-color .15s,background .15s;min-height:104px;
+}
+.wgt-card.wgt-active{cursor:pointer}
+.wgt-card.wgt-active:active{background:var(--surface2)}
+.wgt-card.wgt-future{opacity:.5;cursor:default}
+.wgt-ico{font-size:28px;line-height:1}
+.wgt-name{font-size:13.5px;font-weight:700;color:var(--text)}
+.wgt-badge{display:inline-block;font-size:11px;font-weight:700;padding:3px 8px;border-radius:5px}
+.wgt-badge.wgt-on{background:#22C55E22;color:var(--green)}
+.wgt-badge.wgt-off{background:rgba(239,68,68,.12);color:var(--red)}
+.wgt-card.wgt-inactive{border-color:rgba(239,68,68,.3);cursor:pointer}
+.wgt-card.wgt-inactive:active{background:var(--surface2)}
+.wgt-card.wgt-inactive .wgt-name{color:var(--red)}
+.wgt-toast{margin:0 14px 10px;padding:8px 14px;background:rgba(239,68,68,.10);border:1px solid rgba(239,68,68,.22);border-radius:var(--r);font-size:12px;font-weight:600;color:var(--red);text-align:center;display:none}
+/* ── WEATHER ── */
+.weather-wrap{display:flex;flex-direction:column;padding-bottom:80px;overflow-y:auto;height:100%}
+.weather-head{padding:12px 14px 8px}
+.weather-title{font-size:18px;font-weight:800;color:var(--text);line-height:1.2}
+.weather-subtitle{font-size:12px;color:var(--sub);margin-top:2px}
+.weather-search{display:flex;gap:8px;padding:0 14px;margin-bottom:6px}
+.weather-search input{flex:1;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:9px 12px;font-size:14px;color:var(--text);outline:none;min-width:0}
+.weather-search input::placeholder{color:var(--muted)}
+.weather-search input:focus{border-color:var(--sub)}
+.weather-search button{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:9px 14px;font-size:16px;cursor:pointer;color:var(--text);flex-shrink:0;transition:background .15s}
+.weather-search button:active{background:var(--surface2)}
+.weather-results{margin:0 14px 8px;border:1px solid var(--border);border-radius:var(--r);background:var(--surface);max-height:220px;overflow-y:auto;display:none}
+.weather-result-item{padding:10px 14px;cursor:pointer;border-bottom:1px solid var(--border);font-size:13px;color:var(--text)}
+.weather-result-item:last-child{border-bottom:none}
+.weather-result-item:active{background:var(--surface2)}
+.weather-result-name{font-weight:700}
+.weather-result-sub{color:var(--sub);font-size:11px;margin-top:1px}
+.weather-popular{padding:0 14px 8px;display:flex;flex-wrap:wrap;gap:6px}
+.weather-popular-btn{background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:5px 12px;font-size:12px;color:var(--sub);cursor:pointer;white-space:nowrap;transition:background .15s}
+.weather-popular-btn:active{background:var(--surface2)}
+.weather-globe-card{width:calc(100% - 28px);max-width:680px;aspect-ratio:1/1;margin:0 auto 12px;border-radius:20px;overflow:hidden;border:1px solid var(--border);background:#060e1a;position:relative;min-height:280px}
+html.light .weather-globe-card{background:#c8e0f8}
+#weather-globe{position:absolute;inset:0;width:100%;height:100%;touch-action:none}
+.weather-globe-fallback{padding:40px 20px;text-align:center;color:var(--sub);font-size:13px;display:none}
+.weather-main{display:flex;flex-direction:column}
+.weather-side{}
+@media(min-width:980px){
+  .weather-main{display:grid;grid-template-columns:minmax(0,640px) minmax(280px,1fr);gap:16px;align-items:start;padding-right:14px}
+  .weather-main .weather-globe-card{width:100%;max-width:none;margin:0}
+  .weather-side{display:flex;flex-direction:column;gap:12px}
+  .weather-side .weather-card,.weather-side .weather-forecast-wrap{margin-left:0;margin-right:0}
+}
+.weather-card{margin:0 14px 12px;background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px;display:none}
+.weather-city{font-size:13px;color:var(--sub);font-weight:600;margin-bottom:6px}
+.weather-temp-row{display:flex;align-items:center;gap:10px;margin-bottom:4px}
+.weather-icon-big{font-size:40px;line-height:1}
+.weather-main-temp{font-size:52px;font-weight:800;color:var(--text);line-height:1}
+.weather-desc{font-size:15px;color:var(--text);margin-bottom:2px;font-weight:500}
+.weather-feels{font-size:13px;color:var(--sub);margin-bottom:14px}
+.weather-metrics{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px}
+@media(min-width:400px){.weather-metrics{grid-template-columns:repeat(3,1fr)}}
+.weather-metric{background:var(--surface2);border-radius:10px;padding:8px 10px}
+.weather-metric-label{font-size:11px;color:var(--muted);margin-bottom:2px}
+.weather-metric-value{font-size:14px;font-weight:700;color:var(--text)}
+.weather-source{font-size:11px;color:var(--muted);text-align:right;margin-top:6px}
+.weather-forecast-wrap{margin:0 14px 20px;display:none}
+.weather-forecast-title{font-size:12px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px}
+.weather-forecast{display:grid;grid-template-columns:repeat(5,1fr);gap:6px}
+.weather-day{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:8px 4px;text-align:center}
+.weather-day-date{font-size:10px;color:var(--muted);margin-bottom:4px}
+.weather-day-icon{font-size:20px;margin-bottom:4px}
+.weather-day-max{font-size:13px;font-weight:700;color:var(--text)}
+.weather-day-min{font-size:11px;color:var(--sub)}
+.weather-loading{padding:40px 14px;text-align:center;color:var(--sub);font-size:14px}
+#pig-overlay{position:fixed;inset:0;z-index:500;display:none;flex-direction:column;align-items:center;justify-content:center;background:rgba(0,0,0,.88)}
+#pig-overlay.on{display:flex}
+html.light #pig-overlay{background:rgba(240,240,240,.95)}
+.pig-emoji{font-size:80px;margin-bottom:16px;animation:pig-bounce 1s infinite alternate}
+@keyframes pig-bounce{from{transform:scale(1)}to{transform:scale(1.1)}}
+.pig-text{font-size:22px;font-weight:800;color:#FF69B4;letter-spacing:2px;min-height:32px}
+.pig-close{position:absolute;top:20px;right:20px;background:none;border:1px solid rgba(255,255,255,.3);color:#fff;font-size:24px;width:40px;height:40px;border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1}
+html.light .pig-close{border-color:rgba(0,0,0,.2);color:#333}
+
+/* ── CURRENCY & WAREHOUSE sub-panels (Add tab) ── */
+.add-subpanel{display:none;flex-direction:column}
+.add-subpanel.on{display:flex}
+.subpanel-hdr{display:flex;align-items:center;gap:10px;padding:12px 14px 8px;flex-shrink:0}
+.subpanel-back{background:none;border:1px solid var(--border);color:var(--text);font-size:13px;font-weight:600;padding:5px 12px;border-radius:20px;cursor:pointer;line-height:1.4}
+.subpanel-title{font-size:15px;font-weight:800;color:var(--text);flex:1}
+/* ── CURRENCIES ── */
+.curr-head-actions{display:flex;gap:6px;flex-shrink:0}
+.curr-list{display:flex;flex-direction:column;gap:8px;padding:0 14px 20px;overflow-y:auto}
+.curr-list.compact{display:grid;grid-template-columns:1fr 1fr;gap:9px;padding:0 14px 20px}
+.curr-list.chart{display:flex;flex-direction:column;gap:12px;padding:0 14px 20px}
+.curr-footer{font-size:11px;color:var(--muted);padding:2px 14px 16px;text-align:right}
+.curr-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:13px 13px 12px;position:relative;transition:border-color .15s}
+.curr-card.compact{cursor:default}
+.curr-left{display:flex;flex-direction:column;gap:2px}
+.curr-code{font-size:15px;font-weight:800;color:var(--text)}
+.curr-name{font-size:10.5px;color:var(--sub);line-height:1.3}
+.curr-rate{font-size:18px;font-weight:800;color:var(--green);letter-spacing:-.5px;margin-top:6px}
+.curr-label{font-size:10px;color:var(--sub);margin-top:1px}
+.curr-card.chart{padding:13px 14px 10px}
+.curr-chart-hdr{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px}
+.curr-chart-info{display:flex;flex-direction:column;gap:2px}
+.curr-chart-code{font-size:14px;font-weight:800;color:var(--text)}
+.curr-chart-name{font-size:10.5px;color:var(--sub)}
+.curr-chart-rate{font-size:16px;font-weight:800;color:var(--green);letter-spacing:-.5px}
+.curr-chart-area{position:relative;height:100px;margin-top:4px}
+.curr-chart-area canvas{width:100%!important}
+.curr-chart-fallback{display:flex;align-items:center;justify-content:center;height:80px;color:var(--sub);font-size:12px}
+.curr-remove-btn{display:none;position:absolute;top:5px;right:5px;width:20px;height:20px;background:var(--red);color:#fff;border:none;border-radius:50%;font-size:11px;cursor:pointer;align-items:center;justify-content:center;z-index:2;line-height:1}
+body.curr-edit .curr-remove-btn{display:flex}
+body.curr-edit .curr-card{cursor:default}
+.wh-list{display:flex;flex-direction:column;gap:8px;padding:0 14px 20px;overflow-y:auto}
+.wh-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:13px 14px;cursor:pointer;transition:border-color .15s}
+.wh-card:active{border-color:var(--sub)}
+.wh-card-name{font-size:14px;font-weight:700;color:var(--text)}
+.wh-card-cat{font-size:11px;color:var(--sub);margin-top:2px}
+.wh-card-desc{font-size:12px;color:var(--muted);margin-top:5px;line-height:1.4}
+.wh-detail{display:none;flex-direction:column;gap:0;padding:0 14px 24px}
+.wh-detail.on{display:flex}
+.wh-det-row{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:11px 13px;margin-bottom:8px}
+.wh-det-lbl{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:1px;color:var(--sub);margin-bottom:4px}
+.wh-det-val{font-size:13px;color:var(--text);line-height:1.5}
+/* ── MARKETS header ── */
+.mk-head{display:flex;align-items:center;justify-content:space-between;padding:10px 14px 6px}
+.mk-head-title{font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--sub);white-space:nowrap}
+.mk-head-actions{display:flex;gap:6px}
+.mk-icon-btn{background:var(--surface);border:1px solid var(--border);border-radius:9px;width:32px;height:32px;padding:0;font-size:15px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background .15s,border-color .15s;color:var(--text);flex-shrink:0}
+.mk-icon-btn:active{background:var(--surface2)}
+.mk-icon-btn.active{border-color:var(--text);color:var(--text);background:var(--surface2)}
+/* ── MARKETS edit mode ── */
+.pcard{position:relative}
+.pcard-del{display:none;position:absolute;top:5px;right:5px;width:20px;height:20px;background:var(--red);color:#fff;border:none;border-radius:50%;font-size:11px;line-height:1;cursor:pointer;align-items:center;justify-content:center;z-index:2}
+body.mk-edit .pcard-del{display:flex}
+body.mk-edit .pcard{cursor:default}
+/* ── DRAG & DROP ── */
+.pcard.editable{cursor:grab;touch-action:none}
+.pcard.dragging{opacity:.65;transform:scale(.98);cursor:grabbing}
+.pcard.drag-over{border-color:var(--sub)}
+/* ── CHART ADD MODAL ── */
+.mk-modal-ov{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:400;display:none;align-items:flex-end}
+.mk-modal-ov.on{display:flex}
+.mk-modal{background:var(--bg);border-radius:20px 20px 0 0;width:100%;max-height:80vh;display:flex;flex-direction:column;padding-bottom:max(16px,env(safe-area-inset-bottom))}
+.mk-modal-top{display:flex;align-items:center;justify-content:space-between;padding:16px 16px 10px;border-bottom:1px solid var(--border);flex-shrink:0}
+.mk-modal-ttl{font-size:15px;font-weight:800}
+.mk-modal-x{background:none;border:none;color:var(--sub);font-size:22px;cursor:pointer;line-height:1;padding:0}
+.mk-modal-srch{display:block;margin:10px 14px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:9px 12px;font-size:14px;color:var(--text);width:calc(100% - 28px);outline:none;box-sizing:border-box}
+.mk-modal-list{overflow-y:auto;flex:1;padding:0 14px 8px;display:flex;flex-direction:column;gap:7px}
+.mk-mi{background:var(--surface);border:1.5px solid var(--border);border-radius:var(--r);padding:11px 13px;display:flex;align-items:center;gap:10px;cursor:pointer;transition:border-color .15s}
+.mk-mi.on{border-color:var(--green);background:rgba(34,197,94,.07)}
+.mk-mi:active{border-color:var(--sub)}
+.mk-mi-ico{font-size:22px}
+.mk-mi-lbl{font-size:13px;font-weight:600;flex:1}
+.mk-mi-chk{font-size:16px;color:var(--green);display:none}
+.mk-mi.on .mk-mi-chk{display:block}
+.mk-modal-footer{padding:12px 14px;padding-bottom:max(16px,calc(env(safe-area-inset-bottom) + 12px));border-top:1px solid var(--border);flex-shrink:0;background:var(--bg)}
+.mk-modal-save{width:100%;background:var(--green);color:#fff;border:none;border-radius:var(--r);padding:13px;font-size:14px;font-weight:700;cursor:pointer}
+
+/* ── DESKTOP LAYOUT (≥ 768 px) ─────────────────────────────────────────────── */
+@media (min-width:768px){
+  /* Grid: header top row, sidebar nav left, content right */
+  #app.on{
+    display:grid;
+    grid-template-areas:"hdr hdr" "nav cnt";
+    grid-template-columns:220px 1fr;
+    grid-template-rows:auto 1fr;
+    height:100vh;
+  }
+  header{grid-area:hdr;padding:14px 28px}
+  header .htitle{font-size:17px}
+
+  /* Sidebar nav */
+  nav{
+    grid-area:nav;
+    flex-direction:column;
+    align-items:stretch;
+    border-top:none;
+    border-right:1px solid var(--border);
+    padding:16px 0 24px;
+    overflow-y:auto;
+    height:100%;
+  }
+  nav button{
+    flex-direction:row;
+    justify-content:flex-start;
+    padding:14px 22px;
+    font-size:14px;
+    font-weight:600;
+    gap:14px;
+    border-radius:0;
+  }
+  nav button .ico{font-size:20px}
+  /* Active indicator: left border strip instead of bottom line */
+  nav button.on::after{
+    bottom:auto;left:0;top:50%;transform:translateY(-50%);
+    width:3px;height:26px;border-radius:0 3px 3px 0;background:var(--green);
+  }
+  nav button.on{color:var(--text)}
+
+  /* Content fills right column */
+  #content{grid-area:cnt;overflow-y:auto;height:100%}
+
+  /* News: 2-column card grid */
+  .nlist{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:12px;
+    padding:16px 24px;
+    align-items:start;
+  }
+  .chips{padding:14px 24px 8px}
+
+  /* Markets: 3-column */
+  .pgrid{grid-template-columns:repeat(3,1fr);gap:12px}
+  .msec{padding:16px 24px 0}
+
+  /* Currencies: 3-column compact */
+  .curr-list.compact{grid-template-columns:1fr 1fr 1fr}
+  .curr-list{padding:0 24px 20px}
+  .curr-list.compact{padding:0 24px 20px}
+
+  /* Reports: 2-column */
+  .rlist{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:12px;
+    padding:16px 24px;
+  }
+
+  /* Tracking: centered, limited width */
+  .trk-wrap{max-width:520px;padding:24px}
+
+  /* Widgets: 4-column on desktop */
+  .wgt-grid{grid-template-columns:repeat(4,1fr);gap:12px;padding:0 24px 28px}
+  .wgt-header{padding:20px 24px 12px}
+
+  /* Panels extra padding */
+  .panel{padding-bottom:24px}
+
+  /* Charts: market detail wider */
+  .chcard{margin:10px 24px 6px}
+  .mk-back-row{padding:14px 24px 6px}
+  .mk-news-hdr{padding:12px 24px 6px}
+  #mk-news{padding:0 24px !important;gap:12px !important;
+    display:grid;grid-template-columns:1fr 1fr;align-items:start}
+}
+@media(min-width:1280px){
+  .panel{max-width:1400px;margin-left:auto;margin-right:auto}
+}
+</style>
+</head>
+<body>
+
+<!-- EARLY BOOT FALLBACK: minimal script, runs before main bundle -->
+<script>
+(function(){
+  function _earlyShow(){
+    try{
+      document.body.classList.add('boot-fallback');
+      var a=document.getElementById('app'),s=document.getElementById('splash');
+      if(a){a.classList.add('on');a.style.opacity='1';a.style.visibility='visible';a.style.pointerEvents='auto';}
+      if(s){s.style.display='none';}
+    }catch(e){}
+  }
+  setTimeout(_earlyShow,3000);
+})();
+</script>
+
+<!-- SPLASH: logo 72% screen, pulse only, no rings, no text, no box -->
+<div id="splash">
+  <img class="sp-logo-img" src="/logo.png" alt="" onerror="this.style.display='none'">
+</div>
+
+<!-- APP -->
+<div id="app">
+
+  <!-- Safe-mode banner: shown only when body.boot-error is set by JS -->
+  <div class="safe-mode-msg" style="display:none;background:#1a1a1a;color:#8a8a8a;font-size:13px;text-align:center;padding:8px 16px;border-bottom:1px solid #2a2a2a;">
+    ⚠️ App loaded in safe mode. Some widgets may be unavailable.
+  </div>
+
+  <header>
+    <img class="h-logo-img" src="/logo.png" alt="" onerror="this.style.display='none'">
+    <div class="htitle">Новинний Дайджест</div>
+    <button class="hbtn" id="lbtn" onclick="cycleLang()" title="Мова / Language">🇺🇦</button>
+    <button class="hbtn" id="tbtn" onclick="toggleTheme()">☀️</button>
+    <button class="hbtn" id="fsbtn" onclick="toggleDesktopFullscreen()" title="Fullscreen">⛶</button>
+  </header>
+
+  <div id="content">
+
+    <!-- NEWS -->
+    <div id="pnews" class="panel on">
+      <div class="chips" id="chips"></div>
+      <div class="nlist" id="nlist"></div>
+      <button class="lmore" id="lmore" onclick="loadMore()" style="display:none">Завантажити ще</button>
+    </div>
+
+    <!-- REPORTS (digest PDFs) -->
+    <div id="preports" class="panel">
+      <div class="rlist" id="rlist"></div>
+    </div>
+
+    <!-- ADD / Widget management -->
+    <div id="padd" class="panel">
+      <!-- Home: widget manager — rendered by renderWidgetManager() on load -->
+      <div id="padd-home">
+        <div id="wgt-manager-container"></div>
+      </div>
+      <!-- Currency sub-panel -->
+      <div id="padd-curr" class="add-subpanel">
+        <div class="subpanel-hdr">
+          <button class="subpanel-back" onclick="addNav('home')">←</button>
+          <span class="subpanel-title" id="curr-head-title">💱 Курси валют</span>
+          <div class="curr-head-actions">
+            <button class="mk-icon-btn" id="curr-edit-btn" onclick="toggleCurrencyEdit()" title="Редагувати валюти">✎</button>
+            <button class="mk-icon-btn" id="curr-view-btn" onclick="toggleCurrencyViewMode()" title="Змінити вигляд">▭</button>
+            <button class="mk-icon-btn" id="curr-add-btn" onclick="openCurrencyModal()" title="Додати валюту">＋</button>
+          </div>
+        </div>
+        <div id="curr-list" class="curr-list compact"></div>
+        <div class="curr-footer" id="curr-footer"></div>
+      </div>
+      <!-- Currency add/restore modal -->
+      <div class="mk-modal-ov" id="curr-modal-ov" onclick="if(event.target===this)hideCurrencyModal()">
+        <div class="mk-modal">
+          <div class="mk-modal-top">
+            <span class="mk-modal-ttl">💱 Валюти</span>
+            <button class="mk-modal-x" onclick="hideCurrencyModal()">×</button>
+          </div>
+          <input class="mk-modal-srch" id="curr-modal-srch" type="search" placeholder="Пошук…" oninput="renderCurrencyModalList(this.value)">
+          <div class="mk-modal-list" id="curr-modal-list"></div>
+          <div class="mk-modal-footer">
+            <button class="mk-modal-save" onclick="saveCurrencyModal()">Застосувати</button>
+          </div>
+        </div>
+      </div>
+      <!-- Warehouse sub-panel -->
+      <div id="padd-wh" class="add-subpanel">
+        <div id="wh-list-wrap">
+          <div class="subpanel-hdr">
+            <button class="subpanel-back" onclick="addNav('home')">←</button>
+            <span class="subpanel-title">🏭 Довідник речовин</span>
+          </div>
+          <div id="wh-list" class="wh-list"></div>
+        </div>
+        <div id="wh-detail" class="wh-detail">
+          <div class="subpanel-hdr">
+            <button class="subpanel-back" onclick="closeWhDetail()">←</button>
+            <span class="subpanel-title" id="wh-det-title"></span>
+          </div>
+          <div id="wh-det-content"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- MARKETS -->
+    <div id="pmarkets" class="panel">
+      <div id="mk-grid-wrap">
+        <div class="mk-head">
+          <span class="mk-head-title" id="h-prices">📊 Ціни зараз</span>
+          <div class="mk-head-actions">
+            <button class="mk-icon-btn" id="mk-edit-btn" onclick="toggleMkEdit()" title="Змінити порядок">⇅</button>
+            <button class="mk-icon-btn" id="mk-add-btn" onclick="openMkAddModal()" title="Додати графік">＋</button>
+          </div>
+        </div>
+        <div class="msec" style="padding-top:0">
+          <div class="pgrid" id="mk-grid"></div>
+        </div>
+      </div>
+      <div class="mk-detail" id="mk-detail">
+        <div class="mk-back-row">
+          <button class="mk-back" onclick="closeMkDetail()">← <span id="back-lbl">Назад</span></button>
+        </div>
+        <div id="mk-chart-wrap"></div>
+        <div class="mk-news-hdr" id="mk-news-hdr">📰 ПОВ'ЯЗАНІ НОВИНИ</div>
+        <div class="nlist" id="mk-news" style="padding:0 14px;gap:10px"></div>
+      </div>
+    </div>
+
+    <!-- TRACKING -->
+    <div id="ptracking" class="panel">
+      <div class="trk-wrap">
+
+        <!-- SCREEN 1: Home -->
+        <div id="trk-home" class="trk-screen active">
+          <div class="trk-big-wrap">
+            <button class="trk-big-btn" onclick="trkNav('type')">
+              <span class="trk-big-ico">🔍</span>
+              <span class="trk-big-title" id="trk-lbl-find-btn">Знайти</span>
+              <span class="trk-big-sub" id="trk-lbl-find-sub">Посилка або контейнер</span>
+            </button>
+            <button class="trk-big-btn" onclick="trkNav('list')">
+              <span class="trk-big-ico">📋</span>
+              <span class="trk-big-title" id="trk-lbl-list-btn">Мій трекінг</span>
+              <span class="trk-big-sub" id="trk-lbl-list-sub">Збережені відправлення</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- SCREEN 2: Type selection -->
+        <div id="trk-type" class="trk-screen">
+          <div class="trk-nav-back" onclick="trkNav('home')">&#8592; <span id="trk-back-lbl-type">Назад</span></div>
+          <div class="trk-big-wrap">
+            <button class="trk-big-btn" onclick="trkNav('parcel')">
+              <span class="trk-big-ico">📦</span>
+              <span class="trk-big-title" id="trk-lbl-parcel">Посилка</span>
+              <span class="trk-big-sub">Nova Poshta · DHL · FedEx · EMS</span>
+            </button>
+            <button class="trk-big-btn" onclick="trkNav('container')">
+              <span class="trk-big-ico">🚢</span>
+              <span class="trk-big-title" id="trk-lbl-container">Контейнер</span>
+              <span class="trk-big-sub">MSC · Maersk · CMA-CGM · COSCO</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- SCREEN 3a: Parcel search -->
+        <div id="trk-parcel" class="trk-screen">
+          <div class="trk-nav-row">
+            <div class="trk-nav-back" onclick="trkNav('type')">&#8592; <span id="trk-back-lbl-parcel">Назад</span></div>
+            <div class="trk-nav-back" onclick="trkNav('home')">🏠 <span id="trk-home-lbl-parcel">Головна</span></div>
+          </div>
+          <div class="trk-carriers" id="trk-carriers-wrap">
+            <button class="trk-car-btn" data-car="nova"  onclick="selectCarrier(this)">📦 Нова Пошта</button>
+            <button class="trk-car-btn" data-car="meest" onclick="selectCarrier(this)">🚚 Meest Express</button>
+            <button class="trk-car-btn" data-car="dhl"   onclick="selectCarrier(this)">✈️ DHL</button>
+            <button class="trk-car-btn" data-car="fedex" onclick="selectCarrier(this)">📦 FedEx</button>
+            <button class="trk-car-btn" data-car="ups"   onclick="selectCarrier(this)">🚛 UPS</button>
+            <button class="trk-car-btn" data-car="ems"   onclick="selectCarrier(this)">📮 EMS / Укрпошта</button>
+            <button class="trk-car-btn" data-car="auto" style="grid-column:1/-1" onclick="selectCarrier(this)">🔍 Авто</button>
+          </div>
+          <div class="trk-input-row" id="trk-input-wrap" style="display:none">
+            <input class="trk-input" id="trk-num" type="text" autocomplete="off" spellcheck="false">
+            <button class="trk-go" id="trk-go" onclick="doTrack()">Знайти</button>
+          </div>
+          <div class="trk-result" id="trk-result"></div>
+        </div>
+
+        <!-- SCREEN 3b: Container search -->
+        <div id="trk-container" class="trk-screen">
+          <div class="trk-nav-row">
+            <div class="trk-nav-back" onclick="trkNav('type')">&#8592; <span id="trk-back-lbl-container">Назад</span></div>
+            <div class="trk-nav-back" onclick="trkNav('home')">🏠 <span id="trk-home-lbl-container">Головна</span></div>
+          </div>
+          <div class="trk-carriers" id="trk-cnt-carriers-wrap">
+            <button class="trk-car-btn trk-cnt-btn" data-cnt="msc"       onclick="selectCntCarrier(this)">🚢 MSC</button>
+            <button class="trk-car-btn trk-cnt-btn" data-cnt="maersk"    onclick="selectCntCarrier(this)">🚢 Maersk</button>
+            <button class="trk-car-btn trk-cnt-btn" data-cnt="cmacgm"    onclick="selectCntCarrier(this)">🚢 CMA CGM</button>
+            <button class="trk-car-btn trk-cnt-btn" data-cnt="cosco"     onclick="selectCntCarrier(this)">🚢 COSCO</button>
+            <button class="trk-car-btn trk-cnt-btn" data-cnt="hapag"     onclick="selectCntCarrier(this)">🚢 Hapag-Lloyd</button>
+            <button class="trk-car-btn trk-cnt-btn" data-cnt="one"       onclick="selectCntCarrier(this)">🚢 ONE</button>
+            <button class="trk-car-btn trk-cnt-btn" data-cnt="evergreen" onclick="selectCntCarrier(this)">🚢 Evergreen</button>
+            <button class="trk-car-btn trk-cnt-btn" data-cnt="zim"       onclick="selectCntCarrier(this)">🚢 ZIM</button>
+            <button class="trk-car-btn trk-cnt-btn" data-cnt="hmm"       onclick="selectCntCarrier(this)">🚢 HMM</button>
+            <button class="trk-car-btn trk-cnt-btn" data-cnt="auto"      onclick="selectCntCarrier(this)">🔍 Auto</button>
+          </div>
+          <div class="trk-input-row" id="trk-cnt-input-wrap" style="display:none">
+            <input class="trk-input" id="trk-cnt-num" type="text" autocomplete="off" spellcheck="false" placeholder="MSCU1234567">
+            <button class="trk-go" id="trk-cnt-go" onclick="doTrackContainer()">Знайти</button>
+          </div>
+          <div class="trk-result" id="trk-cnt-result"></div>
+        </div>
+
+        <!-- SCREEN 4: My Parcels -->
+        <div id="trk-list" class="trk-screen">
+          <div id="trk-detail-view" style="display:none">
+            <div class="trk-nav-row">
+              <div class="trk-nav-back" onclick="closeDetail()">&#8592; <span id="trk-detail-back-lbl">Назад</span></div>
+              <div class="trk-nav-back" onclick="trkNav('home')">🏠 <span id="trk-detail-home-lbl">Головна</span></div>
+            </div>
+            <div id="trk-detail-content"></div>
+          </div>
+          <div id="trk-list-view">
+            <div class="trk-nav-back" onclick="trkNav('home')">&#8592; <span id="trk-back-lbl-list">Назад</span></div>
+            <div class="trk-filter-row" id="trk-filter-row" style="display:none"></div>
+            <div id="trk-saved"></div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Chart add modal -->
+    <div class="mk-modal-ov" id="mk-modal-ov" onclick="if(event.target===this)hideMkAddModal()">
+      <div class="mk-modal">
+        <div class="mk-modal-top">
+          <span class="mk-modal-ttl">📈 Додати графік</span>
+          <button class="mk-modal-x" onclick="hideMkAddModal()">×</button>
+        </div>
+        <input class="mk-modal-srch" id="mk-modal-srch" type="search" placeholder="Пошук…" oninput="renderMkModalList(this.value)">
+        <div class="mk-modal-list" id="mk-modal-list"></div>
+        <div class="mk-modal-footer">
+          <button class="mk-modal-save" onclick="saveMkModal()">Застосувати</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <div id="pweather" class="panel">
+    <div class="weather-wrap">
+      <div class="weather-head">
+        <div class="weather-title" id="weather-title">🌍 Погода</div>
+        <div class="weather-subtitle" id="weather-subtitle">3D-глобус і погода по містах</div>
+      </div>
+      <div class="weather-search">
+        <input type="text" id="weather-input" placeholder="Пошук міста..." autocomplete="off"
+          onkeydown="if(event.key==='Enter')searchWeatherCity()">
+        <button onclick="searchWeatherCity()">🔎</button>
+      </div>
+      <div class="weather-results" id="weather-results"></div>
+      <div class="weather-popular">
+        <button class="weather-popular-btn" onclick="selectWeatherLocation({name:'Kharkiv',country:'Ukraine',latitude:49.9808,longitude:36.2527})">Kharkiv</button>
+        <button class="weather-popular-btn" onclick="selectWeatherLocation({name:'Kyiv',country:'Ukraine',latitude:50.4501,longitude:30.5234})">Kyiv</button>
+        <button class="weather-popular-btn" onclick="selectWeatherLocation({name:'Warsaw',country:'Poland',latitude:52.2297,longitude:21.0122})">Warsaw</button>
+        <button class="weather-popular-btn" onclick="selectWeatherLocation({name:'London',country:'UK',latitude:51.5074,longitude:-0.1278})">London</button>
+        <button class="weather-popular-btn" onclick="selectWeatherLocation({name:'Istanbul',country:'Turkey',latitude:41.0082,longitude:28.9784})">Istanbul</button>
+      </div>
+      <div class="weather-main">
+        <div class="weather-globe-card">
+          <div id="weather-globe"></div>
+          <div id="weather-globe-fallback" class="weather-globe-fallback"></div>
+        </div>
+        <div class="weather-side">
+          <div id="weather-card" class="weather-card"></div>
+          <div class="weather-forecast-wrap" id="weather-forecast-wrap">
+            <div class="weather-forecast-title" id="weather-forecast-lbl">Прогноз</div>
+            <div class="weather-forecast" id="weather-forecast"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- bottom nav — rendered by renderBottomNav() on load -->
+  <nav id="bottom-nav">
+    <button class="on" id="btn-news" onclick="tab('news',this)">
+      <span class="ico">📰</span><span>Новини</span>
+    </button>
+    <button id="btn-reports" onclick="tab('reports',this)">
+      <span class="ico">📋</span><span>Звіти</span>
+    </button>
+    <button id="btn-add" onclick="tab('add',this)">
+      <span class="ico" style="color:var(--green)">➕</span><span>Додати</span>
+    </button>
+    <button id="btn-markets" onclick="tab('markets',this)">
+      <span class="ico">📈</span><span>Ринки</span>
+    </button>
+    <button id="btn-tracking" onclick="tab('tracking',this)">
+      <span class="ico">📡</span><span>Трекінг</span>
+    </button>
+  </nav>
+
+</div>
+
+<div id="pig-overlay">
+  <button class="pig-close" onclick="closePigOverlay()">×</button>
+  <div class="pig-emoji">🐷</div>
+  <div class="pig-text" id="pig-text"></div>
+</div>
+
+<script>
+// ── Telegram ──────────────────────────────────────────────────
+const tg = window.Telegram?.WebApp;
+
+// ── Signed-request wrapper ────────────────────────────────────
+// Attach the Telegram-signed initData to every same-origin /api call so the
+// backend can verify the user identity (HMAC) instead of trusting a raw
+// user_id from the client (which was an IDOR hole). initData is opaque and
+// only valid when launched from within Telegram.
+(function(){
+  const _initData = tg?.initData || '';
+  const _origFetch = window.fetch.bind(window);
+  window.fetch = function(input, init){
+    try{
+      const url = (typeof input === 'string') ? input : (input && input.url) || '';
+      const isApi = url.startsWith('/api/') || url.includes('/api/webapp/');
+      if(isApi && _initData){
+        init = init ? Object.assign({}, init) : {};
+        const h = new Headers(init.headers || {});
+        h.set('X-Telegram-Init-Data', _initData);
+        init.headers = h;
+      }
+    }catch(e){ /* fall through to plain fetch */ }
+    return _origFetch(input, init);
+  };
+})();
+
+if(tg){
+  tg.ready();
+  tg.expand();
+  tg.disableVerticalSwipes?.();
+  tg.setHeaderColor?.('secondary_bg_color');
+  tg.setBackgroundColor?.(tg.themeParams?.secondary_bg_color||'#1C1C1E');
+  tg.onEvent?.('viewportChanged', () => {
+    setTimeout(handleAppViewportResize, 120);
+  });
+}
+
+// ── Theme — pure black by default ────────────────────────────
+let light = false;
+function applyTheme(){
+  if(light) document.documentElement.setAttribute('data-light','');
+  else document.documentElement.removeAttribute('data-light');
+  const tbtn = document.getElementById('tbtn');
+  if(tbtn) tbtn.textContent = light ? '🌙' : '☀️';
+}
+function toggleTheme(){
+  light=!light; applyTheme();
+  if(currentMkKey) redrawDetailChart(currentMkKey);
+}
+applyTheme();
+
+// ── DOM helpers — null-safe wrappers ─────────────────────────
+function byId(id){ return document.getElementById(id); }
+function setText(id,v){ const e=byId(id); if(e) e.textContent=v; }
+function setHTML(id,v){ const e=byId(id); if(e) e.innerHTML=v; }
+function showEl(id,d){ const e=byId(id); if(e) e.style.display=(d===undefined?'':d); }
+function addCls(id,c){ const e=byId(id); if(e) e.classList.add(c); }
+function rmCls(id,c){ const e=byId(id); if(e) e.classList.remove(c); }
+
+// ── Language & flags ──────────────────────────────────────────
+const LANGS  = ['ua','ru','en'];
+const FLAGS  = ['🇺🇦','🐷','🇬🇧'];
+const lc = tg?.initDataUnsafe?.user?.language_code || navigator.language || 'uk';
+let langIdx = lc.startsWith('ru') ? 1 : (lc.startsWith('uk')||lc.startsWith('ua')) ? 0 : 2;
+let lang = LANGS[langIdx];
+
+function cycleLang(){
+  langIdx = (langIdx+1) % LANGS.length;
+  lang = LANGS[langIdx];
+  const lbtn = document.getElementById('lbtn');
+  if(lbtn) lbtn.textContent = FLAGS[langIdx];
+  updateStaticText();
+  buildChips();
+  fetchNews(true);
+  const rlist = document.getElementById('rlist');
+  if(rlist) rlist.innerHTML = '';
+  mkData = []; closeMkDetailSilent();
+}
+
+// ── UI strings ────────────────────────────────────────────────
+const UI = {
+  ua:{
+    loadMore:'Завантажити ще', noNews:'Новин поки немає', loadError:'Помилка завантаження',
+    readFull:'Читати повністю', collapse:'Згорнути', loading:'Завантаження…',
+    error:'Помилка', noData:'Немає даних', noDataYet:'Звітів поки немає',
+    news:'Новини', reports:'Звіти', add:'Додати', markets:'Ринки', tracking:'Трекінг',
+    pricesNow:'📊 ЦІНИ ЗАРАЗ', relNews:"📰 ПОВ'ЯЗАНІ НОВИНИ", back:'Назад',
+    openPdf:'📄 Відкрити PDF', newsCnt:' новин',
+    wgtTitle:'Мої віджети', wgtSub:'Натисни, щоб перейти',
+    wgtActive:'✓ Активно', wgtSoon:'Незабаром',
+    trkParcel:'Посилка', trkContainer:'Контейнер',
+    trkFind:'Знайти', trkPlaceholder:'Номер відправлення…',
+    trkDelivery:'Очікувана дата доставки',
+    trkCntHint:'Номер контейнера (напр. MSCU1234567)',
+    trkSearching:'Шукаємо вантаж…',
+    trkSave:'📌 Зберегти в мій список', trkSaved:'✓ Збережено',
+    trkActive:'🟢 Активні', trkArchive:'📦 Архів', trkNoSaved:'Немає збережених відправлень',
+    trkUpdated:'Оновлено',
+    trkSubFind:'Знайти', trkSubList:'Мій трекінг', trkAll:'Всі', trkHome:'Головна',
+    trkRefresh:'🔄 Оновити статус',
+    trkAutoCheck:'🔄 Повторна перевірка через',
+    trkEmptyList:'Ще немає збережених посилок.\nЗнайдіть посилку і натисніть «Зберегти».',
+    trkOpenSite:'🌐 Відкрити на сайті перевізника',
+    trkRemove:'✕ Видалити з відстеження',
+    trkDelTitle:'Видалити',
+    trkNetError:'⚠️ Помилка мережі',
+    trkSec:'с',
+    trkDataLoading:'Дані ще завантажуються…',
+    trkNow:'щойно', trkMin:'хв', trkHour:'год',
+    trkMaxRetriesHint:'Дані ще не надійшли від перевізника. Збережіть відправлення — перевіримо автоматично через 3 години.',
+    trkCarNova:'📦 Нова Пошта', trkCarEms:'📮 EMS / Укрпошта',
+    marketsNow:'📊 Ціни зараз', editOrder:'Змінити порядок', addChart:'Додати графік',
+    currenciesTitle:'Курси валют', editCurrencies:'Редагувати валюти', toggleCurrencyView:'Змінити вигляд', addCurrency:'Додати валюту', chartUnavailable:'Графік недоступний',
+    myWidgets:'Мої віджети', widgetManagerSub:'Обери, що показувати в нижній панелі', activeWidget:'✓ Активний', inactiveWidget:'Неактивний', maxWidgets:'Можна обрати максимум 4 віджети', addTab:'Додати', warehouse:'Склад', analytics:'Аналітика', weather:'Погода', soon:'Незабаром',
+    weatherTab:'Погода', weatherTitle:'Погода', weatherSubtitle:'3D-глобус і погода по містах', weatherSearchPlaceholder:'Пошук міста...', weatherSearch:'Пошук', weatherLoading:'Завантаження погоди...', weatherUnavailable:'Погода недоступна', globeUnavailable:'3D-глобус недоступний. Скористайтесь пошуком міста.', feelsLike:'Відчувається як', humidity:'Вологість', wind:'Вітер', clouds:'Хмарність', pressure:'Тиск', precipitation:'Опади', forecast:'Прогноз', source:'Джерело', cityNotFound:'Місто не знайдено', fullscreen:'На весь екран', exitFullscreen:'Вийти з повного екрана', fullscreenUnavailable:'Повноекранний режим недоступний', popularCities:'Популярні міста', searchTryAgain:'Спробуйте іншу назву міста',
+  },
+  ru:{
+    loadMore:'Загрузить ещё', noNews:'Новостей пока нет', loadError:'Ошибка загрузки',
+    readFull:'Читать полностью', collapse:'Свернуть', loading:'Загрузка…',
+    error:'Ошибка', noData:'Нет данных', noDataYet:'Отчётов пока нет',
+    news:'Новости', reports:'Отчёты', add:'Добавить', markets:'Рынки', tracking:'Трекинг',
+    pricesNow:'📊 ЦЕНЫ СЕЙЧАС', relNews:'📰 СВЯЗАННЫЕ НОВОСТИ', back:'Назад',
+    openPdf:'📄 Открыть PDF', newsCnt:' новостей',
+    wgtTitle:'Мои виджеты', wgtSub:'Нажми, чтобы перейти',
+    wgtActive:'✓ Активно', wgtSoon:'Скоро',
+    trkParcel:'Посылка', trkContainer:'Контейнер',
+    trkFind:'Найти', trkPlaceholder:'Номер отправления…',
+    trkDelivery:'Ожидаемая дата доставки',
+    trkCntHint:'Номер контейнера (напр. MSCU1234567)',
+    trkSearching:'Ищем груз…',
+    trkSave:'📌 Сохранить в мой список', trkSaved:'✓ Сохранено',
+    trkActive:'🟢 Активные', trkArchive:'📦 Архив', trkNoSaved:'Нет сохранённых отправлений',
+    trkUpdated:'Обновлено',
+    trkSubFind:'Найти', trkSubList:'Мой трекинг', trkAll:'Все', trkHome:'Главная',
+    trkRefresh:'🔄 Обновить статус',
+    trkAutoCheck:'🔄 Повторная проверка через',
+    trkEmptyList:'Сохранённых посылок пока нет.\nНайдите посылку и нажмите «Сохранить».',
+    trkOpenSite:'🌐 Открыть на сайте перевозчика',
+    trkRemove:'✕ Удалить из отслеживания',
+    trkDelTitle:'Удалить',
+    trkNetError:'⚠️ Ошибка сети',
+    trkSec:'с',
+    trkDataLoading:'Данные загружаются…',
+    trkNow:'только что', trkMin:'мин', trkHour:'ч',
+    trkMaxRetriesHint:'Данные ещё не поступили от перевозчика. Сохраните отправление — проверим автоматически через 3 часа.',
+    trkCarNova:'📦 Нова Пошта', trkCarEms:'📮 EMS / Укрпошта',
+    marketsNow:'📊 Цены сейчас', editOrder:'Изменить порядок', addChart:'Добавить график',
+    currenciesTitle:'Курсы валют', editCurrencies:'Редактировать валюты', toggleCurrencyView:'Изменить вид', addCurrency:'Добавить валюту', chartUnavailable:'График недоступен',
+    myWidgets:'Мои виджеты', widgetManagerSub:'Выбери, что показывать в нижней панели', activeWidget:'✓ Активный', inactiveWidget:'Неактивный', maxWidgets:'Можно выбрать максимум 4 виджета', addTab:'Добавить', warehouse:'Склад', analytics:'Аналитика', weather:'Погода', soon:'Скоро',
+    weatherTab:'Погода', weatherTitle:'Погода', weatherSubtitle:'3D-глобус и погода по городам', weatherSearchPlaceholder:'Поиск города...', weatherSearch:'Поиск', weatherLoading:'Загрузка погоды...', weatherUnavailable:'Погода недоступна', globeUnavailable:'3D-глобус недоступен. Используйте поиск города.', feelsLike:'Ощущается как', humidity:'Влажность', wind:'Ветер', clouds:'Облачность', pressure:'Давление', precipitation:'Осадки', forecast:'Прогноз', source:'Источник', cityNotFound:'Город не найден', fullscreen:'На весь экран', exitFullscreen:'Выйти из полного экрана', fullscreenUnavailable:'Полноэкранный режим недоступен', popularCities:'Популярные города', searchTryAgain:'Попробуйте другое название города',
+  },
+  en:{
+    loadMore:'Load more', noNews:'No news yet', loadError:'Loading error',
+    readFull:'Read more', collapse:'Collapse', loading:'Loading…',
+    error:'Error', noData:'No data', noDataYet:'No reports yet',
+    news:'News', reports:'Reports', add:'Add', markets:'Markets', tracking:'Tracking',
+    pricesNow:'📊 CURRENT PRICES', relNews:'📰 RELATED NEWS', back:'Back',
+    openPdf:'📄 Open PDF', newsCnt:' news',
+    wgtTitle:'My Widgets', wgtSub:'Tap to navigate',
+    wgtActive:'✓ Active', wgtSoon:'Coming soon',
+    trkParcel:'Parcel', trkContainer:'Container',
+    trkFind:'Find', trkPlaceholder:'Tracking number…',
+    trkDelivery:'Expected delivery',
+    trkCntHint:'Container number (e.g. MSCU1234567)',
+    trkSearching:'Searching shipment…',
+    trkSave:'📌 Save to my list', trkSaved:'✓ Saved',
+    trkActive:'🟢 Active', trkArchive:'📦 Archive', trkNoSaved:'No saved shipments',
+    trkUpdated:'Updated',
+    trkSubFind:'Find', trkSubList:'My Tracking', trkAll:'All', trkHome:'Home',
+    trkRefresh:'🔄 Refresh status',
+    trkAutoCheck:'🔄 Retry in',
+    trkEmptyList:'No saved parcels yet.\nFind a parcel and tap Save.',
+    trkOpenSite:'🌐 Open tracking page',
+    trkRemove:'✕ Remove from tracking',
+    trkDelTitle:'Remove',
+    trkNetError:'⚠️ Network error',
+    trkSec:'s',
+    trkDataLoading:'Loading data…',
+    trkNow:'just now', trkMin:'min', trkHour:'hr',
+    trkMaxRetriesHint:'Data not yet available from carrier. Save this shipment — we will check automatically every 3 hours.',
+    trkCarNova:'📦 Nova Poshta', trkCarEms:'📮 EMS / Ukrposhta',
+    marketsNow:'📊 Prices now', editOrder:'Edit order', addChart:'Add chart',
+    currenciesTitle:'Exchange rates', editCurrencies:'Edit currencies', toggleCurrencyView:'Change view', addCurrency:'Add currency', chartUnavailable:'Chart unavailable',
+    myWidgets:'My widgets', widgetManagerSub:'Choose what appears in the bottom bar', activeWidget:'✓ Active', inactiveWidget:'Inactive', maxWidgets:'You can select up to 4 widgets', addTab:'Add', warehouse:'Warehouse', analytics:'Analytics', weather:'Weather', soon:'Coming soon',
+    weatherTab:'Weather', weatherTitle:'Weather', weatherSubtitle:'3D globe and city weather', weatherSearchPlaceholder:'Search city...', weatherSearch:'Search', weatherLoading:'Loading weather...', weatherUnavailable:'Weather unavailable', globeUnavailable:'3D globe unavailable. Use city search instead.', feelsLike:'Feels like', humidity:'Humidity', wind:'Wind', clouds:'Clouds', pressure:'Pressure', precipitation:'Precipitation', forecast:'Forecast', source:'Source', cityNotFound:'City not found', fullscreen:'Fullscreen', exitFullscreen:'Exit fullscreen', fullscreenUnavailable:'Fullscreen unavailable', popularCities:'Popular cities', searchTryAgain:'Try another city name',
+  },
+};
+
+// Report type labels
+const RTYPES = {
+  daily_brief: { ua:'☀️ Ранковий дайджест', ru:'☀️ Утренний дайджест', en:'☀️ Morning Brief' },
+  midday:      { ua:'🌤 Полуденне оновлення', ru:'🌤 Полуденное обновление', en:'🌤 Midday Update' },
+  weekly:      { ua:'📅 Тижневий звіт',       ru:'📅 Еженедельный отчёт', en:'📅 Weekly Report' },
+};
+
+function updateStaticText(){
+  const u = UI[lang];
+  if(_widgetPrefs !== null){ renderBottomNav(); renderWidgetManager(); }
+  const hPrices = document.getElementById('h-prices');
+  if(hPrices) hPrices.textContent = u.marketsNow;
+  const mkEditBtn = document.getElementById('mk-edit-btn');
+  if(mkEditBtn) mkEditBtn.title = u.editOrder;
+  const mkAddBtn = document.getElementById('mk-add-btn');
+  if(mkAddBtn) mkAddBtn.title = u.addChart;
+  setText('curr-head-title', '💱 ' + u.currenciesTitle);
+  const cEditBtn = byId('curr-edit-btn'); if(cEditBtn) cEditBtn.title = u.editCurrencies;
+  const cViewBtn = byId('curr-view-btn'); if(cViewBtn) cViewBtn.title = u.toggleCurrencyView;
+  const cAddBtn  = byId('curr-add-btn');  if(cAddBtn)  cAddBtn.title  = u.addCurrency;
+  const mkNewsHdr = document.getElementById('mk-news-hdr');
+  if(mkNewsHdr) mkNewsHdr.textContent = u.relNews;
+  const backLbl = document.getElementById('back-lbl');
+  if(backLbl) backLbl.textContent = u.back;
+  const lm = document.getElementById('lmore');
+  if(lm && lm.style.display !== 'none') lm.textContent = u.loadMore;
+  // Tracking tab labels
+  const trkLblP = document.getElementById('trk-lbl-parcel');
+  if(trkLblP) trkLblP.textContent = u.trkParcel;
+  const trkLblC = document.getElementById('trk-lbl-container');
+  if(trkLblC) trkLblC.textContent = u.trkContainer;
+  const trkGo = document.getElementById('trk-go');
+  if(trkGo) trkGo.textContent = u.trkFind;
+  const trkCntGo = document.getElementById('trk-cnt-go');
+  if(trkCntGo) trkCntGo.textContent = u.trkFind;
+  const trkLblFindBtn = document.getElementById('trk-lbl-find-btn');
+  if(trkLblFindBtn) trkLblFindBtn.textContent = u.trkSubFind || u.trkFind;
+  const trkLblListBtn = document.getElementById('trk-lbl-list-btn');
+  if(trkLblListBtn) trkLblListBtn.textContent = u.trkSubList;
+  const trkInput = document.getElementById('trk-num');
+  if(trkInput && trkCarrier) trkInput.placeholder = u.trkPlaceholder;
+  const trkCntInput = document.getElementById('trk-cnt-num');
+  if(trkCntInput) trkCntInput.placeholder = u.trkCntHint;
+  // Tracking — back buttons
+  const backLbl2 = document.getElementById('trk-detail-back-lbl');
+  if(backLbl2) backLbl2.textContent = u.back;
+  const homeLbl2 = document.getElementById('trk-detail-home-lbl');
+  if(homeLbl2) homeLbl2.textContent = u.trkHome || 'Головна';
+  ['trk-back-lbl-type','trk-back-lbl-parcel','trk-back-lbl-container','trk-back-lbl-list'].forEach(id => {
+    const el = document.getElementById(id);
+    if(el) el.textContent = u.back;
+  });
+  ['trk-home-lbl-parcel','trk-home-lbl-container'].forEach(id => {
+    const el = document.getElementById(id);
+    if(el) el.textContent = u.trkHome || 'Головна';
+  });
+  // Carrier buttons (brand names stay in English; only locale-specific ones change)
+  const carNova = document.querySelector('[data-car="nova"]');
+  if(carNova) carNova.textContent = u.trkCarNova;
+  const carEms = document.querySelector('[data-car="ems"]');
+  if(carEms) carEms.textContent = u.trkCarEms;
+  // Re-render saved list if visible (so time-ago strings update)
+  if(_trkCurrentScreen === 'list'){
+    renderSavedShipments(_savedShipmentsCache);
+  }
+  // Weather labels
+  const wEl = byId('weather-title'); if(wEl) wEl.textContent = '🌍 '+(u.weatherTitle||'Погода');
+  const wSub = byId('weather-subtitle'); if(wSub) wSub.textContent = u.weatherSubtitle||'';
+  const wFcl = byId('weather-forecast-lbl'); if(wFcl) wFcl.textContent = u.forecast||'Forecast';
+  const wInp = byId('weather-input'); if(wInp) wInp.placeholder = u.weatherSearchPlaceholder||'Search city...';
+  if(_currentWeatherData){ renderWeatherCard(_currentWeatherData); if(_currentWeatherData.daily) renderWeatherForecast(_currentWeatherData.daily); }
+  updateFullscreenButtonState();
+}
+
+// ── Category config ───────────────────────────────────────────
+const CATS = {
+  all:           {ua:'Всі',          ru:'Все',           en:'All',          c:'#4B5563',e:'📋'},
+  api:           {ua:'Фарм API',     ru:'Фарм API',      en:'Pharm API',    c:'#2563EB',e:'💊'},
+  cosmetic:      {ua:'Косметика',    ru:'Косметика',     en:'Cosmetics',    c:'#DB2777',e:'🧴'},
+  herbal:        {ua:'Трави',        ru:'Травы',         en:'Herbal',       c:'#16A34A',e:'🌿'},
+  veterinary:    {ua:'Ветеринарія',  ru:'Ветеринария',   en:'Veterinary',   c:'#7C3AED',e:'🐾'},
+  food:          {ua:'Харчова',      ru:'Пищевая',       en:'Food',         c:'#B45309',e:'🌾'},
+  feed:          {ua:'Амінокислоти', ru:'Аминокислоты',  en:'Amino',        c:'#92400E',e:'🐄'},
+  capsules:      {ua:'Капсули',      ru:'Капсулы',       en:'Capsules',     c:'#0E7490',e:'🔬'},
+  pvc:           {ua:'ПВХ / Пак.',   ru:'ПВХ / Упак.',   en:'PVC / Pack.',  c:'#4338CA',e:'📦'},
+  logistics:     {ua:'Логістика',    ru:'Логистика',     en:'Logistics',    c:'#B91C1C',e:'🚢'},
+  global_sources:{ua:'Глобально',    ru:'Глобально',     en:'Global',       c:'#374151',e:'🌐'},
+  good_news:     {ua:'Позитив',      ru:'Позитив',       en:'Positive',     c:'#059669',e:'✨'},
+  market_alerts: {ua:'Алерти',       ru:'Алерты',        en:'Alerts',       c:'#C2410C',e:'⚡'},
+};
+
+const TICKER_CATS = {
+  citric_acid:'api', menthol:'herbal', magnesium_citrate:'api',
+  glycerin:'cosmetic', ethanol:'api', sorbitol:'food',
+  ascorbic_acid:'api', inositol:'api', dextrose:'food', lactic_acid:'api',
+};
+
+// ── State ─────────────────────────────────────────────────────
+let activeCat = 'all', newsOff = 0;
+const LIMIT = 15;
+let mkData = [], detailChart = null, currentMkKey = null;
+let _allMkData = [];
+let _mkPrefs = null;
+let _mkEditMode = false;
+let _mkModalSel = null;
+const _MK_DEFAULT_KEYS = ['НАФТА','ГАЗ','КУКУРУДЗА','ПШЕНИЦЯ','СОЄВІ_БОБИ','СОЄВА_ОЛІЯ','ПАЛЬМОВА','ЦУКОР','ЄВРО','ЮАНЬ'];
+
+const WIDGETS = [
+  { key:'news',       icon:'📰', labels:{ua:'Новини',  ru:'Новости',  en:'News'} },
+  { key:'reports',    icon:'📋', labels:{ua:'Звіти',   ru:'Отчёты',   en:'Reports'} },
+  { key:'currencies', icon:'💱', labels:{ua:'Валюти',  ru:'Валюты',   en:'Currencies'} },
+  { key:'markets',    icon:'📈', labels:{ua:'Ринки',   ru:'Рынки',    en:'Markets'} },
+  { key:'tracking',   icon:'📡', labels:{ua:'Трекінг', ru:'Трекинг',  en:'Tracking'} },
+  { key:'weather',    icon:'🌍', labels:{ua:'Погода',  ru:'Погода',   en:'Weather'} },
+];
+let _widgetPrefs = null;
+let _activeTab = 'news';
+
+let weatherGlobe = null;
+let weatherGlobeReady = false;
+let weatherGlobeScriptLoaded = false;
+let weatherGlobeLoadFailed = false;
+let weatherGlobeScriptPromise = null;
+let _weatherDefaultLoaded = false;
+let currentWeatherLocation = null;
+let _currentWeatherData = null;
+let _weatherCache = {};
+let _weatherSearchItems = [];
+const WEATHER_CITIES = [
+  {name:'Kyiv',           country:'Ukraine',       lat:50.4501, lng:30.5234, ua:true},
+  {name:'Kharkiv',        country:'Ukraine',       lat:49.9808, lng:36.2527, ua:true},
+  {name:'Odesa',          country:'Ukraine',       lat:46.4774, lng:30.7326, ua:true},
+  {name:'Dnipro',         country:'Ukraine',       lat:48.4647, lng:35.0462, ua:true},
+  {name:'Zaporizhzhia',   country:'Ukraine',       lat:47.8388, lng:35.1396, ua:true},
+  {name:'Lviv',           country:'Ukraine',       lat:49.8397, lng:24.0297, ua:true},
+  {name:'Mykolaiv',       country:'Ukraine',       lat:46.9750, lng:31.9946, ua:true},
+  {name:'Vinnytsia',      country:'Ukraine',       lat:49.2330, lng:28.4682, ua:true},
+  {name:'Kherson',        country:'Ukraine',       lat:46.6354, lng:32.6169, ua:true},
+  {name:'Poltava',        country:'Ukraine',       lat:49.5883, lng:34.5514, ua:true},
+  {name:'Chernihiv',      country:'Ukraine',       lat:51.4982, lng:31.2893, ua:true},
+  {name:'Cherkasy',       country:'Ukraine',       lat:49.4444, lng:32.0598, ua:true},
+  {name:'Sumy',           country:'Ukraine',       lat:50.9077, lng:34.7981, ua:true},
+  {name:'Rivne',          country:'Ukraine',       lat:50.6199, lng:26.2516, ua:true},
+  {name:'Ivano-Frankivsk',country:'Ukraine',       lat:48.9226, lng:24.7111, ua:true},
+  {name:'Lutsk',          country:'Ukraine',       lat:50.7597, lng:25.3423, ua:true},
+  {name:'Uzhhorod',       country:'Ukraine',       lat:48.6208, lng:22.2879, ua:true},
+  {name:'Chernivtsi',     country:'Ukraine',       lat:48.2916, lng:25.9352, ua:true},
+  {name:'Khmelnytskyi',   country:'Ukraine',       lat:49.4229, lng:26.9966, ua:true},
+  {name:'Kremenchuk',     country:'Ukraine',       lat:49.0663, lng:33.4199, ua:true},
+  {name:'Sloviansk',      country:'Ukraine',       lat:48.8662, lng:37.6143, ua:true},
+  {name:'Kramatorsk',     country:'Ukraine',       lat:48.7244, lng:37.5593, ua:true},
+  {name:'Melitopol',      country:'Ukraine',       lat:46.8497, lng:35.3683, ua:true},
+  {name:'Brovary',        country:'Ukraine',       lat:50.5122, lng:30.7889, ua:true},
+  {name:'Bucha',          country:'Ukraine',       lat:50.5491, lng:30.2249, ua:true},
+  {name:'Drohobych',      country:'Ukraine',       lat:49.3506, lng:23.5020, ua:true},
+  {name:'London',         country:'UK',            lat:51.5074, lng:-0.1278},
+  {name:'Paris',          country:'France',        lat:48.8566, lng:2.3522},
+  {name:'Berlin',         country:'Germany',       lat:52.5200, lng:13.4050},
+  {name:'Warsaw',         country:'Poland',        lat:52.2297, lng:21.0122},
+  {name:'Washington',     country:'USA',           lat:38.9072, lng:-77.0369},
+  {name:'New York',       country:'USA',           lat:40.7128, lng:-74.0060},
+  {name:'Tokyo',          country:'Japan',         lat:35.6762, lng:139.6503},
+  {name:'Beijing',        country:'China',         lat:39.9042, lng:116.4074},
+  {name:'Rome',           country:'Italy',         lat:41.9028, lng:12.4964},
+  {name:'Madrid',         country:'Spain',         lat:40.4168, lng:-3.7038},
+  {name:'Lisbon',         country:'Portugal',      lat:38.7223, lng:-9.1393},
+  {name:'Prague',         country:'Czech Republic',lat:50.0755, lng:14.4378},
+  {name:'Vienna',         country:'Austria',       lat:48.2082, lng:16.3738},
+  {name:'Budapest',       country:'Hungary',       lat:47.4979, lng:19.0402},
+  {name:'Bucharest',      country:'Romania',       lat:44.4268, lng:26.1025},
+  {name:'Istanbul',       country:'Turkey',        lat:41.0082, lng:28.9784},
+  {name:'Athens',         country:'Greece',        lat:37.9838, lng:23.7275},
+  {name:'Stockholm',      country:'Sweden',        lat:59.3293, lng:18.0686},
+  {name:'Oslo',           country:'Norway',        lat:59.9139, lng:10.7522},
+  {name:'Helsinki',       country:'Finland',       lat:60.1699, lng:24.9384},
+  {name:'Copenhagen',     country:'Denmark',       lat:55.6761, lng:12.5683},
+  {name:'Amsterdam',      country:'Netherlands',   lat:52.3676, lng:4.9041},
+  {name:'Brussels',       country:'Belgium',       lat:50.8503, lng:4.3517},
+  {name:'Dublin',         country:'Ireland',       lat:53.3498, lng:-6.2603},
+  {name:'Tallinn',        country:'Estonia',       lat:59.4370, lng:24.7536},
+  {name:'Riga',           country:'Latvia',        lat:56.9460, lng:24.1059},
+  {name:'Vilnius',        country:'Lithuania',     lat:54.6872, lng:25.2797},
+  {name:'Chisinau',       country:'Moldova',       lat:47.0105, lng:28.8638},
+  {name:'Tbilisi',        country:'Georgia',       lat:41.6938, lng:44.8015},
+  {name:'Yerevan',        country:'Armenia',       lat:40.1872, lng:44.5152},
+  {name:'Baku',           country:'Azerbaijan',    lat:40.4093, lng:49.8671},
+  {name:'Seoul',          country:'South Korea',   lat:37.5665, lng:126.9780},
+  {name:'New Delhi',      country:'India',         lat:28.6139, lng:77.2090},
+  {name:'Singapore',      country:'Singapore',     lat:1.3521,  lng:103.8198},
+  {name:'Dubai',          country:'UAE',           lat:25.2048, lng:55.2708},
+  {name:'Cairo',          country:'Egypt',         lat:30.0444, lng:31.2357},
+];
+
+// ── Splash ────────────────────────────────────────────────────
+function hideSplash(){
+  const sp = document.getElementById('splash');
+  const app = document.getElementById('app');
+  if(sp){ sp.style.opacity='0'; sp.style.pointerEvents='none'; setTimeout(()=>{ sp.style.display='none'; },300); }
+  if(app){ app.classList.add('on'); app.style.opacity='1'; app.style.visibility='visible'; app.style.pointerEvents='auto'; }
+  document.body.classList.add('boot-fallback');
+}
+
+window.onerror = function(msg, src, line, col, err){
+  console.error('WEBAPP JS ERROR:', msg, src, line, col, err);
+  document.body.classList.add('boot-error');
+  hideSplash();
+};
+
+window.addEventListener('unhandledrejection', function(ev){
+  console.error('WEBAPP PROMISE ERROR:', ev.reason);
+  hideSplash();
+});
+window.addEventListener('resize', () => {
+  clearTimeout(window.__appResizeT);
+  window.__appResizeT = setTimeout(handleAppViewportResize, 120);
+});
+window.addEventListener('orientationchange', () => {
+  setTimeout(handleAppViewportResize, 250);
+});
+
+// ── Boot ──────────────────────────────────────────────────────
+window.addEventListener('load', () => {
+  setTimeout(hideSplash, 2500);
+
+  try {
+    const lbtn = document.getElementById('lbtn');
+    if(lbtn) lbtn.textContent = FLAGS[langIdx];
+
+    try { buildChips(); } catch(e){ console.error('buildChips failed', e); }
+    try { fetchNews(true); } catch(e){ console.error('fetchNews failed', e); }
+
+    loadUserWidgetPrefs().then(() => {
+      renderBottomNav();
+      renderWidgetManager();
+    }).catch(() => {
+      _widgetPrefs = ['news','reports','markets','tracking'];
+      renderBottomNav();
+      renderWidgetManager();
+    });
+
+  } catch(e){
+    console.error('Boot failed', e);
+    document.body.classList.add('boot-error');
+    hideSplash();
+  }
+});
+
+// ── Tabs ──────────────────────────────────────────────────────
+function tab(name, btn){
+  _activeTab = name;
+  const panelId = name === 'currencies' ? 'add' : name;
+  ['news','reports','add','markets','tracking','weather'].forEach(n => {
+    document.getElementById('p'+n)?.classList.toggle('on', n === panelId);
+  });
+  document.querySelectorAll('#bottom-nav button').forEach(b => b.classList.remove('on'));
+  const activeBtn = document.getElementById('btn-'+name) || btn;
+  if(activeBtn) activeBtn.classList.add('on');
+  if(name === 'currencies'){ addNav('curr'); if(typeof loadCurrencies==='function') loadCurrencies(); }
+  else if(name === 'add') addNav('home');
+  try {
+    if(name==='markets' && mkData.length===0) fetchMarkets();
+    if(name==='reports' && !document.getElementById('rlist')?.children.length) fetchReports();
+    if(name==='tracking'){ trkNav('home'); loadSavedShipments(); }
+    if(name==='weather'){
+      requestAnimationFrame(() => {
+        ensureWeatherLoaded();
+        setTimeout(resizeWeatherGlobe, 100);
+        setTimeout(resizeWeatherGlobe, 400);
+      });
+    }
+  } catch(e){
+    console.error('tab switch failed', e);
+  }
+}
+
+// ── Chips ─────────────────────────────────────────────────────
+function buildChips(){
+  const el = document.getElementById('chips');
+  if(!el) return;
+  ['all','api','cosmetic','herbal','veterinary','food','feed','capsules','pvc','logistics','global_sources','good_news'].forEach(k => {
+    const d = document.createElement('div');
+    d.className = 'chip'+(k===activeCat?' on':'');
+    d.dataset.k = k;
+    const c = CATS[k];
+    d.textContent = (c?.e||'')+' '+(c?.[lang]||c?.ua||k);
+    d.onclick = () => {
+      activeCat = k;
+      el.querySelectorAll('.chip').forEach(x => x.classList.toggle('on', x.dataset.k===k));
+      fetchNews(true);
+    };
+    el.appendChild(d);
+  });
+}
+
+// ── Time ──────────────────────────────────────────────────────
+function ago(pub){
+  if(!pub) return '';
+  const dt = new Date(pub.replace(' ','T')+(pub.includes('+')?'':'+03:00'));
+  const s = (Date.now()-dt)/1000;
+  const t = {ua:['щойно','хв','год'],ru:['только что','мин','ч'],en:['just now','min','h']}[lang];
+  if(s<60) return t[0];
+  if(s<3600) return Math.floor(s/60)+' '+t[1];
+  if(s<86400) return Math.floor(s/3600)+' '+t[2];
+  return dt.toLocaleDateString(lang==='en'?'en-US':lang==='ru'?'ru-RU':'uk-UA',{day:'numeric',month:'short'});
+}
+
+// ── News card — category → title → 2-line truncated → "Читати повністю" ──
+function newsCard(a){
+  const cfg = CATS[a.category]||{ua:a.category,ru:a.category,en:a.category,c:'#4B5563',e:'📌'};
+  const catLabel = cfg[lang]||cfg.ua||a.category;
+  const summ = a['summary_'+lang]||a.summary_ua||a.summary_en||'';
+  const u = UI[lang];
+
+  const el = document.createElement('div');
+  el.className = 'ncard';
+  el.innerHTML =
+    `<div class="ncard-body">
+       <div class="nbadge" style="background:${cfg.c}">${cfg.e} ${esc(catLabel)}</div>
+       <a class="ntitle" href="${esc(a.link)}" target="_blank" rel="noopener noreferrer">${esc(a['title_'+lang]||a.title)}</a>
+       ${summ ? `<div class="nsumm">${esc(summ)}</div>` : ''}
+       <div class="ncard-footer">
+         <div class="ntime">🕐 ${ago(a.published)}</div>
+         ${summ ? `<button class="read-btn" onclick="toggleSumm(this)">${u.readFull}</button>` : ''}
+       </div>
+     </div>`;
+
+  if(tg) el.querySelector('.ntitle').addEventListener('click', ev => { ev.preventDefault(); tg.openLink(a.link); });
+  return el;
+}
+
+function toggleSumm(btn){
+  const nsumm = btn.closest('.ncard').querySelector('.nsumm');
+  if(!nsumm) return;
+  const exp = nsumm.classList.toggle('exp');
+  btn.textContent = exp ? UI[lang].collapse : UI[lang].readFull;
+}
+
+async function fetchNews(reset){
+  const u = UI[lang];
+  const list = document.getElementById('nlist');
+  const lmBtn = document.getElementById('lmore');
+  if(!list) return;
+  if(reset){ newsOff=0; list.innerHTML=''; if(lmBtn) lmBtn.style.display='none'; }
+  if(reset) list.innerHTML = [1,2,3].map(()=>'<div class="sk sk-card"></div>').join('');
+  try{
+    const cat = activeCat==='all'?'':'&category='+activeCat;
+    const r = await fetch(`/api/webapp/news?lang=${lang}&limit=${LIMIT}&offset=${newsOff}${cat}`);
+    const data = await r.json();
+    if(reset) list.innerHTML = '';
+    if(!data.length && reset){ list.innerHTML=`<div class="empty"><div class="ei">📭</div><p>${u.noNews}</p></div>`; return; }
+    data.forEach(a => list.appendChild(newsCard(a)));
+    newsOff += data.length;
+    if(lmBtn){ lmBtn.style.display=data.length>=LIMIT?'block':'none'; if(data.length>=LIMIT) lmBtn.textContent=u.loadMore; }
+  } catch {
+    if(reset) list.innerHTML=`<div class="empty"><div class="ei">⚠️</div><p>${u.loadError}</p></div>`;
+  }
+}
+function loadMore(){ fetchNews(false); }
+
+// ── Reports — digest PDFs ─────────────────────────────────────
+async function fetchReports(){
+  const u = UI[lang];
+  const el = document.getElementById('rlist');
+  if(!el) return;
+  el.innerHTML = [1,2,3].map(()=>'<div class="sk sk-rep"></div>').join('');
+  try{
+    const r = await fetch('/api/webapp/digest_reports?limit=10');
+    const reps = await r.json();
+    el.innerHTML = '';
+    if(!reps.length){ el.innerHTML=`<div class="empty"><div class="ei">📭</div><p>${u.noDataYet}</p></div>`; return; }
+    reps.forEach(rep => el.appendChild(buildRepCard(rep)));
+  } catch { if(el) el.innerHTML=`<div class="empty"><div class="ei">⚠️</div><p>${u.loadError}</p></div>`; }
+}
+
+function buildRepCard(rep){
+  const u = UI[lang];
+  const rt = RTYPES[rep.report_type] || { ua:'📄 Звіт', ru:'📄 Отчёт', en:'📄 Report' };
+  const label = rt[lang]||rt.ua;
+  const dt = rep.created_at ? new Date(rep.created_at) : null;
+  const dateStr = dt
+    ? dt.toLocaleDateString(lang==='en'?'en-US':lang==='ru'?'ru-RU':'uk-UA',{day:'numeric',month:'long'})
+      +' · '+dt.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})
+    : '';
+  const pdfUrl = `/api/webapp/digest_reports/${rep.id}/pdf`;
+
+  const card = document.createElement('div');
+  card.className = 'rep-card';
+  card.innerHTML =
+    `<div class="rep-info">
+       <div class="rep-type">${esc(label)}</div>
+       ${dateStr ? `<div class="rep-date">📅 ${esc(dateStr)}</div>` : ''}
+     </div>
+     <button class="rep-btn" onclick="openPdf('${esc(pdfUrl)}')">${u.openPdf}</button>`;
+  return card;
+}
+
+function openPdf(url){
+  if(tg) tg.openLink(window.location.origin+url);
+  else window.open(url,'_blank');
+}
+
+// ── Markets ───────────────────────────────────────────────────
+async function fetchMarkets(){
+  const u = UI[lang];
+  const grid = document.getElementById('mk-grid');
+  if(!grid) return;
+  grid.innerHTML = Array(6).fill('<div class="sk sk-pcard"></div>').join('');
+  try{
+    if(_mkPrefs === null) await loadUserMkPrefs();
+    const r = await fetch('/api/webapp/markets');
+    _allMkData = await r.json();
+    const vis = (_mkPrefs && _mkPrefs.length) ? _mkPrefs : _MK_DEFAULT_KEYS;
+    mkData = vis.map(key => _allMkData.find(m => m.key === key)).filter(Boolean);
+    renderGrid(mkData);
+  } catch {
+    if(grid) grid.innerHTML=`<div class="empty" style="grid-column:span 2"><div class="ei">⚠️</div><p>${u.loadError}</p></div>`;
+  }
+}
+
+function renderGrid(data){
+  const grid = document.getElementById('mk-grid'); if(!grid) return; grid.innerHTML='';
+  data.forEach(m => {
+    const pct = m.change_pct, sign = pct>=0?'+':'';
+    const cls = Math.abs(pct)<0.05?'fl':pct>=0?'up':'dn';
+    const card = document.createElement('div');
+    card.className = 'pcard' + (_mkEditMode ? ' editable' : '');
+    card.dataset.key = m.key;
+    card.innerHTML =
+      `<button class="pcard-del" onclick="removeMkChart(event,'${m.key.replace(/'/g,"\\'")}')" title="Видалити">✕</button>
+       <div class="pcico">${m.emoji}</div>
+       <div class="pclbl">${esc(m.label)}</div>
+       <div class="pcval">${m.current} <span class="pcunit">${m.unit}</span></div>
+       <div class="pcchg ${cls}">${sign}${pct.toFixed(2)}%</div>`;
+    card.onclick = () => { if(!_mkEditMode) openMkDetail(m); };
+    grid.appendChild(card);
+  });
+  _initMkDrag(grid);
+}
+
+async function openMkDetail(m){
+  currentMkKey = m.key;
+  showEl('mk-grid-wrap', 'none');
+  addCls('mk-detail', 'on');
+
+  const chartWrap = byId('mk-chart-wrap');
+  const newsArea  = byId('mk-news');
+  if(!chartWrap || !newsArea) return;
+  chartWrap.innerHTML = '<div class="sk sk-ch"></div>';
+  newsArea.innerHTML  = '<div class="sk sk-card"></div><div class="sk sk-card"></div>';
+
+  const pct = m.change_pct;
+  const pctCol = pct>=0 ? '#22C55E' : '#EF4444';
+  const pctStr = (pct>=0?'+':'')+pct.toFixed(2)+'%';
+
+  // Chart
+  try{
+    const r = await fetch('/api/webapp/chart/'+m.key);
+    const d = await r.json();
+    chartWrap.innerHTML =
+      `<div class="chcard">
+         <div class="chtitle">
+           <span>${esc((d.emoji||m.emoji||'')+' '+(d.label||m.label))}</span>
+           <span class="chpct" style="color:${pctCol}">${pctStr}</span>
+         </div>
+         <canvas id="mkcv" height="150"></canvas>
+       </div>`;
+    if(detailChart){detailChart.destroy();detailChart=null;}
+    const prices = d.prices||[];
+    if(prices.length) _drawChart(prices, d.dates, d.unit||'');
+  } catch {
+    chartWrap.innerHTML=`<div class="empty"><div class="ei">⚠️</div><p>${UI[lang].error}</p></div>`;
+  }
+
+  // Related news (same card style as news tab)
+  try{
+    const cats = TICKER_CATS[m.key]||'global_sources';
+    const r = await fetch(`/api/webapp/news?category=${cats}&lang=${lang}&limit=8`);
+    const articles = await r.json();
+    newsArea.innerHTML = '';
+    if(!articles.length){ newsArea.innerHTML=`<div class="empty"><div class="ei">📭</div><p>${UI[lang].noNews}</p></div>`; return; }
+    articles.forEach(a => newsArea.appendChild(newsCard(a)));
+  } catch {
+    newsArea.innerHTML=`<div class="empty"><div class="ei">⚠️</div><p>${UI[lang].loadError}</p></div>`;
+  }
+}
+
+function _drawChart(prices, dates, unit){
+  if(detailChart){detailChart.destroy();detailChart=null;}
+  const lineCol = prices[prices.length-1]>=prices[0]?'#22C55E':'#EF4444';
+  const tc = light?'#666666':'#8A8A8A';
+  const gc = light?'#DDDDDD':'#2A2A2A';
+  const bg = light?'#FFFFFF':'#0F0F0F';
+  const ctx = document.getElementById('mkcv').getContext('2d');
+  detailChart = new Chart(ctx,{
+    type:'line',
+    data:{labels:dates,datasets:[{data:prices,borderColor:lineCol,backgroundColor:lineCol+'22',borderWidth:2,fill:true,tension:.35,pointRadius:0,pointHitRadius:12}]},
+    options:{
+      responsive:true,maintainAspectRatio:true,
+      plugins:{legend:{display:false},tooltip:{mode:'index',intersect:false,backgroundColor:bg,borderColor:gc,borderWidth:1,titleColor:tc,bodyColor:tc,callbacks:{label:c=>`${c.parsed.y.toFixed(2)} ${unit}`}}},
+      scales:{x:{grid:{color:gc},ticks:{color:tc,maxTicksLimit:5,maxRotation:0}},y:{grid:{color:gc},ticks:{color:tc,maxTicksLimit:5,callback:v=>v>=1000?Math.round(v/100)/10+'k':v}}}
+    }
+  });
+}
+
+async function redrawDetailChart(key){
+  if(!key) return;
+  const m = mkData.find(x=>x.key===key); if(!m) return;
+  try{
+    const r = await fetch('/api/webapp/chart/'+key);
+    const d = await r.json();
+    if((d.prices||[]).length) _drawChart(d.prices, d.dates, d.unit||'');
+  } catch {}
+}
+
+function closeMkDetail(){ closeMkDetailSilent(); }
+function closeMkDetailSilent(){
+  if(detailChart){detailChart.destroy();detailChart=null;}
+  rmCls('mk-detail', 'on');
+  showEl('mk-grid-wrap');
+  currentMkKey = null;
+}
+
+// ── ADD-TAB navigation ────────────────────────────────────────
+function addNav(view){
+  ['home','curr','wh'].forEach(v=>{
+    const el = document.getElementById('padd-'+v);
+    if(el) el.style.display = '';
+    if(el) el.classList.toggle('on', v===view);
+  });
+  // padd-home is a regular div, not add-subpanel, handle separately
+  const home = document.getElementById('padd-home');
+  if(home) home.style.display = view==='home' ? '' : 'none';
+  if(view==='curr' && !_currLoaded) loadCurrencies();
+  if(view==='wh' && !_whLoaded) loadWarehouse();
+  if(view==='wh') { closeWhDetail(); }
+}
+
+// ── CURRENCIES ────────────────────────────────────────────────
+// ── CURRENCIES ────────────────────────────────────────────────
+let _currLoaded = false;
+let _allCurrData = [];
+let _currPrefs = null;
+let _currViewMode = 'compact';
+let _currEditMode = false;
+let _currModalSel = null;
+const _CURR_DEFAULT_CODES = ['USD','EUR','JPY','INR','PLN','GBP','CNY','CHF','TRY','CZK'];
+let _currChartCache = {};
+let _currChartInstances = {};
+
+function getCurrUid(){ return getMkUid(); }
+
+async function loadUserCurrencyPrefs(){
+  try{
+    const r = await fetch('/api/webapp/user/currency-prefs?user_id='+getCurrUid());
+    const d = await r.json();
+    if(d.ok && d.selected_codes && d.selected_codes.length){
+      _currPrefs = d.selected_codes;
+      _currViewMode = d.view_mode || 'compact';
+    } else {
+      _currPrefs = _CURR_DEFAULT_CODES.slice();
+      _currViewMode = 'compact';
+    }
+  } catch {
+    _currPrefs = _CURR_DEFAULT_CODES.slice();
+    _currViewMode = 'compact';
+  }
+}
+async function saveUserCurrencyPrefs(){
+  try{
+    await fetch('/api/webapp/user/currency-prefs',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({user_id:getCurrUid(), selected_codes:_currPrefs, view_mode:_currViewMode})});
+  } catch{}
+}
+
+async function loadCurrencies(){
+  _currLoaded = true;
+  const list = document.getElementById('curr-list');
+  if(list) list.innerHTML = '<div class="sk sk-card"></div>'.repeat(5);
+  try{
+    if(_currPrefs === null) await loadUserCurrencyPrefs();
+    const r = await fetch('/api/webapp/currencies');
+    const d = await r.json();
+    if(d.ok){
+      _allCurrData = d.rates || [];
+      _updateCurrViewBtn();
+      renderCurrencies(d);
+    } else if(list) {
+      list.innerHTML = `<div class="empty"><div class="ei">⚠️</div><p>${d.error||UI[lang].loadError}</p></div>`;
+    }
+  } catch {
+    if(list) list.innerHTML = `<div class="empty"><div class="ei">⚠️</div><p>${UI[lang].loadError}</p></div>`;
+  }
+  setTimeout(()=>{ _currLoaded=false; const pc=byId('padd-curr'); if(pc && pc.classList.contains('on')) loadCurrencies(); }, 15*60*1000);
+}
+
+function renderCurrencies(data){
+  _destroyCurrCharts();
+  const list = document.getElementById('curr-list');
+  if(!list) return;
+  list.className = 'curr-list ' + _currViewMode;
+  list.innerHTML = '';
+  const prefs = (_currPrefs && _currPrefs.length) ? _currPrefs : _CURR_DEFAULT_CODES;
+  const rates = (data && data.rates) ? data.rates : _allCurrData;
+  const ordered = prefs.map(code => rates.find(c => c.code === code)).filter(Boolean);
+  if(!ordered.length){
+    list.innerHTML = `<div class="empty" style="grid-column:span 3"><div class="ei">📭</div><p>${UI[lang].noData}</p></div>`;
+  } else if(_currViewMode === 'compact'){
+    ordered.forEach(c => list.appendChild(_mkCurrCompactCard(c)));
+  } else {
+    ordered.forEach(c => { const card = _mkCurrChartCard(c); list.appendChild(card); _loadCurrChart(c.code); });
+  }
+  const ft = document.getElementById('curr-footer');
+  if(ft && data && data.updated_at) ft.textContent = 'НБУ · ' + data.updated_at;
+}
+
+function _mkCurrCompactCard(c){
+  const div = document.createElement('div');
+  div.className = 'curr-card compact';
+  div.innerHTML =
+    `<button class="curr-remove-btn" onclick="removeCurrCard(event,'${esc(c.code)}')" title="Видалити">✕</button>
+     <div class="curr-code">${esc(c.symbol)} ${esc(c.code)}</div>
+     <div class="curr-name">${esc(c.name)}</div>
+     <div class="curr-rate">${c.rate_uah.toFixed(2)} ₴</div>
+     <div class="curr-label">${esc(c.label)}</div>`;
+  return div;
+}
+
+function _mkCurrChartCard(c){
+  const div = document.createElement('div');
+  div.className = 'curr-card chart';
+  div.innerHTML =
+    `<button class="curr-remove-btn" onclick="removeCurrCard(event,'${esc(c.code)}')" title="Видалити">✕</button>
+     <div class="curr-chart-hdr">
+       <div class="curr-chart-info">
+         <div class="curr-chart-code">${esc(c.symbol)} ${esc(c.code)}</div>
+         <div class="curr-chart-name">${esc(c.name)}</div>
+       </div>
+       <div class="curr-chart-rate">${c.rate_uah.toFixed(2)} ₴</div>
+     </div>
+     <div class="curr-chart-area" id="curr-ca-${c.code}">
+       <div class="curr-chart-fallback">⏳</div>
+     </div>`;
+  return div;
+}
+
+async function _loadCurrChart(code){
+  if(_currChartCache[code]){
+    _drawCurrChart(code, _currChartCache[code]); return;
+  }
+  try{
+    const r = await fetch('/api/webapp/currency-chart/'+code);
+    const d = await r.json();
+    _currChartCache[code] = d;
+    _drawCurrChart(code, d);
+  } catch {
+    const area = byId('curr-ca-'+code);
+    if(area) area.innerHTML = `<div class="curr-chart-fallback">${UI[lang].chartUnavailable||'Chart unavailable'}</div>`;
+  }
+}
+
+function _drawCurrChart(code, d){
+  const area = byId('curr-ca-'+code); if(!area) return;
+  if(!d || !d.ok || !d.prices || !d.prices.length){
+    area.innerHTML = `<div class="curr-chart-fallback">${UI[lang].chartUnavailable||'Chart unavailable'}</div>`; return;
+  }
+  area.innerHTML = `<canvas id="curr-cv-${code}"></canvas>`;
+  const ctx = document.getElementById('curr-cv-'+code); if(!ctx) return;
+  const prices = d.prices;
+  const lineCol = prices[prices.length-1]>=prices[0]?'#22C55E':'#EF4444';
+  const tc = light?'#666666':'#8A8A8A';
+  const gc = light?'#DDDDDD':'#2A2A2A';
+  const bg = light?'#FFFFFF':'#0F0F0F';
+  if(_currChartInstances[code]){ try{_currChartInstances[code].destroy();}catch{} }
+  _currChartInstances[code] = new Chart(ctx.getContext('2d'),{
+    type:'line',
+    data:{labels:d.dates,datasets:[{data:prices,borderColor:lineCol,backgroundColor:lineCol+'22',borderWidth:1.5,fill:true,tension:.35,pointRadius:0,pointHitRadius:10}]},
+    options:{
+      responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:false},tooltip:{mode:'index',intersect:false,backgroundColor:bg,borderColor:gc,borderWidth:1,titleColor:tc,bodyColor:tc,callbacks:{label:c=>`${c.parsed.y.toFixed(4)} ₴`}}},
+      scales:{x:{grid:{color:gc},ticks:{color:tc,maxTicksLimit:4,maxRotation:0}},y:{grid:{color:gc},ticks:{color:tc,maxTicksLimit:4}}}
+    }
+  });
+}
+
+function _destroyCurrCharts(){
+  Object.values(_currChartInstances).forEach(ch=>{ try{ch.destroy();}catch{} });
+  _currChartInstances = {};
+}
+
+function removeCurrCard(ev, code){
+  ev.stopPropagation();
+  if(!_currPrefs) return;
+  _currPrefs = _currPrefs.filter(c=>c!==code);
+  renderCurrencies({rates:_allCurrData});
+  saveUserCurrencyPrefs();
+}
+
+function toggleCurrencyEdit(){
+  _currEditMode = !_currEditMode;
+  document.body.classList.toggle('curr-edit', _currEditMode);
+  const btn = byId('curr-edit-btn');
+  if(btn) btn.classList.toggle('active', _currEditMode);
+}
+
+function toggleCurrencyViewMode(){
+  _currViewMode = _currViewMode === 'compact' ? 'chart' : 'compact';
+  _updateCurrViewBtn();
+  renderCurrencies({rates:_allCurrData});
+  saveUserCurrencyPrefs();
+}
+
+function _updateCurrViewBtn(){
+  const btn = byId('curr-view-btn');
+  if(!btn) return;
+  btn.textContent = _currViewMode === 'compact' ? '▭' : '⊞';
+  btn.classList.toggle('active', _currViewMode === 'chart');
+}
+
+function openCurrencyModal(){
+  if(!_allCurrData.length){ loadCurrencies().then(()=>openCurrencyModal()); return; }
+  _currModalSel = (_currPrefs || _CURR_DEFAULT_CODES).slice();
+  addCls('curr-modal-ov', 'on');
+  const srch = byId('curr-modal-srch'); if(srch) srch.value='';
+  renderCurrencyModalList('');
+}
+function hideCurrencyModal(){ rmCls('curr-modal-ov','on'); }
+function renderCurrencyModalList(q){
+  const list = byId('curr-modal-list'); if(!list) return;
+  list.innerHTML='';
+  const ql = (q||'').toLowerCase();
+  (_allCurrData||[])
+    .filter(c=>!ql||c.code.toLowerCase().includes(ql)||c.name.toLowerCase().includes(ql))
+    .forEach(c=>{
+      const sel = (_currModalSel||[]).includes(c.code);
+      const div = document.createElement('div'); div.className='mk-mi'+(sel?' on':'');
+      div.innerHTML=`<div class="mk-mi-ico">${esc(c.symbol)}</div><div class="mk-mi-lbl">${esc(c.code)} — ${esc(c.name)}</div><div class="mk-mi-chk">✓</div>`;
+      div.onclick=()=>{
+        if(!_currModalSel) _currModalSel=[];
+        const i=_currModalSel.indexOf(c.code);
+        i>=0 ? _currModalSel.splice(i,1) : _currModalSel.push(c.code);
+        div.classList.toggle('on', _currModalSel.includes(c.code));
+      };
+      list.appendChild(div);
+    });
+}
+async function saveCurrencyModal(){
+  _currPrefs = (_currModalSel||[]).slice();
+  renderCurrencies({rates:_allCurrData});
+  await saveUserCurrencyPrefs();
+  hideCurrencyModal();
+}
+
+// ── WAREHOUSE ─────────────────────────────────────────────────
+let _whLoaded = false, _whData = [];
+async function loadWarehouse(){
+  _whLoaded = true;
+  const list = document.getElementById('wh-list');
+  if(list) list.innerHTML = '<div class="sk sk-card"></div>'.repeat(5);
+  try{
+    const r = await fetch('/api/webapp/warehouse/substances');
+    const d = await r.json();
+    if(d.ok){ _whData=d.items; renderWarehouse(d.items); }
+  } catch {
+    if(list) list.innerHTML = `<div class="empty"><div class="ei">⚠️</div><p>${UI[lang].loadError}</p></div>`;
+  }
+}
+function renderWarehouse(items){
+  const list = document.getElementById('wh-list');
+  if(!list) return;
+  list.innerHTML = '';
+  items.forEach(item=>{
+    const div = document.createElement('div'); div.className='wh-card';
+    div.innerHTML = `<div class="wh-card-name">${esc(item.name)}</div><div class="wh-card-cat">${esc(item.category)}</div><div class="wh-card-desc">${esc(item.description)}</div>`;
+    div.onclick = ()=>openWhDetail(item);
+    list.appendChild(div);
+  });
+}
+function openWhDetail(item){
+  showEl('wh-list-wrap', 'none');
+  addCls('wh-detail', 'on');
+  setText('wh-det-title', item.name);
+  const apps = (item.applications||[]).map(a=>`<li>${esc(a)}</li>`).join('');
+  setHTML('wh-det-content',
+    `<div class="wh-det-row"><div class="wh-det-lbl">Категорія</div><div class="wh-det-val">${esc(item.category)}</div></div>
+     <div class="wh-det-row"><div class="wh-det-lbl">Опис</div><div class="wh-det-val">${esc(item.description)}</div></div>
+     <div class="wh-det-row"><div class="wh-det-lbl">Застосування</div><div class="wh-det-val">${esc(item.used_for)}</div></div>
+     <div class="wh-det-row"><div class="wh-det-lbl">Форми</div><div class="wh-det-val"><ul style="margin:0;padding-left:16px">${apps}</ul></div></div>
+     <div class="wh-det-row"><div class="wh-det-lbl">Зберігання</div><div class="wh-det-val">${esc(item.storage_notes)}</div></div>
+     <div class="wh-det-row"><div class="wh-det-lbl">Статус</div><div class="wh-det-val" style="color:var(--sub)">${esc(item.status)}</div></div>`);
+}
+function closeWhDetail(){
+  showEl('wh-list-wrap');
+  rmCls('wh-detail', 'on');
+}
+
+// ── WIDGET PREFS ──────────────────────────────────────────────
+function getWidgetUid(){ return getMkUid(); }
+
+async function loadUserWidgetPrefs(){
+  try{
+    const r = await fetch('/api/webapp/user/widget-prefs?user_id='+getWidgetUid());
+    const d = await r.json();
+    _widgetPrefs = (d.ok && d.selected_keys && d.selected_keys.length)
+      ? d.selected_keys
+      : ['news','reports','markets','tracking'];
+  } catch { _widgetPrefs = ['news','reports','markets','tracking']; }
+}
+
+async function saveUserWidgetPrefs(){
+  try{
+    await fetch('/api/webapp/user/widget-prefs',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({user_id:getWidgetUid(), selected_keys:_widgetPrefs})});
+  } catch {}
+}
+
+function orderedWidgets(){
+  return (_widgetPrefs||[]).map(key=>WIDGETS.find(w=>w.key===key)).filter(Boolean);
+}
+
+function renderBottomNav(){
+  const nav = document.getElementById('bottom-nav'); if(!nav) return;
+  const u = UI[lang];
+  const active = orderedWidgets().slice(0,4);
+  const left  = active.slice(0,2);
+  const right  = active.slice(2,4);
+  const mkBtn = w => {
+    const isOn = _activeTab === w.key;
+    return `<button id="btn-${w.key}"${isOn?' class="on"':''} onclick="tab('${w.key}',this)">
+      <span class="ico">${w.icon}</span><span>${w.labels[lang]||w.key}</span>
+    </button>`;
+  };
+  const isAddOn = _activeTab === 'add';
+  const addBtn = `<button id="btn-add"${isAddOn?' class="on"':''} onclick="tab('add',this)">
+    <span class="ico" style="color:var(--green)">➕</span><span>${u.addTab||u.add}</span>
+  </button>`;
+  nav.innerHTML = [...left.map(mkBtn), addBtn, ...right.map(mkBtn)].join('');
+}
+
+function renderWidgetManager(){
+  const c = document.getElementById('wgt-manager-container'); if(!c) return;
+  const u = UI[lang];
+  const prefs = _widgetPrefs || [];
+  let html = `
+    <div class="wgt-header">
+      <div class="wgt-title">${u.myWidgets||u.wgtTitle}</div>
+      <div class="wgt-sub">${u.widgetManagerSub||u.wgtSub}</div>
+    </div>
+    <div class="wgt-grid">`;
+  WIDGETS.forEach(w => {
+    const isActive = prefs.includes(w.key);
+    const label = w.labels[lang] || w.key;
+    const cardCls = isActive ? 'wgt-active' : 'wgt-inactive';
+    const badgeCls = isActive ? 'wgt-on' : 'wgt-off';
+    const badgeTxt = isActive ? (u.activeWidget||'✓ Активний') : (u.inactiveWidget||'Неактивний');
+    html += `<div class="wgt-card ${cardCls}" onclick="toggleWidget('${w.key}')">
+      <div class="wgt-ico">${w.icon}</div>
+      <div class="wgt-name">${label}</div>
+      <div class="wgt-badge ${badgeCls}">${badgeTxt}</div>
+    </div>`;
+  });
+  html += `
+    <div class="wgt-card wgt-active" onclick="addNav('wh')">
+      <div class="wgt-ico">🏭</div>
+      <div class="wgt-name">${u.warehouse||'Склад'}</div>
+      <div class="wgt-badge wgt-on">${u.activeWidget||'✓ Активний'}</div>
+    </div>
+    <div class="wgt-card wgt-future">
+      <div class="wgt-ico">📊</div>
+      <div class="wgt-name">${u.analytics||'Аналітика'}</div>
+      <div class="wgt-badge wgt-off">${u.soon||u.wgtSoon||'Незабаром'}</div>
+    </div>
+    <div class="wgt-card wgt-future">
+      <div class="wgt-ico">🌤</div>
+      <div class="wgt-name">${u.weather||'Погода'}</div>
+      <div class="wgt-badge wgt-off">${u.soon||u.wgtSoon||'Незабаром'}</div>
+    </div>`;
+  html += `</div><div id="wgt-toast" class="wgt-toast"></div>`;
+  c.innerHTML = html;
+}
+
+function toggleWidget(key){
+  if(!_widgetPrefs) _widgetPrefs = ['news','reports','markets','tracking'];
+  const isActive = _widgetPrefs.includes(key);
+  if(isActive){
+    _widgetPrefs = _widgetPrefs.filter(k => k !== key);
+    if(_activeTab === key) tab('add', document.getElementById('btn-add'));
+  } else {
+    if(_widgetPrefs.length >= 4){
+      showWidgetToast(UI[lang].maxWidgets || 'Максимум 4 віджети');
+      return;
+    }
+    _widgetPrefs.push(key);
+  }
+  saveUserWidgetPrefs();
+  renderWidgetManager();
+  renderBottomNav();
+}
+
+function showWidgetToast(msg){
+  const t = document.getElementById('wgt-toast'); if(!t) return;
+  t.textContent = msg;
+  t.style.display = 'block';
+  clearTimeout(t._tid);
+  t._tid = setTimeout(() => { t.style.display = 'none'; }, 2500);
+}
+
+// ── RUSSIAN CITY EASTER EGG ───────────────────────────────────
+const _RU_BLOCKED_JS = new Set([
+  'moscow','москва','moskva','saint petersburg','st petersburg',
+  'санкт-петербург','питер','spb','novosibirsk','новосибирск',
+  'yekaterinburg','екатеринбург','kazan','казань',
+  'nizhny novgorod','нижний новгород','samara','самара',
+  'rostov','ростов','ufa','уфа','omsk','омск',
+  'perm','пермь','voronezh','воронеж','chelyabinsk','челябинск',
+  'krasnoyarsk','красноярск','volgograd','волгоград',
+]);
+function isRussianCityQuery(q){
+  const nq = q.trim().toLowerCase().replace(/\s+/g,' ');
+  return _RU_BLOCKED_JS.has(nq) || [..._RU_BLOCKED_JS].some(b => b.length > 5 && nq.startsWith(b));
+}
+let _pigTimer = null;
+function showPigOverlay(){
+  const ov = document.getElementById('pig-overlay');
+  if(!ov) return;
+  ov.classList.add('on');
+  startPigTypingAnimation();
+}
+function closePigOverlay(){
+  const ov = document.getElementById('pig-overlay');
+  if(ov) ov.classList.remove('on');
+  if(_pigTimer){ clearTimeout(_pigTimer); _pigTimer = null; }
+}
+function startPigTypingAnimation(){
+  const el = document.getElementById('pig-text');
+  if(!el) return;
+  el.textContent = '';
+  const msg = 'хрю-хрю 🐷 хрю-хрю';
+  let i = 0;
+  function type(){ if(i < msg.length){ el.textContent += msg[i++]; _pigTimer = setTimeout(type, 120); } }
+  type();
+}
+
+// ── FULLSCREEN ────────────────────────────────────────────────
+async function toggleDesktopFullscreen(){
+  try{
+    tg?.expand?.();
+    if(document.fullscreenElement){
+      await document.exitFullscreen();
+      document.body.classList.remove('fullscreen-layout');
+    } else {
+      const root = document.getElementById('app') || document.documentElement;
+      const req = root.requestFullscreen || root.webkitRequestFullscreen || root.msRequestFullscreen;
+      if(req){ await req.call(root); document.body.classList.add('fullscreen-layout'); }
+      else { document.body.classList.toggle('fullscreen-layout'); }
+    }
+  } catch(e){
+    document.body.classList.toggle('fullscreen-layout');
+  }
+  updateFullscreenButtonState();
+  setTimeout(handleAppViewportResize, 120);
+  setTimeout(handleAppViewportResize, 450);
+}
+function updateFullscreenButtonState(){
+  const btn = document.getElementById('fsbtn');
+  if(!btn) return;
+  const isFs = !!document.fullscreenElement || document.body.classList.contains('fullscreen-layout');
+  btn.classList.toggle('active', isFs);
+  btn.title = isFs ? (UI[lang].exitFullscreen||'Exit fullscreen') : (UI[lang].fullscreen||'Fullscreen');
+  btn.textContent = isFs ? '⛶' : '⛶';
+}
+document.addEventListener('fullscreenchange', () => {
+  updateFullscreenButtonState();
+  setTimeout(handleAppViewportResize, 120);
+  setTimeout(handleAppViewportResize, 450);
+});
+
+// ── WEATHER ───────────────────────────────────────────────────
+function loadGlobeGLScript(){
+  if(weatherGlobeScriptPromise) return weatherGlobeScriptPromise;
+  if(window.Globe){ weatherGlobeScriptPromise = Promise.resolve(); return weatherGlobeScriptPromise; }
+  weatherGlobeScriptPromise = new Promise((resolve, reject) => {
+    function tryLoad(src, fallback){
+      const s = document.createElement('script');
+      s.src = src;
+      s.onload = () => resolve();
+      s.onerror = () => {
+        if(fallback){ tryLoad(fallback, null); }
+        else{ weatherGlobeLoadFailed = true; reject(new Error('Globe.GL load failed')); }
+      };
+      document.head.appendChild(s);
+    }
+    tryLoad('https://cdn.jsdelivr.net/npm/globe.gl/dist/globe.gl.min.js',
+            'https://unpkg.com/globe.gl/dist/globe.gl.min.js');
+  });
+  return weatherGlobeScriptPromise;
+}
+
+function ensureWeatherLoaded(){
+  if(!_weatherDefaultLoaded){
+    _weatherDefaultLoaded = true;
+    selectWeatherLocation({name:'Kharkiv',country:'Ukraine',latitude:49.9808,longitude:36.2527});
+  }
+  loadGlobeGLScript().then(() => {
+    requestAnimationFrame(() => { initWeatherGlobe(); });
+  }).catch(() => { showWeatherGlobeFallback(); });
+  setTimeout(resizeWeatherGlobe, 150);
+  setTimeout(resizeWeatherGlobe, 500);
+}
+
+function initWeatherGlobe(){
+  if(weatherGlobe){ resizeWeatherGlobe(); return; }
+  const globeEl = document.getElementById('weather-globe');
+  const card = globeEl?.closest('.weather-globe-card');
+  if(!globeEl || !card || !window.Globe){ showWeatherGlobeFallback(); return; }
+  try{
+    const testCanvas = document.createElement('canvas');
+    const gl = testCanvas.getContext('webgl') || testCanvas.getContext('experimental-webgl');
+    if(!gl){ showWeatherGlobeFallback(); return; }
+  } catch(e){ showWeatherGlobeFallback(); return; }
+  try{
+    const rect = card.getBoundingClientRect();
+    let size = Math.floor(rect.width || 340);
+    if(size < 200) size = 340;
+    card.style.height = size + 'px';
+    const isLight = document.documentElement.classList.contains('light');
+    const texUrl = isLight
+      ? '//unpkg.com/three-globe/example/img/earth-blue-marble.jpg'
+      : '//unpkg.com/three-globe/example/img/earth-night.jpg';
+    weatherGlobe = Globe({animateIn:true})
+      .globeImageUrl(texUrl)
+      .backgroundColor('rgba(0,0,0,0)')
+      .width(size)
+      .height(size)
+      .pointsData(WEATHER_CITIES)
+      .pointLat('lat').pointLng('lng')
+      .pointColor(d => d.ua ? '#FBBF24' : '#22C55E')
+      .pointAltitude(0.015).pointRadius(0.4)
+      .pointLabel(d => '<div style="background:rgba(0,0,0,.75);padding:4px 8px;border-radius:6px;font-size:12px;color:#fff;pointer-events:none">'+d.name+', '+d.country+'</div>')
+      .onPointClick(d => selectWeatherLocation({name:d.name,country:d.country,latitude:d.lat,longitude:d.lng}))
+      (globeEl);
+    weatherGlobe.controls().autoRotate = true;
+    weatherGlobe.controls().autoRotateSpeed = 0.5;
+    weatherGlobe.controls().enableZoom = true;
+    globeEl.addEventListener('pointerdown', () => {
+      if(weatherGlobe) weatherGlobe.controls().autoRotate = false;
+    }, {passive:true});
+    weatherGlobeReady = true;
+    setTimeout(resizeWeatherGlobe, 80);
+    setTimeout(resizeWeatherGlobe, 350);
+    observeWeatherGlobeResize();
+  } catch(e){
+    console.error('Globe init failed', e);
+    showWeatherGlobeFallback();
+  }
+}
+
+function showWeatherGlobeFallback(){
+  const globe = document.getElementById('weather-globe');
+  const fallback = document.getElementById('weather-globe-fallback');
+  if(globe) globe.style.display = 'none';
+  if(fallback){
+    fallback.style.display = 'block';
+    fallback.textContent = UI[lang].globeUnavailable || '3D globe unavailable. Use city search instead.';
+  }
+}
+
+function resizeWeatherGlobe(){
+  if(!weatherGlobe || !weatherGlobeReady) return;
+  const globeEl = document.getElementById('weather-globe');
+  const card = globeEl?.closest('.weather-globe-card');
+  if(!globeEl || !card) return;
+  try{
+    const rect = card.getBoundingClientRect();
+    let size = Math.floor(rect.width || globeEl.clientWidth || 320);
+    if(size < 200) size = 320;
+    card.style.height = size + 'px';
+    weatherGlobe.width(size).height(size);
+  } catch(e){ console.warn('resizeWeatherGlobe failed', e); }
+}
+
+function handleAppViewportResize(){
+  resizeWeatherGlobe();
+}
+
+function observeWeatherGlobeResize(){
+  const card = document.querySelector('.weather-globe-card');
+  if(!card || !window.ResizeObserver || window.__weatherResObs) return;
+  window.__weatherResObs = new ResizeObserver(() => { resizeWeatherGlobe(); });
+  window.__weatherResObs.observe(card);
+}
+
+function flyToWeatherLocation(lat, lon, altitude){
+  if(!weatherGlobe || !weatherGlobeReady) return;
+  try{ weatherGlobe.pointOfView({lat:lat, lng:lon, altitude:altitude||1.8}, 1000); } catch(e){}
+}
+
+async function searchWeatherCity(){
+  const input = document.getElementById('weather-input');
+  if(!input) return;
+  const q = input.value.trim();
+  if(!q) return;
+  if(isRussianCityQuery(q)){ showPigOverlay(); return; }
+  const results = document.getElementById('weather-results');
+  if(results){
+    results.innerHTML = '<div class="weather-result-item">'+(UI[lang].weatherLoading||'Loading...')+'</div>';
+    results.style.display = 'block';
+  }
+  try{
+    const r = await fetch('/api/webapp/weather/search?q='+encodeURIComponent(q)+'&count=5');
+    const d = await r.json();
+    if(d.blocked){ showPigOverlay(); return; }
+    renderWeatherSearchResults(d.items || []);
+  } catch(e){
+    if(results) results.innerHTML = '<div class="weather-result-item">'+(UI[lang].weatherUnavailable||'Unavailable')+'</div>';
+  }
+}
+
+function renderWeatherSearchResults(items){
+  _weatherSearchItems = items;
+  const results = document.getElementById('weather-results');
+  if(!results) return;
+  if(!items.length){
+    results.innerHTML = '<div class="weather-result-item">'+esc(UI[lang].cityNotFound||'City not found')+'</div>';
+    results.style.display = 'block';
+    return;
+  }
+  results.innerHTML = items.map(function(item, i){
+    return '<div class="weather-result-item" onclick="selectWeatherLocation(_weatherSearchItems['+i+']);document.getElementById(\'weather-results\').style.display=\'none\'">'
+      +'<div class="weather-result-name">'+esc(item.name||'')+'</div>'
+      +'<div class="weather-result-sub">'+esc([item.admin1,item.country].filter(Boolean).join(', '))+'</div>'
+      +'</div>';
+  }).join('');
+  results.style.display = 'block';
+}
+
+async function selectWeatherLocation(loc){
+  currentWeatherLocation = loc;
+  const results = document.getElementById('weather-results');
+  if(results) results.style.display = 'none';
+  flyToWeatherLocation(loc.latitude, loc.longitude);
+  const card = document.getElementById('weather-card');
+  if(card){
+    card.innerHTML = '<div class="weather-loading">'+(UI[lang].weatherLoading||'Loading weather...')+'</div>';
+    card.style.display = 'block';
+  }
+  const data = await fetchWeatherCurrent(loc);
+  renderWeatherCard(data);
+  if(data && data.ok && data.daily) renderWeatherForecast(data.daily);
+}
+
+async function fetchWeatherCurrent(loc){
+  const cacheKey = Math.round(loc.latitude*10)+'_'+Math.round(loc.longitude*10);
+  const now = Date.now();
+  if(_weatherCache[cacheKey] && now - _weatherCache[cacheKey].ts < 600000) return _weatherCache[cacheKey].data;
+  try{
+    const url = '/api/webapp/weather/current?lat='+loc.latitude+'&lon='+loc.longitude
+      +'&name='+encodeURIComponent(loc.name||'')+'&country='+encodeURIComponent(loc.country||'');
+    const r = await fetch(url);
+    const d = await r.json();
+    if(d.ok) _weatherCache[cacheKey] = {data:d, ts:now};
+    return d;
+  } catch(e){ return {ok:false, error:String(e)}; }
+}
+
+function _windDir(deg){
+  if(deg == null) return '';
+  return ['N','NE','E','SE','S','SW','W','NW'][Math.round(deg/45)%8];
+}
+
+function renderWeatherCard(data){
+  const card = document.getElementById('weather-card');
+  if(!card) return;
+  if(!data || !data.ok){
+    card.innerHTML = '<div class="weather-loading">'+(UI[lang].weatherUnavailable||'Weather unavailable')+'</div>';
+    card.style.display = 'block';
+    return;
+  }
+  _currentWeatherData = data;
+  const u = UI[lang];
+  const c = data.current;
+  const loc = data.location;
+  const dir = _windDir(c.wind_direction);
+  const time = c.time ? c.time.split('T')[1] : '';
+  card.innerHTML =
+    '<div class="weather-city">'+esc(loc.name)+(loc.country?', '+esc(loc.country):'')+'</div>'
+    +'<div class="weather-temp-row">'
+    +'<span class="weather-icon-big">'+c.weather_icon+'</span>'
+    +'<span class="weather-main-temp">'+Math.round(c.temperature)+'°</span>'
+    +'</div>'
+    +'<div class="weather-desc">'+esc(c.weather_text)+'</div>'
+    +'<div class="weather-feels">'+(u.feelsLike||'Feels like')+' '+Math.round(c.apparent_temperature)+'°C</div>'
+    +'<div class="weather-metrics">'
+    +'<div class="weather-metric"><div class="weather-metric-label">'+(u.humidity||'Humidity')+'</div><div class="weather-metric-value">'+c.humidity+'%</div></div>'
+    +'<div class="weather-metric"><div class="weather-metric-label">'+(u.wind||'Wind')+'</div><div class="weather-metric-value">'+Math.round(c.wind_speed)+' km/h'+(dir?' '+dir:'')+'</div></div>'
+    +'<div class="weather-metric"><div class="weather-metric-label">'+(u.clouds||'Clouds')+'</div><div class="weather-metric-value">'+c.cloud_cover+'%</div></div>'
+    +'<div class="weather-metric"><div class="weather-metric-label">'+(u.pressure||'Pressure')+'</div><div class="weather-metric-value">'+Math.round(c.pressure)+' hPa</div></div>'
+    +'<div class="weather-metric"><div class="weather-metric-label">'+(u.precipitation||'Precipitation')+'</div><div class="weather-metric-value">'+c.precipitation+' mm</div></div>'
+    +'</div>'
+    +'<div class="weather-source">'+(u.source||'Source')+': '+data.source+(time?' · '+time:'')+'</div>';
+  card.style.display = 'block';
+}
+
+function renderWeatherForecast(daily){
+  const wrap = document.getElementById('weather-forecast-wrap');
+  const fc = document.getElementById('weather-forecast');
+  if(!wrap || !fc || !daily || !daily.length){ if(wrap) wrap.style.display='none'; return; }
+  const dnames = {ua:['Нд','Пн','Вт','Ср','Чт','Пт','Сб'], ru:['Вс','Пн','Вт','Ср','Чт','Пт','Сб'], en:['Sun','Mon','Tue','Wed','Thu','Fri','Sat']};
+  const dn = dnames[lang] || dnames.en;
+  fc.innerHTML = daily.slice(0,5).map(function(d){
+    const dayIdx = new Date(d.date+'T12:00:00').getDay();
+    return '<div class="weather-day">'
+      +'<div class="weather-day-date">'+dn[dayIdx]+'</div>'
+      +'<div class="weather-day-icon">'+d.weather_icon+'</div>'
+      +'<div class="weather-day-max">'+(d.temp_max!=null?Math.round(d.temp_max)+'°':'--')+'</div>'
+      +'<div class="weather-day-min">'+(d.temp_min!=null?Math.round(d.temp_min)+'°':'--')+'</div>'
+      +'</div>';
+  }).join('');
+  wrap.style.display = 'block';
+}
+
+// ── MARKETS EDIT MODE ─────────────────────────────────────────
+function getMkUid(){
+  const uid=tg?.initDataUnsafe?.user?.id; if(uid) return uid;
+  let l=localStorage.getItem('trk_uid'); if(!l){l=String(Date.now());localStorage.setItem('trk_uid',l);}
+  return parseInt(l);
+}
+async function loadUserMkPrefs(){
+  try{
+    const r = await fetch('/api/webapp/user/market-prefs?user_id='+getMkUid());
+    const d = await r.json();
+    _mkPrefs = (d.ok && d.selected_keys && d.selected_keys.length) ? d.selected_keys : _MK_DEFAULT_KEYS.slice();
+  } catch { _mkPrefs = _MK_DEFAULT_KEYS.slice(); }
+}
+async function saveUserMkPrefs(){
+  try{
+    await fetch('/api/webapp/user/market-prefs',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({user_id:getMkUid(),selected_keys:_mkPrefs})});
+  } catch{}
+}
+function toggleMkEdit(){
+  _mkEditMode = !_mkEditMode;
+  document.body.classList.toggle('mk-edit',_mkEditMode);
+  const btn=document.getElementById('mk-edit-btn');
+  if(btn) btn.classList.toggle('active',_mkEditMode);
+  document.querySelectorAll('#mk-grid .pcard').forEach(c=>c.classList.toggle('editable',_mkEditMode));
+}
+function removeMkChart(ev, key){
+  ev.stopPropagation();
+  if(!_mkPrefs) return;
+  _mkPrefs = _mkPrefs.filter(k=>k!==key);
+  mkData   = _mkPrefs.map(k=>_allMkData.find(m=>m.key===k)).filter(Boolean);
+  renderGrid(mkData);
+  saveUserMkPrefs();
+}
+// ── Drag-and-drop reorder ──
+let _mkDragState = null;
+function _initMkDrag(grid){
+  if(grid._mkDragInited) return;
+  grid._mkDragInited = true;
+  grid.addEventListener('pointerdown',  _mkOnPD, {passive:true});
+  grid.addEventListener('pointermove',  _mkOnPM, {passive:true});
+  grid.addEventListener('pointerup',    _mkOnPU, {passive:true});
+  grid.addEventListener('pointercancel',_mkOnPC, {passive:true});
+}
+function _mkOnPD(e){
+  if(!_mkEditMode) return;
+  const card = e.target.closest('.pcard');
+  if(!card || e.target.closest('.pcard-del')) return;
+  e.currentTarget.setPointerCapture(e.pointerId);
+  _mkDragState = {grid:e.currentTarget, from:card, over:null, moved:false, sx:e.clientX, sy:e.clientY};
+}
+function _mkOnPM(e){
+  const s = _mkDragState; if(!s) return;
+  if(!s.moved && Math.hypot(e.clientX-s.sx, e.clientY-s.sy)<8) return;
+  s.moved = true;
+  s.from.classList.add('dragging');
+  const el = document.elementFromPoint(e.clientX, e.clientY);
+  const target = el?.closest('.pcard[data-key]');
+  if(s.over) s.over.classList.remove('drag-over');
+  s.over = (target && target !== s.from) ? target : null;
+  if(s.over) s.over.classList.add('drag-over');
+}
+function _mkOnPU(e){
+  const s = _mkDragState; if(!s) return;
+  s.from.classList.remove('dragging');
+  if(s.over) s.over.classList.remove('drag-over');
+  if(s.moved && s.over){
+    const fk=s.from.dataset.key, tk=s.over.dataset.key;
+    const fi=_mkPrefs.indexOf(fk), ti=_mkPrefs.indexOf(tk);
+    if(fi>=0 && ti>=0){ _mkPrefs.splice(fi,1); _mkPrefs.splice(ti,0,fk); }
+    mkData = _mkPrefs.map(k=>_allMkData.find(m=>m.key===k)).filter(Boolean);
+    renderGrid(mkData);
+    saveUserMkPrefs();
+  }
+  _mkDragState = null;
+}
+function _mkOnPC(e){
+  const s = _mkDragState; if(!s) return;
+  s.from.classList.remove('dragging');
+  if(s.over) s.over.classList.remove('drag-over');
+  _mkDragState = null;
+}
+function openMkAddModal(){
+  if(!_allMkData.length){ fetchMarkets().then(openMkAddModal); return; }
+  _mkModalSel = (_mkPrefs||_MK_DEFAULT_KEYS).slice();
+  addCls('mk-modal-ov', 'on');
+  const srch=byId('mk-modal-srch'); if(srch) srch.value='';
+  renderMkModalList('');
+}
+function hideMkAddModal(){ rmCls('mk-modal-ov', 'on'); }
+function renderMkModalList(q){
+  const list=document.getElementById('mk-modal-list'); if(!list) return;
+  list.innerHTML='';
+  const ql=(q||'').toLowerCase();
+  (_allMkData||[])
+    .filter(m=>!ql||m.label.toLowerCase().includes(ql)||m.key.toLowerCase().includes(ql))
+    .forEach(m=>{
+      const sel=(_mkModalSel||[]).includes(m.key);
+      const div=document.createElement('div'); div.className='mk-mi'+(sel?' on':'');
+      div.innerHTML=`<div class="mk-mi-ico">${m.emoji}</div><div class="mk-mi-lbl">${esc(m.label)}</div><div class="mk-mi-chk">✓</div>`;
+      div.onclick=()=>{
+        if(!_mkModalSel) _mkModalSel=[];
+        const i=_mkModalSel.indexOf(m.key);
+        i>=0?_mkModalSel.splice(i,1):_mkModalSel.push(m.key);
+        div.classList.toggle('on',_mkModalSel.includes(m.key));
+        div.querySelector('.mk-mi-chk').style.display=_mkModalSel.includes(m.key)?'':'none';
+      };
+      list.appendChild(div);
+    });
+}
+async function saveMkModal(){
+  _mkPrefs = (_mkModalSel||[]).slice();
+  mkData = _mkPrefs.map(key=>_allMkData.find(m=>m.key===key)).filter(Boolean);
+  renderGrid(mkData);
+  await saveUserMkPrefs();
+  hideMkAddModal();
+}
+
+// ── Tracking ──────────────────────────────────────────────────
+let trkCarrier = null;
+let trkMode = null;
+let _trkCntLine = null;
+let _lastTrkData = null;
+let _trkAutoRetryTimer = null;
+let _savedShipmentsCache = {active:[], archive:[]};
+let _trkCurrentScreen = 'home';
+let _trkFilter = 'all';
+const _CARRIER_COLORS = {
+  'Nova Poshta':'#DA291C','Nova Post':'#DA291C',
+  'DHL':'#FFCC00','FedEx':'#4D148C',
+  'UPS':'#351C15','EMS':'#FF6600','EMS Ukraine':'#FF6600','Укрпошта':'#FF6600',
+  'Meest':'#0057B8','Meest Express':'#0057B8',
+  'MSC':'#0097A7','Maersk':'#42B0D5','CMA CGM':'#0A3161',
+  'COSCO':'#003087','Hapag-Lloyd':'#F09800','ONE':'#E4002B',
+  'Evergreen':'#00A651','ZIM':'#005DAA','HMM':'#0050A0',
+};
+const _CARRIER_CODE_MAP = {
+  nova:'Nova Poshta', dhl:'DHL', fedex:'FedEx', ups:'UPS', ems:'EMS', meest:'Meest',
+};
+function trkSetFilter(carrier, btn){
+  _trkFilter = carrier;
+  document.querySelectorAll('#trk-filter-row .trk-fchip').forEach(el=>{
+    el.classList.remove('on');
+    el.style.background='';
+    el.style.borderColor='';
+  });
+  btn.classList.add('on');
+  const color = btn.dataset.color || '#4B5563';
+  btn.style.background = color;
+  btn.style.borderColor = color;
+  renderSavedShipments(_savedShipmentsCache);
+}
+
+const _TRK_SCREENS = ['trk-home','trk-type','trk-parcel','trk-container','trk-list'];
+
+// ── Screen navigation ─────────────────────────────────────────
+function trkNav(screen){
+  _TRK_SCREENS.forEach(id => {
+    const el = document.getElementById(id);
+    if(el) el.classList.remove('active');
+  });
+
+  if(screen !== 'list'){
+    const dv = document.getElementById('trk-detail-view');
+    if(dv) dv.style.display = 'none';
+    const lv = document.getElementById('trk-list-view');
+    if(lv) lv.style.display = '';
+  }
+
+  const idMap = {home:'trk-home',type:'trk-type',parcel:'trk-parcel',container:'trk-container',list:'trk-list'};
+  const el = document.getElementById(idMap[screen] || 'trk-home');
+  if(el) el.classList.add('active');
+  _trkCurrentScreen = screen;
+
+  if(screen === 'parcel'){
+    trkMode = 'parcel';
+    trkCarrier = null;
+    document.querySelectorAll('.trk-car-btn').forEach(b => b.classList.remove('on'));
+    showEl('trk-input-wrap', 'none');
+    setHTML('trk-result', '');
+    if(_trkAutoRetryTimer){ clearTimeout(_trkAutoRetryTimer); _trkAutoRetryTimer = null; }
+  } else if(screen === 'container'){
+    trkMode = 'container';
+    trkCarrier = 'auto';
+    _trkCntLine = null;
+    document.querySelectorAll('.trk-cnt-btn').forEach(b => b.classList.remove('on'));
+    showEl('trk-cnt-input-wrap', 'none');
+    setHTML('trk-cnt-result', '');
+    if(_trkAutoRetryTimer){ clearTimeout(_trkAutoRetryTimer); _trkAutoRetryTimer = null; }
+  } else if(screen === 'list'){
+    _trkFilter = 'all';
+    loadSavedShipments();
+  }
+}
+
+function _trkReset(){
+  const inp = document.getElementById('trk-num');
+  if(inp) inp.value = '';
+  const res = document.getElementById('trk-result');
+  if(res) res.innerHTML = '';
+  if(_trkAutoRetryTimer){ clearTimeout(_trkAutoRetryTimer); _trkAutoRetryTimer = null; }
+}
+
+function selectCarrier(btn){
+  document.querySelectorAll('.trk-car-btn').forEach(b => b.classList.remove('on'));
+  btn.classList.add('on');
+  trkCarrier = btn.dataset.car;
+  document.getElementById('trk-input-wrap').style.display = '';
+  document.getElementById('trk-num').placeholder = UI[lang].trkPlaceholder;
+  _trkReset();
+  setTimeout(() => document.getElementById('trk-num').focus(), 80);
+}
+
+function selectCntCarrier(btn){
+  document.querySelectorAll('.trk-cnt-btn').forEach(b => b.classList.remove('on'));
+  btn.classList.add('on');
+  _trkCntLine = btn.textContent.trim();
+  document.getElementById('trk-cnt-input-wrap').style.display = '';
+  document.getElementById('trk-cnt-num').placeholder = UI[lang].trkCntHint;
+  document.getElementById('trk-cnt-result').innerHTML = '';
+  setTimeout(() => document.getElementById('trk-cnt-num').focus(), 80);
+}
+
+// Safe tracking number normalizer -- pure ASCII, all Unicode as \uXXXX escapes.
+function normalizeTrackingNumber(raw){
+  return String(raw || '')
+    .replace(/[\s\u0020\u00A0\u200B\u200C\u200D\u200E\u200F\u202F\u205F\u3000\uFEFF\u002D\u2010\u2011\u2012\u2013\u2014\u2015]/g, '')
+    .toUpperCase();
+}
+
+async function doTrackContainer(){
+  const raw = document.getElementById('trk-cnt-num').value.trim();
+  if(!raw){ document.getElementById('trk-cnt-num').focus(); return; }
+  const num = normalizeTrackingNumber(raw);
+  const res = document.getElementById('trk-cnt-result');
+  res.innerHTML =
+    `<div class="trk-loading">
+       <div class="trk-radar">
+         <div class="trk-radar-ring"></div>
+         <div class="trk-radar-ring"></div>
+         <div class="trk-radar-ring"></div>
+         <div class="trk-radar-center">🚢</div>
+       </div>
+       <div class="trk-loading-txt">${esc(UI[lang].trkSearching)}</div>
+     </div>`;
+  try{
+    const r = await fetch(`/api/webapp/track?number=${encodeURIComponent(num)}&carrier=auto`);
+    const data = await r.json();
+    // Always build ok=true _lastTrkData so Save button always works
+    _lastTrkData = {
+      ...(data.ok ? data : {}),
+      ok: true, type: 'container', number: num,
+      carrier: data.carrier || data.line || _trkCntLine || '',
+      line:    data.line    || data.carrier || _trkCntLine || '',
+      tracking_url: data.tracking_url || '',
+      status: data.status || '',
+      steps:  data.steps  || [],
+      _cntLine: _trkCntLine,
+    };
+    res.innerHTML = renderTrackResult(_lastTrkData, num);
+  } catch(e){
+    res.innerHTML = `<div class="trk-error"><strong>${esc(UI[lang].trkNetError)}</strong>${esc(String(e))}</div>`;
+  }
+}
+
+function setTrkMode(mode){ /* legacy — handled by trkNav now */ }
+
+async function doTrack(){
+  const raw = document.getElementById('trk-num').value.trim();
+  if(!raw){ document.getElementById('trk-num').focus(); return; }
+  // Normalize: remove spaces (including non-breaking), dashes, zero-width chars, uppercase
+    const num = normalizeTrackingNumber(raw);
+  if(!num){ document.getElementById('trk-num').focus(); return; }
+  const res = document.getElementById('trk-result');
+  const ico = trkMode==='container' ? '🚢' : '📦';
+  res.innerHTML =
+    `<div class="trk-loading">
+       <div class="trk-radar">
+         <div class="trk-radar-ring"></div>
+         <div class="trk-radar-ring"></div>
+         <div class="trk-radar-ring"></div>
+         <div class="trk-radar-center">${ico}</div>
+       </div>
+       <div class="trk-loading-txt">${esc(UI[lang].trkSearching)}</div>
+     </div>`;
+
+  const carrier = trkMode==='container' ? 'auto' : trkCarrier;
+  try{
+    const r = await fetch(`/api/webapp/track?number=${encodeURIComponent(num)}&carrier=${carrier}`);
+    const data = await r.json();
+    // Always set _lastTrkData so the Save button works even if the API returned a pending/error state.
+    // Backend now always returns ok=true + can_save=true for valid numbers, but we keep a
+    // client-side fallback in case the response was unexpected (network hiccup, etc.).
+    _lastTrkData = data.ok
+      ? {...data, number: data.number || num}
+      : {
+          ok: true, can_save: true, is_pending: true,
+          type: trkMode || 'parcel', number: num,
+          carrier: trkCarrier || 'auto',
+          carrier_name: '',
+          status: 'Очікуємо даних від перевізника',
+          tracking_url: '',
+          steps: [],
+        };
+    res.innerHTML = renderTrackResult(data, num);
+    // Auto-retry if pending and NOT delivered (max 3 attempts)
+    const _steps = data.steps || [];
+    const _isDelivered = data.status === 'Доставлено'
+      || (_steps.length > 0 && _steps[_steps.length-1].status === 'done');
+    if(!_isDelivered && data.ok && _steps.length === 1 && _steps[0].status === 'pending'){
+      _scheduleAutoRetry(num, carrier, res, 1);
+    }
+  } catch(e) {
+    res.innerHTML = `<div class="trk-error"><strong>${esc(UI[lang].trkNetError)}</strong>${esc(String(e))}</div>`;
+  }
+}
+
+const TRK_MAX_RETRIES = 3;
+
+function _scheduleAutoRetry(num, carrier, resEl, attempt){
+  if(_trkAutoRetryTimer){ clearTimeout(_trkAutoRetryTimer); }
+
+  // After max retries — show "saved, will check in background" and stop
+  if(attempt > TRK_MAX_RETRIES){
+    const hint = UI[lang].trkMaxRetriesHint;
+    // Preserve current content and just add/update the auto-refresh note
+    const existing = document.getElementById('trk-auto-countdown');
+    if(existing){
+      const note = existing.closest('.trk-auto-refresh');
+      if(note) note.innerHTML = '⏸ ' + esc(hint);
+    }
+    return;
+  }
+
+  let secs = 45;
+  const countEl = document.getElementById('trk-auto-countdown');
+  if(countEl) countEl.textContent = secs + UI[lang].trkSec;
+  const tick = setInterval(()=>{
+    secs--;
+    const el = document.getElementById('trk-auto-countdown');
+    if(el) el.textContent = secs + UI[lang].trkSec;
+    if(secs <= 0) clearInterval(tick);
+  }, 1000);
+
+  _trkAutoRetryTimer = setTimeout(async ()=>{
+    clearInterval(tick);
+    if(!resEl.isConnected) return;
+    const ico = carrier==='auto' || trkMode==='container' ? '🚢' : '📦';
+    resEl.innerHTML =
+      `<div class="trk-loading">
+         <div class="trk-radar">
+           <div class="trk-radar-ring"></div>
+           <div class="trk-radar-ring"></div>
+           <div class="trk-radar-ring"></div>
+           <div class="trk-radar-center">${ico}</div>
+         </div>
+         <div class="trk-loading-txt">${esc(UI[lang].trkSearching)}</div>
+       </div>`;
+    try{
+      const r2 = await fetch(`/api/webapp/track?number=${encodeURIComponent(num)}&carrier=${carrier}`);
+      const d2 = await r2.json();
+      resEl.innerHTML = renderTrackResult(d2, num);
+      if(d2.ok && d2.steps && d2.steps.length === 1 && d2.steps[0].status === 'pending'){
+        _scheduleAutoRetry(num, carrier, resEl, attempt + 1);
+      }
+    } catch {}
+  }, 45000);
+}
+
+function renderTrackResult(d, num){
+  if(!d.ok){
+    // Show error but don't clear _lastTrkData — doTrack() already set it to a pending fallback
+    const hint = d.hint ? `<code>${esc(d.hint)}</code>` : '';
+    return `<div class="trk-error"><strong>⚠️ ${esc(d.error||'Помилка')}</strong>${hint}</div>`;
+  }
+
+  let html = '';
+
+  // ── Container ──────────────────────────────────────────────────────────────
+  if(d.type === 'container'){
+    const lineName = d.line || d.carrier || '';
+    html += `<div class="trk-delivery">
+      <div class="trk-del-ico">🚢</div>
+      <div class="trk-del-info">
+        <div class="trk-del-label">${esc(lineName)}</div>
+        <div class="trk-del-date">${esc(d.status || d.number || num)}</div>
+      </div>
+    </div>`;
+    if(d.tracking_url){
+      html += `<button class="trk-open-btn" data-url="${esc(d.tracking_url)}" onclick="openTrkUrl(this.dataset.url)">${esc(UI[lang].trkOpenSite)}</button>`;
+    }
+    // no early return — fall through to steps timeline
+  }
+
+  // ── Parcel ─────────────────────────────────────────────────────────────────
+  if(d.type === 'parcel'){
+    // Prefer explicit carrier_name from backend (stamped by _stamp_tracking_meta)
+    const carrierLabel = d.carrier_name || d.carrier || '';
+    const scheduled = d.scheduled_delivery || '';
+    const allSteps = d.steps || [];
+    const isDelivered = d.status === 'Доставлено'
+      || (allSteps.length > 0 && allSteps[allSteps.length-1].status === 'done');
+    const deliveryTime = isDelivered && allSteps.length
+      ? allSteps[allSteps.length-1].time || ''
+      : '';
+    if(isDelivered){
+      html += `<div class="trk-delivery" style="border-color:#22C55E;background:rgba(34,197,94,.07)">
+        <div class="trk-del-ico">✅</div>
+        <div class="trk-del-info">
+          <div class="trk-del-label" style="color:#22C55E;font-weight:700">Доставлено — ${esc(carrierLabel)}</div>
+          <div class="trk-del-date" style="color:#22C55E">${esc(deliveryTime || d.number || num)}</div>
+        </div>
+      </div>`;
+    } else {
+      html += `<div class="trk-delivery">
+        <div class="trk-del-ico">📦</div>
+        <div class="trk-del-info">
+          <div class="trk-del-label">${esc(carrierLabel)} · ${esc(d.number||num)}</div>
+          <div class="trk-del-date">${esc(d.status||'')}</div>
+          ${scheduled?`<div class="trk-del-label" style="margin-top:3px">${esc(UI[lang].trkDelivery)}: ${esc(scheduled)}</div>`:''}
+        </div>
+      </div>`;
+    }
+    // Show official carrier tracking link even when no live events
+    if(d.tracking_url){
+      html += `<button class="trk-open-btn" data-url="${esc(d.tracking_url)}" onclick="openTrkUrl(this.dataset.url)">${esc(UI[lang].trkOpenSite)}</button>`;
+    }
+  }
+
+  // ── Steps timeline ─────────────────────────────────────────────────────────
+  const rawSteps = d.steps || [];
+  // Hide 'pending' placeholder step for all types — show only real events
+  const steps = rawSteps.filter(s => s.status !== 'pending');
+  // isPending still based on rawSteps so auto-retry fires correctly
+  const isPending = d.is_pending || (rawSteps.length === 1 && rawSteps[0].status === 'pending');
+  if(steps.length){
+    html += '<div class="trk-timeline">';
+    steps.forEach(s => {
+      const dim  = (s.status==='pending'||s.status==='fail') ? ' dim' : '';
+      html += `<div class="trk-step">
+        <div class="trk-dot ${s.status||'pending'}">${s.icon||'📍'}</div>
+        <div class="trk-step-info">
+          <div class="trk-step-title${dim}">${esc(s.title||'')}</div>
+          ${s.time ? `<div class="trk-step-time">🕐 ${esc(s.time)}</div>` : ''}
+          ${s.desc ? `<div class="trk-step-desc">${esc(s.desc)}</div>` : ''}
+        </div>
+      </div>`;
+    });
+    html += '</div>';
+  }
+
+  // Auto-retry countdown badge (shown when pending with steps, parcels only)
+  if(isPending && d.type !== 'container' && rawSteps.length > 0){
+    html += `<div class="trk-auto-refresh"><strong id="trk-auto-countdown">45с</strong></div>`;
+  }
+
+  // Save button: always show when can_save or ok (shipment has a valid number + detected carrier)
+  if(d.can_save !== false){
+    html += `<button class="trk-save-btn" onclick="saveTrkShipment()">${UI[lang].trkSave}</button>`;
+  }
+  return html;
+}
+
+function openTrkUrl(url){
+  if(tg) tg.openLink(url);
+  else window.open(url, '_blank');
+}
+
+// ── User ID ───────────────────────────────────────────────────
+function getTrkUserId(){
+  const uid = tg?.initDataUnsafe?.user?.id;
+  if(uid) return uid;
+  let luid = localStorage.getItem('trk_uid');
+  if(!luid){ luid = String(Date.now()); localStorage.setItem('trk_uid', luid); }
+  return parseInt(luid);
+}
+
+// ── Save shipment ─────────────────────────────────────────────
+async function saveTrkShipment(){
+  // Allow save if can_save=true OR ok=true — a valid number + detected carrier is enough
+  if(!_lastTrkData?.can_save && !_lastTrkData?.ok) return;
+  const d = _lastTrkData;
+  const uid = getTrkUserId();
+  const body = {
+    user_id: uid,
+    number: d.number || '',
+    carrier: trkCarrier || 'auto',
+    type: d.type || trkMode || 'parcel',
+    // Prefer explicit carrier_name, fall back to carrier field or line/container line
+    carrier_name: d.carrier_name || d.carrier || d.line || _trkCntLine || '',
+    status_text: d.status || '',
+    tracking_url: d.tracking_url || '',
+    steps: d.steps || [],
+  };
+  const btn = document.querySelector('.trk-save-btn');
+  if(btn){ btn.disabled = true; btn.textContent = '…'; }
+  try{
+    const r = await fetch('/api/webapp/track/save',{
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(body),
+    });
+    const resp = await r.json();
+    if(resp.ok){
+      if(btn){ btn.textContent = UI[lang].trkSaved; }
+      setTimeout(()=>trkNav('list'), 400);
+    } else {
+      if(btn){ btn.disabled=false; btn.textContent=UI[lang].trkSave; }
+      const errMsg = resp.detail || resp.error || 'Save failed';
+      const errEl = document.querySelector('.trk-save-err');
+      if(!errEl && btn){
+        const div = document.createElement('div');
+        div.className='trk-save-err';
+        div.style.cssText='color:var(--red);font-size:12px;text-align:center;margin-top:6px';
+        div.textContent='⚠️ ' + errMsg;
+        btn.after(div);
+      }
+    }
+  } catch(err) {
+    if(btn){ btn.disabled=false; btn.textContent=UI[lang].trkSave; }
+    console.error('Save error:', err);
+  }
+}
+
+// ── Remove shipment ───────────────────────────────────────────
+async function removeTrkShipment(number, ev){
+  ev.stopPropagation();
+  const uid = getTrkUserId();
+  try{
+    await fetch(`/api/webapp/track/remove?user_id=${uid}&number=${encodeURIComponent(number)}`,
+      {method:'DELETE'});
+    // Refresh list or go back if we're in detail view for this number
+    if(document.getElementById('trk-detail-view').style.display !== 'none'){
+      closeDetail();
+    } else {
+      loadSavedShipments();
+    }
+  } catch {}
+}
+
+// ── Load & render saved list ──────────────────────────────────
+async function loadSavedShipments(){
+  const uid = getTrkUserId();
+  try{
+    const r = await fetch(`/api/webapp/track/list?user_id=${uid}`);
+    const data = await r.json();
+    _savedShipmentsCache = data;
+    renderSavedShipments(data);
+  } catch { document.getElementById('trk-saved').innerHTML = ''; }
+}
+
+function renderSavedShipments(data){
+  const el = document.getElementById('trk-saved');
+  const active  = data.active  || [];
+  const archive = data.archive || [];
+  const u = UI[lang];
+
+  // Static 8-chip filter row — always show all carriers when active shipments exist
+  const filterRow = document.getElementById('trk-filter-row');
+  if(filterRow){
+    if(active.length){
+      const CARRIER_CHIPS = [
+        {key:'all',       label:'📋 '+(u.trkAll||'Всі'), color:'#4B5563'},
+        {key:'nova',      label:'Nova Poshta',             color:'#DA291C'},
+        {key:'meest',     label:'Meest',                   color:'#0057B8'},
+        {key:'dhl',       label:'DHL',                     color:'#FFCC00'},
+        {key:'fedex',     label:'FedEx',                   color:'#4D148C'},
+        {key:'ups',       label:'UPS',                     color:'#351C15'},
+        {key:'ems',       label:'EMS',                     color:'#FF6600'},
+        {key:'container', label:'🚢 Контейнери',           color:'#0097A7'},
+      ];
+      let fhtml = '';
+      CARRIER_CHIPS.forEach(chip=>{
+        const isOn = _trkFilter === chip.key;
+        const style = isOn ? `background:${chip.color};border-color:${chip.color}` : '';
+        fhtml += `<button class="trk-fchip${isOn?' on':''}" style="${style}" data-carrier="${chip.key}" data-color="${chip.color}" onclick="trkSetFilter(this.dataset.carrier,this)">${chip.label}</button>`;
+      });
+      filterRow.innerHTML = fhtml;
+      filterRow.style.display = '';
+    } else {
+      filterRow.style.display = 'none';
+    }
+  }
+
+  // Apply carrier/type filter — match by carrier code OR carrier_name aliases
+  const CARRIER_NAMES = {
+    nova:  ['Nova Poshta','Nova Post'],
+    meest: ['Meest','Meest Express'],
+    dhl:   ['DHL'],
+    fedex: ['FedEx'],
+    ups:   ['UPS'],
+    ems:   ['EMS','EMS Ukraine','Укрпошта'],
+  };
+  const activeWithIdx = active.map((s,i)=>({s,idx:i}));
+  const filtered = _trkFilter === 'all'
+    ? activeWithIdx
+    : _trkFilter === 'container'
+      ? activeWithIdx.filter(({s})=>s.type==='container')
+      : activeWithIdx.filter(({s})=>{
+          const accept = CARRIER_NAMES[_trkFilter] || [];
+          return accept.includes(s.carrier_name) || s.carrier === _trkFilter;
+        });
+
+  if(!filtered.length && !archive.length){
+    el.innerHTML = `<div class="trk-list-empty">${esc(u.trkEmptyList||u.trkNoSaved)}</div>`;
+    return;
+  }
+
+  function fmtAgo(iso){
+    if(!iso) return '';
+    const s = (Date.now() - new Date(iso)) / 1000;
+    if(s < 60)    return u.trkUpdated+': '+u.trkNow;
+    if(s < 3600)  return u.trkUpdated+': '+Math.floor(s/60)+' '+u.trkMin;
+    if(s < 86400) return u.trkUpdated+': '+Math.floor(s/3600)+' '+u.trkHour;
+    return u.trkUpdated+': '+new Date(iso).toLocaleDateString(
+      lang==='en'?'en-US':lang==='ru'?'ru-RU':'uk-UA',{day:'numeric',month:'short'});
+  }
+
+  function card(s, isArchive, idx){
+    const ico = s.type==='container' ? '🚢' : '📦';
+    const cls = isArchive ? ' arc' : '';
+    const isPending = !s.steps || !s.steps.length ||
+      (s.steps.length === 1 && s.steps[0].status === 'pending');
+    const stat = isPending ? '—' : (s.status_text || '—');
+    const time = isArchive
+      ? (s.delivered_at ? '✅ '+new Date(s.delivered_at).toLocaleDateString(
+          lang==='en'?'en-US':lang==='ru'?'ru-RU':'uk-UA',{day:'numeric',month:'short'}) : '')
+      : fmtAgo(s.last_checked);
+    const cname = s.carrier_name || '';
+    const ccolor = cname ? (_CARRIER_COLORS[cname] || '#4B5563') : '';
+    const badge = cname ? `<span class="trk-sv-badge" style="background:${ccolor}">${esc(cname)}</span>` : '';
+    return `<div class="trk-sv-card${cls}" onclick="openDetailByIdx(${idx})">
+      <div class="trk-sv-ico">${ico}</div>
+      <div class="trk-sv-info">
+        ${badge}
+        <div class="trk-sv-num">${esc(s.number)}</div>
+        <div class="trk-sv-stat">${esc(stat)}</div>
+        ${time?`<div class="trk-sv-time">${esc(time)}</div>`:''}
+      </div>
+      <button class="trk-sv-del" onclick="removeTrkShipment('${esc(s.number)}',event)" title="${esc(u.trkDelTitle)}">✕</button>
+    </div>`;
+  }
+
+  let html = '<div class="trk-saved-wrap">';
+  html += '<div class="trk-saved-list">'+filtered.map(({s,idx})=>card(s,false,idx)).join('')+'</div>';
+  if(archive.length){
+    html += `<div class="trk-sec-hdr">${u.trkArchive}<span class="trk-sec-cnt">${archive.length}</span></div>`;
+    html += '<div class="trk-saved-list">'+archive.map((s,i)=>card(s,true,active.length+i)).join('')+'</div>';
+  }
+  html += '</div>';
+  el.innerHTML = html;
+}
+
+// ── Detail view (cached, no API call) ────────────────────────
+let _currentDetailNumber = null;
+
+function openDetailByIdx(idx){
+  const all = [...(_savedShipmentsCache.active||[]), ...(_savedShipmentsCache.archive||[])];
+  const shipment = all[idx];
+  if(shipment) openDetail(shipment);
+}
+
+function openDetail(shipment){
+  _currentDetailNumber = shipment.number;
+  document.getElementById('trk-list-view').style.display = 'none';
+  document.getElementById('trk-detail-view').style.display = '';
+  renderDetailContent(shipment);
+}
+
+function closeDetail(){
+  _currentDetailNumber = null;
+  document.getElementById('trk-detail-view').style.display = 'none';
+  document.getElementById('trk-list-view').style.display = '';
+  loadSavedShipments();
+}
+
+function renderDetailContent(s, refreshing){
+  const u = UI[lang];
+  const steps = s.steps || [];
+  const ico = s.type === 'container' ? '🚢' : '📦';
+  const cname = s.carrier_name || '';
+  const numLabel = cname ? `${s.number} · ${cname}` : s.number;
+
+  let html = '';
+  // Carrier banner
+  const bannerColor = _CARRIER_COLORS[cname] || 'var(--border)';
+  html += `<div class="trk-carrier-banner" style="border-color:${bannerColor}">
+    <div class="trk-carrier-bname" style="color:${bannerColor}">${esc(cname || (s.type==='container'?'🚢 Container':'📦 Parcel'))}</div>
+    <div class="trk-carrier-bnum">${esc(s.number)}</div>
+    <div class="trk-carrier-bstat">${esc(s.status_text||'—')}</div>
+  </div>`;
+
+  // Steps timeline from cache (skip for pending/unregistered shipments)
+  const hasMeaningfulSteps = steps.length > 0 &&
+    !(steps.length === 1 && steps[0].status === 'pending');
+  if(hasMeaningfulSteps){
+    html += '<div class="trk-timeline">';
+    steps.forEach(st => {
+      const dim = (st.status==='pending'||st.status==='fail') ? ' dim' : '';
+      html += `<div class="trk-step">
+        <div class="trk-dot ${st.status||'pending'}">${st.icon||'📍'}</div>
+        <div class="trk-step-info">
+          <div class="trk-step-title${dim}">${esc(st.title||'')}</div>
+          ${st.time ? `<div class="trk-step-time">🕐 ${esc(st.time)}</div>` : ''}
+          ${st.desc ? `<div class="trk-step-desc">${esc(st.desc)}</div>` : ''}
+        </div>
+      </div>`;
+    });
+    html += '</div>';
+  }
+
+  // Tracking URL button for containers
+  if(s.tracking_url){
+    html += `<button class="trk-open-btn" data-url="${esc(s.tracking_url)}" onclick="openTrkUrl(this.dataset.url)">${esc(u.trkOpenSite)}</button>`;
+  }
+
+  // Refresh button
+  html += `<button class="trk-refresh-btn" id="trk-refresh-btn" onclick="refreshDetail('${esc(s.number)}','${esc(s.carrier)}','${esc(s.type)}')" ${refreshing?'disabled':''}>
+    ${refreshing ? '⏳ …' : esc(u.trkRefresh)}
+  </button>`;
+
+  // Remove button (red)
+  html += `<button class="trk-open-btn" style="margin-top:8px;background:var(--red);border-color:var(--red);color:#fff"
+    onclick="removeTrkShipment('${esc(s.number)}',event)">${esc(u.trkRemove)}</button>`;
+
+  document.getElementById('trk-detail-content').innerHTML = html;
+}
+
+async function refreshDetail(number, carrier, type){
+  const btn = document.getElementById('trk-refresh-btn');
+  if(btn){ btn.disabled=true; btn.textContent='⏳ …'; }
+
+  // Find the cached shipment to keep its data while loading
+  const all = [...(_savedShipmentsCache.active||[]), ...(_savedShipmentsCache.archive||[])];
+  const cached = all.find(s=>s.number===number) || {number, carrier, type, status_text:'', steps:[]};
+  renderDetailContent(cached, true);
+
+  try{
+    const r = await fetch(`/api/webapp/track?number=${encodeURIComponent(number)}&carrier=${carrier}`);
+    const data = await r.json();
+    if(data.ok){
+      // Update DB with fresh data
+      const uid = getTrkUserId();
+      await fetch('/api/webapp/track/save',{
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({
+          user_id: uid,
+          number: data.number || number,
+          carrier: carrier,
+          type: type,
+          carrier_name: data.carrier || data.line || cached.carrier_name || '',
+          status_text: data.status || '',
+          tracking_url: data.tracking_url || cached.tracking_url || '',
+          steps: data.steps || [],
+        }),
+      });
+      // Re-fetch from DB and show updated
+      const r2 = await fetch(`/api/webapp/track/list?user_id=${uid}`);
+      const listData = await r2.json();
+      _savedShipmentsCache = listData;
+      const all2 = [...(listData.active||[]), ...(listData.archive||[])];
+      const updated = all2.find(s=>s.number===number) || {number, carrier, type, status_text: data.status||'', steps: data.steps||[]};
+      renderDetailContent(updated, false);
+    } else {
+      renderDetailContent(cached, false);
+    }
+  } catch {
+    renderDetailContent(cached, false);
+  }
+}
+
+// ── Escape ─────────────────────────────────────────────────────
+function esc(s){ return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+</script>
+</body>
+</html>

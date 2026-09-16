@@ -1,0 +1,29 @@
+# systemd unit for MacroHarvey (FastAPI + Telegram bot + scheduler).
+#
+# Install:
+#   sudo cp deploy/macroharvey.service /etc/systemd/system/macroharvey.service
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now macroharvey
+#
+# Adjust User, WorkingDirectory and the venv path to match your server.
+# IMPORTANT: exactly one process/worker — the app owns the Telegram long-poll
+# loop and APScheduler, which must not be duplicated.
+
+[Unit]
+Description=MacroHarvey news/market bot (FastAPI + Telegram)
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=www-data
+WorkingDirectory=/opt/macroharvey
+EnvironmentFile=/opt/macroharvey/.env
+ExecStart=/opt/macroharvey/.venv/bin/uvicorn main:app --host 127.0.0.1 --port 8000 --workers 1
+Restart=always
+RestartSec=5
+# Give long PDF/report generation time to finish on stop.
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

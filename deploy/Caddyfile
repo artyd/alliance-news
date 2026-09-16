@@ -1,0 +1,12 @@
+# MacroHarvey — Caddy reverse proxy.
+# Caddy auto-provisions and renews a Let's Encrypt TLS cert for this hostname.
+# sslip.io resolves 178-104-96-245.sslip.io -> 178.104.96.245 automatically,
+# so no DNS setup is needed.
+#
+# Install location on the server: /etc/caddy/Caddyfile
+# Reload after edits:            sudo systemctl reload caddy
+
+178-104-96-245.sslip.io {
+	encode zstd gzip
+	reverse_proxy localhost:8000
+}

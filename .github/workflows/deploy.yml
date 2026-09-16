@@ -1,0 +1,33 @@
+name: Deploy to server
+
+# Autodeploy: every push to main triggers an SSH deploy on the server.
+# Configure these repository secrets (Settings -> Secrets and variables -> Actions):
+#   SSH_HOST        e.g. 178.104.96.245
+#   SSH_USER        e.g. root  (or a deploy user with sudo for systemctl)
+#   SSH_KEY         private SSH key whose public half is in the server's authorized_keys
+#   SSH_PORT        optional, defaults to 22
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT || 22 }}
+          script: |
+            set -e
+            cd /opt/macroharvey
+            bash deploy/deploy.sh
