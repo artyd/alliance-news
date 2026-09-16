@@ -1089,10 +1089,12 @@ function addCls(id,c){ const e=byId(id); if(e) e.classList.add(c); }
 function rmCls(id,c){ const e=byId(id); if(e) e.classList.remove(c); }
 
 // ── Language & flags ──────────────────────────────────────────
-const LANGS  = ['ua','ru','en'];
-const FLAGS  = ['🇺🇦','🐷','🇬🇧'];
+// Russian was removed — UA + EN only. Any non-English locale (incl. ru/uk)
+// defaults to Ukrainian.
+const LANGS  = ['ua','en'];
+const FLAGS  = ['🇺🇦','🇬🇧'];
 const lc = tg?.initDataUnsafe?.user?.language_code || navigator.language || 'uk';
-let langIdx = lc.startsWith('ru') ? 1 : (lc.startsWith('uk')||lc.startsWith('ua')) ? 0 : 2;
+let langIdx = lc.startsWith('en') ? 1 : 0;
 let lang = LANGS[langIdx];
 
 function cycleLang(){

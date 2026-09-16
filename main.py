@@ -49,6 +49,14 @@ from app.telegram_articles import (
     bucket_facts_by_department,
 )
 
+# ── Department subscription menu (live-feed topic selection) ──
+from app.subscriptions import (
+    all_topic_codes,
+    toggle_topic,
+    toggle_department,
+    build_department_keyboard,
+)
+
 # ── Chart dependencies (optional — graceful fallback if missing) ──
 try:
     import yfinance as yf
@@ -162,6 +170,9 @@ def init_db():
             only_daily_mode BOOLEAN DEFAULT FALSE
         )
     ''')
+    # Russian support was removed (UA + EN only) — migrate any existing 'ru'
+    # users to Ukrainian so they keep getting a language they understand.
+    cursor.execute("UPDATE telegram_users SET language='ua' WHERE language='ru'")
 
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS telegram_sent (
@@ -316,9 +327,10 @@ def google_news_rss(phrases: list[str], sites: list[str] | None = None,
         terms.append(f"site:{s}")
     query = " OR ".join(terms)
     encoded = urllib.parse.quote_plus(query)
+    ceid_lang = hl.split("-")[0]  # e.g. "uk-UA" -> "uk"
     return (
         f"https://news.google.com/rss/search?q={encoded}"
-        f"+when:{days}d&hl={hl}&gl={gl}&ceid={gl}:en"
+        f"+when:{days}d&hl={hl}&gl={gl}&ceid={gl}:{ceid_lang}"
     )
 
 # Thematic category queries. Broadened with OR-unions of synonyms and
@@ -418,7 +430,7 @@ RSS_FEEDS = {
         days=5,
     ),
     # Trade regulation, sanctions, tariffs, customs & Ukrainian import rules —
-    # feeds the "laws" department. Internal: stored + fact-extracted.
+    # feeds the "laws" department.
     "regulation": google_news_rss(
         phrases=[
             "import tariff", "trade sanctions", "export control",
@@ -427,6 +439,22 @@ RSS_FEEDS = {
         ],
         sites=["reuters.com", "ft.com"],
         days=5,
+    ),
+    # ── Ukrainian legal / regulatory sources ("laws" department) ──
+    # apteka.ua publishes a real RSS feed of pharma-industry & regulatory news.
+    "apteka": "https://www.apteka.ua/category/rss",
+    # Держлікслужба (State Service on Medicines) — no RSS, so we query Google
+    # News restricted to their domain, in Ukrainian.
+    "dls": google_news_rss(
+        phrases=["Держлікслужба", "ліцензія імпорт лікарських засобів",
+                 "обіг лікарських засобів", "відкликання серії"],
+        sites=["dls.gov.ua"], days=10, hl="uk-UA", gl="UA",
+    ),
+    # Кабінет Міністрів — new normative acts (НПА) affecting import/pharma/chemistry.
+    "kmu": google_news_rss(
+        phrases=["постанова Кабінету Міністрів", "нормативно-правовий акт уряд",
+                 "регулювання імпорту", "мито ліки"],
+        sites=["kmu.gov.ua"], days=10, hl="uk-UA", gl="UA",
     ),
     # Good news — uplifting stories to boost morale. Freshest possible (2d).
     "good_news": (
@@ -438,10 +466,11 @@ RSS_FEEDS = {
     ),
 }
 
-# Categories that are fetched into DB but NOT shown as subscription options to users.
-# They exist purely to feed the daily report.
-# `global_sources` is a 10th Block-1 category — it IS user-visible in Telegram.
-INTERNAL_CATEGORIES = {"middle_east", "geopolitics", "regulation"}
+# Categories fetched into the DB but NOT offered as subscription options and
+# NOT pushed live to users. Now empty: every category (incl. wars/laws sources)
+# is user-selectable through the department menu and pushed to its subscribers.
+# Kept as a set so the `if category in INTERNAL_CATEGORIES` guards still work.
+INTERNAL_CATEGORIES = set()
 
 # Categories that ARE visible to Telegram subscribers and appear in /news panel,
 # but DO NOT participate in the B2B daily/midday report, full-text extraction,
@@ -730,6 +759,33 @@ def get_topics_keyboard(current_subs_str, only_daily_mode=False):
     return {"inline_keyboard": keyboard}
 
 
+_MENU_TEXT = {
+    "ua": ("🗂 Оберіть теми новин по відділах.\n"
+           "Стрілками ◀ ▶ гортайте відділи, натискайте на тему щоб увімкнути/вимкнути."),
+    "en": ("🗂 Choose news topics by department.\n"
+           "Use ◀ ▶ to switch departments, tap a topic to toggle it."),
+}
+
+
+def _menu_text(lang: str) -> str:
+    return _MENU_TEXT.get(lang, _MENU_TEXT["ua"])
+
+
+def get_user_subs_lang(chat_id) -> tuple[str, str]:
+    """Read a user's (subscriptions, language); defaults + ru→ua fallback."""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    row = db_fetchone(cur,
+        "SELECT subscriptions, language FROM telegram_users WHERE chat_id = %s",
+        (chat_id,))
+    conn.close()
+    subs = row["subscriptions"] if row and row["subscriptions"] else "all"
+    lang = (row["language"] if row and row["language"] else "ua")
+    if lang == "ru":
+        lang = "ua"
+    return subs, lang
+
+
 def db_fetchone(cursor, query, params=()):
     cursor.execute(query, params)
     row = cursor.fetchone()
@@ -769,7 +825,7 @@ async def poll_telegram_updates():
                                 chat_id = cb["message"]["chat"]["id"]
                                 data_cb = cb["data"]
 
-                                lang_map = {"lang_ru": "ru", "lang_ua": "ua", "lang_en": "en"}
+                                lang_map = {"lang_ua": "ua", "lang_en": "en"}
                                 if data_cb in lang_map:
                                     lang = lang_map[data_cb]
                                     conn = get_db_connection()
@@ -790,7 +846,6 @@ async def poll_telegram_updates():
                                     only_daily_mode = user_row["only_daily_mode"] if user_row else False
 
                                     msg_map = {
-                                        "ru": "Язык установлен на Русский!\nПожалуйста, выберите интересующие вас темы:",
                                         "ua": "Мову встановлено на Українську!\nБудь ласка, оберіть цікаві для вас теми:",
                                         "en": "Language set to English!\nPlease select your preferred news topics:"
                                     }
@@ -798,14 +853,17 @@ async def poll_telegram_updates():
                                     await client.post(f"{TELEGRAM_API_URL}/sendMessage", json={
                                         "chat_id": chat_id,
                                         "text": msg_map[lang],
-                                        "reply_markup": get_topics_keyboard(current_subs, only_daily_mode)
+                                    })
+                                    await client.post(f"{TELEGRAM_API_URL}/sendMessage", json={
+                                        "chat_id": chat_id,
+                                        "text": _menu_text(lang),
+                                        "reply_markup": build_department_keyboard(DEPARTMENT_TOPICS, 0, current_subs, lang),
                                     })
                                     await client.post(f"{TELEGRAM_API_URL}/answerCallbackQuery", json={"callback_query_id": cb["id"]})
 
                                 elif data_cb == "menu_lang":
                                     keyboard = {
                                         "inline_keyboard": [[
-                                            {"text": "🇷🇺 RU", "callback_data": "lang_ru"},
                                             {"text": "🇺🇦 UA", "callback_data": "lang_ua"},
                                             {"text": "🇬🇧 EN", "callback_data": "lang_en"}
                                         ]]
@@ -818,21 +876,73 @@ async def poll_telegram_updates():
                                     await client.post(f"{TELEGRAM_API_URL}/answerCallbackQuery", json={"callback_query_id": cb["id"]})
 
                                 elif data_cb == "menu_topics":
-                                    conn = get_db_connection()
-                                    cursor = conn.cursor()
-                                    user_row = db_fetchone(cursor,
-                                        "SELECT subscriptions, only_daily_mode FROM telegram_users WHERE chat_id = %s",
-                                        (chat_id,)
-                                    )
-                                    conn.close()
-
-                                    current_subs = user_row["subscriptions"] if user_row and user_row["subscriptions"] else "all"
-                                    only_daily_mode = user_row["only_daily_mode"] if user_row else False
+                                    current_subs, u_lang = get_user_subs_lang(chat_id)
                                     await client.post(f"{TELEGRAM_API_URL}/sendMessage", json={
                                         "chat_id": chat_id,
-                                        "text": "Please select your preferred topics:",
-                                        "reply_markup": get_topics_keyboard(current_subs, only_daily_mode)
+                                        "text": _menu_text(u_lang),
+                                        "reply_markup": build_department_keyboard(DEPARTMENT_TOPICS, 0, current_subs, u_lang),
                                     })
+                                    await client.post(f"{TELEGRAM_API_URL}/answerCallbackQuery", json={"callback_query_id": cb["id"]})
+
+                                # ── Department menu: navigation + topic toggles ──
+                                elif data_cb.startswith("dnav:"):
+                                    idx = int(data_cb.split(":", 1)[1])
+                                    current_subs, u_lang = get_user_subs_lang(chat_id)
+                                    await client.post(f"{TELEGRAM_API_URL}/editMessageReplyMarkup", json={
+                                        "chat_id": chat_id,
+                                        "message_id": cb["message"]["message_id"],
+                                        "reply_markup": build_department_keyboard(DEPARTMENT_TOPICS, idx, current_subs, u_lang),
+                                    })
+                                    await client.post(f"{TELEGRAM_API_URL}/answerCallbackQuery", json={"callback_query_id": cb["id"]})
+
+                                elif data_cb.startswith("dtog:") or data_cb.startswith("dall:"):
+                                    parts = data_cb.split(":")
+                                    idx = int(parts[1])
+                                    current_subs, u_lang = get_user_subs_lang(chat_id)
+                                    if data_cb.startswith("dtog:"):
+                                        code = parts[2]
+                                        new_subs = toggle_topic(current_subs, code, _ALL_TOPIC_CODES)
+                                    else:  # dall: toggle the whole department
+                                        dept_codes = [c for c, _ in DEPARTMENT_TOPICS[idx % len(DEPARTMENT_TOPICS)]["topics"]]
+                                        new_subs = toggle_department(current_subs, dept_codes, _ALL_TOPIC_CODES)
+                                    conn = get_db_connection()
+                                    cursor = conn.cursor()
+                                    cursor.execute(
+                                        "UPDATE telegram_users SET subscriptions = %s WHERE chat_id = %s",
+                                        (new_subs, chat_id))
+                                    conn.commit()
+                                    conn.close()
+                                    await client.post(f"{TELEGRAM_API_URL}/editMessageReplyMarkup", json={
+                                        "chat_id": chat_id,
+                                        "message_id": cb["message"]["message_id"],
+                                        "reply_markup": build_department_keyboard(DEPARTMENT_TOPICS, idx, new_subs, u_lang),
+                                    })
+                                    await client.post(f"{TELEGRAM_API_URL}/answerCallbackQuery", json={"callback_query_id": cb["id"]})
+
+                                elif data_cb == "dsub:all":
+                                    conn = get_db_connection()
+                                    cursor = conn.cursor()
+                                    cursor.execute(
+                                        "UPDATE telegram_users SET subscriptions = 'all' WHERE chat_id = %s",
+                                        (chat_id,))
+                                    conn.commit()
+                                    conn.close()
+                                    _, u_lang = get_user_subs_lang(chat_id)
+                                    await client.post(f"{TELEGRAM_API_URL}/editMessageReplyMarkup", json={
+                                        "chat_id": chat_id,
+                                        "message_id": cb["message"]["message_id"],
+                                        "reply_markup": build_department_keyboard(DEPARTMENT_TOPICS, 0, "all", u_lang),
+                                    })
+                                    await client.post(f"{TELEGRAM_API_URL}/answerCallbackQuery",
+                                        json={"callback_query_id": cb["id"], "text": "✅"})
+
+                                elif data_cb == "ddone":
+                                    _, u_lang = get_user_subs_lang(chat_id)
+                                    done_text = "Збережено ✅" if u_lang == "ua" else "Saved ✅"
+                                    await client.post(f"{TELEGRAM_API_URL}/answerCallbackQuery",
+                                        json={"callback_query_id": cb["id"], "text": done_text})
+
+                                elif data_cb == "noop":
                                     await client.post(f"{TELEGRAM_API_URL}/answerCallbackQuery", json={"callback_query_id": cb["id"]})
 
                                 elif data_cb == "toggle_daily_mode":
@@ -907,7 +1017,6 @@ async def poll_telegram_updates():
 
                                 if text.startswith("/start"):
                                     lang_row = [
-                                        {"text": "🇷🇺 RU", "callback_data": "lang_ru"},
                                         {"text": "🇺🇦 UA", "callback_data": "lang_ua"},
                                         {"text": "🇬🇧 EN", "callback_data": "lang_en"},
                                     ]
@@ -918,7 +1027,7 @@ async def poll_telegram_updates():
                                         ])
                                     await client.post(f"{TELEGRAM_API_URL}/sendMessage", json={
                                         "chat_id": chat_id,
-                                        "text": "Welcome to MacroHarvey! / Ласкаво просимо! / Добро пожаловать!\nPlease select your language:",
+                                        "text": "Welcome to MacroHarvey! / Ласкаво просимо!\nPlease select your language:",
                                         "reply_markup": {"inline_keyboard": inline_rows},
                                     })
                                 elif text.startswith("/generate_report"):
@@ -1066,134 +1175,134 @@ async def poll_telegram_updates():
 # in three languages tailored to the specific commodity/sector.
 CAT_SYSTEM_PROMPTS = {
     "api": """You are a senior B2B market intelligence analyst for a Ukrainian pharma raw materials importer.
-Analyze the article and return ONLY a raw JSON object with keys: summary_en, summary_ua, summary_ru. No markdown, no code blocks — only valid JSON.
+Analyze the article and return ONLY a raw JSON object with keys: summary_en, summary_ua. No markdown, no code blocks — only valid JSON.
 RULES: Each summary 60-80 words, 4-5 sentences.
 1. EVENT: what happened, who, where, numbers.
 2. CAUSE: why it happened (regulation, shortage, price move, new capacity).
 3. GLOBAL MARKET IMPACT: effect on API/pharma ingredient supply globally.
 4. UKRAINE PROCUREMENT IMPACT: price direction, availability, lead times for pharma ingredient sourcing.
 5. ACTION: what procurement should do now (stock up, find alternative supplier, fix price, monitor).
-Direct, specific, no vague phrases. summary_en: English. summary_ua: Ukrainian. summary_ru: Russian.""",
+Direct, specific, no vague phrases. summary_en: English. summary_ua: Ukrainian.""",
 
     "cosmetic": """You are a senior B2B market intelligence analyst for a Ukrainian cosmetic ingredients importer.
-Analyze the article and return ONLY a raw JSON object with keys: summary_en, summary_ua, summary_ru. No markdown, no code blocks — only valid JSON.
+Analyze the article and return ONLY a raw JSON object with keys: summary_en, summary_ua. No markdown, no code blocks — only valid JSON.
 RULES: Each summary 60-80 words, 4-5 sentences.
 1. EVENT: what happened, who, where, numbers.
 2. CAUSE: regulation, ingredient ban, demand shift, production change.
 3. GLOBAL MARKET IMPACT: effect on cosmetic raw materials (hyaluronic acid, retinol, peptides, surfactants, emollients, etc.).
 4. UKRAINE PROCUREMENT IMPACT: price, availability, supplier landscape for cosmetic ingredients.
 5. ACTION: what procurement should do (find alternatives, fix price, expand supplier base).
-Direct, specific. summary_en: English. summary_ua: Ukrainian. summary_ru: Russian.""",
+Direct, specific. summary_en: English. summary_ua: Ukrainian.""",
 
     "herbal": """You are a senior B2B market intelligence analyst for a Ukrainian importer of herbal extracts and botanical raw materials.
-Analyze the article and return ONLY a raw JSON object with keys: summary_en, summary_ua, summary_ru. No markdown, no code blocks — only valid JSON.
+Analyze the article and return ONLY a raw JSON object with keys: summary_en, summary_ua. No markdown, no code blocks — only valid JSON.
 RULES: Each summary 60-80 words, 4-5 sentences.
 1. EVENT: what happened, who, where, numbers.
 2. CAUSE: harvest failure, export ban, demand surge, new clinical study.
 3. GLOBAL MARKET IMPACT: effect on botanical extracts, herbal ingredients, medicinal plant materials.
 4. UKRAINE PROCUREMENT IMPACT: price, availability, key growing regions affected.
 5. ACTION: diversify sourcing, build safety stock, lock in contracts.
-Direct, specific. summary_en: English. summary_ua: Ukrainian. summary_ru: Russian.""",
+Direct, specific. summary_en: English. summary_ua: Ukrainian.""",
 
     "veterinary": """You are a senior B2B market intelligence analyst for a Ukrainian importer of veterinary pharmaceutical ingredients.
-Analyze the article and return ONLY a raw JSON object with keys: summary_en, summary_ua, summary_ru. No markdown, no code blocks — only valid JSON.
+Analyze the article and return ONLY a raw JSON object with keys: summary_en, summary_ua. No markdown, no code blocks — only valid JSON.
 RULES: Each summary 60-80 words, 4-5 sentences.
 1. EVENT: what happened, who, where, numbers.
 2. CAUSE: regulation change, disease outbreak, API shortage, new drug approval.
 3. GLOBAL MARKET IMPACT: effect on veterinary drug ingredients and animal health products globally.
 4. UKRAINE PROCUREMENT IMPACT: price, availability, supplier options for vet ingredients.
 5. ACTION: what procurement should do now.
-Direct, specific. summary_en: English. summary_ua: Ukrainian. summary_ru: Russian.""",
+Direct, specific. summary_en: English. summary_ua: Ukrainian.""",
 
     "food": """You are a senior B2B market intelligence analyst for a Ukrainian importer of food-grade ingredients and commodities.
-Analyze the article and return ONLY a raw JSON object with keys: summary_en, summary_ua, summary_ru. No markdown, no code blocks — only valid JSON.
+Analyze the article and return ONLY a raw JSON object with keys: summary_en, summary_ua. No markdown, no code blocks — only valid JSON.
 RULES: Each summary 60-80 words, 4-5 sentences.
 1. EVENT: what happened, who, where, numbers.
 2. CAUSE: weather, tariff, export restriction, supply chain disruption.
 3. GLOBAL MARKET IMPACT: effect on food ingredient prices/supply (sugars, starches, oils, additives, flavors).
 4. UKRAINE PROCUREMENT IMPACT: price direction, availability, key suppliers.
 5. ACTION: forward contracts, alternative suppliers, stock up.
-Direct, specific. summary_en: English. summary_ua: Ukrainian. summary_ru: Russian.""",
+Direct, specific. summary_en: English. summary_ua: Ukrainian.""",
 
     "feed": """You are a senior B2B market intelligence analyst for a Ukrainian importer of animal feed ingredients and amino acids.
-Analyze the article and return ONLY a raw JSON object with keys: summary_en, summary_ua, summary_ru. No markdown, no code blocks — only valid JSON.
+Analyze the article and return ONLY a raw JSON object with keys: summary_en, summary_ua. No markdown, no code blocks — only valid JSON.
 RULES: Each summary 60-80 words, 4-5 sentences.
 1. EVENT: what happened, who, where, numbers.
 2. CAUSE: production change, export policy, crop yields, demand shift from China.
 3. GLOBAL MARKET IMPACT: effect on feed amino acids (lysine, methionine, threonine), soybean meal, feed additives.
 4. UKRAINE PROCUREMENT IMPACT: price direction, key suppliers (China, EU), lead times.
 5. ACTION: what procurement should do now.
-Direct, specific. summary_en: English. summary_ua: Ukrainian. summary_ru: Russian.""",
+Direct, specific. summary_en: English. summary_ua: Ukrainian.""",
 
     "capsules": """You are a senior B2B market intelligence analyst for a Ukrainian importer of pharmaceutical capsules and excipients.
-Analyze the article and return ONLY a raw JSON object with keys: summary_en, summary_ua, summary_ru. No markdown, no code blocks — only valid JSON.
+Analyze the article and return ONLY a raw JSON object with keys: summary_en, summary_ua. No markdown, no code blocks — only valid JSON.
 RULES: Each summary 60-80 words, 4-5 sentences.
 1. EVENT: what happened, who, where, numbers.
 2. CAUSE: gelatin price change, HPMC capacity, regulatory shift, new capacity.
 3. GLOBAL MARKET IMPACT: effect on hard gelatin capsules, HPMC capsules, pharmaceutical excipients globally.
 4. UKRAINE PROCUREMENT IMPACT: price, availability, lead times for capsules/excipients.
 5. ACTION: what procurement should do now.
-Direct, specific. summary_en: English. summary_ua: Ukrainian. summary_ru: Russian.""",
+Direct, specific. summary_en: English. summary_ua: Ukrainian.""",
 
     "pvc": """You are a senior B2B market intelligence analyst for a Ukrainian importer of PVC film and pharmaceutical packaging materials.
-Analyze the article and return ONLY a raw JSON object with keys: summary_en, summary_ua, summary_ru. No markdown, no code blocks — only valid JSON.
+Analyze the article and return ONLY a raw JSON object with keys: summary_en, summary_ua. No markdown, no code blocks — only valid JSON.
 RULES: Each summary 60-80 words, 4-5 sentences.
 1. EVENT: what happened, who, where, numbers.
 2. CAUSE: polymer price change, energy costs, new capacity, regulation.
 3. GLOBAL MARKET IMPACT: effect on PVC film, blister packaging, pharmaceutical packaging materials.
 4. UKRAINE PROCUREMENT IMPACT: price, availability, key suppliers.
 5. ACTION: what procurement should do now.
-Direct, specific. summary_en: English. summary_ua: Ukrainian. summary_ru: Russian.""",
+Direct, specific. summary_en: English. summary_ua: Ukrainian.""",
 
     "logistics": """You are a senior B2B market intelligence analyst for a Ukrainian pharma/cosmetics importer managing global supply chains.
-Analyze the article and return ONLY a raw JSON object with keys: summary_en, summary_ua, summary_ru. No markdown, no code blocks — only valid JSON.
+Analyze the article and return ONLY a raw JSON object with keys: summary_en, summary_ua. No markdown, no code blocks — only valid JSON.
 RULES: Each summary 60-80 words, 4-5 sentences.
 1. EVENT: what happened (freight rates, route closures, port delays), who, where, numbers.
 2. CAUSE: geopolitical, weather, strike, capacity issue, new route.
 3. GLOBAL LOGISTICS IMPACT: effect on ocean/air freight, container availability, trade routes.
 4. UKRAINE PROCUREMENT IMPACT: import lead times, freight costs, insurance for pharma/cosmetics shipments.
 5. ACTION: re-route, book earlier, factor costs into pricing, diversify carriers.
-Direct, specific. summary_en: English. summary_ua: Ukrainian. summary_ru: Russian.""",
+Direct, specific. summary_en: English. summary_ua: Ukrainian.""",
 
     "global_sources": """You are a senior B2B market intelligence analyst for a Ukrainian pharma and cosmetics raw materials importer.
-Analyze the article and return ONLY a raw JSON object with keys: summary_en, summary_ua, summary_ru. No markdown, no code blocks — only valid JSON.
+Analyze the article and return ONLY a raw JSON object with keys: summary_en, summary_ua. No markdown, no code blocks — only valid JSON.
 RULES: Each summary 60-80 words, 4-5 sentences.
 1. EVENT: what happened (trade policy, sanctions, tariff, IMF/WTO decision), who, where.
 2. CONTEXT: why it matters in global trade.
 3. GLOBAL MARKET IMPACT: effect on global trade, supply chains, commodity markets relevant to pharma/chemicals/cosmetics.
 4. UKRAINE PROCUREMENT IMPACT: effect on sourcing from China, India, EU, US or on import costs.
 5. ACTION: what procurement should do in light of this macro development.
-Direct, specific. summary_en: English. summary_ua: Ukrainian. summary_ru: Russian.""",
+Direct, specific. summary_en: English. summary_ua: Ukrainian.""",
 
     "middle_east": """You are a senior B2B market intelligence analyst for a Ukrainian pharma and cosmetics raw materials importer.
-Analyze the article and return ONLY a raw JSON object with keys: summary_en, summary_ua, summary_ru. No markdown, no code blocks — only valid JSON.
+Analyze the article and return ONLY a raw JSON object with keys: summary_en, summary_ua. No markdown, no code blocks — only valid JSON.
 RULES: Each summary 60-80 words, 4-5 sentences.
 1. EVENT: what happened in the Middle East, who, where.
 2. GEOPOLITICAL CONTEXT: Suez Canal, Hormuz Strait, oil supply, regional stability.
 3. GLOBAL IMPACT: effect on oil prices, freight insurance, shipping routes.
 4. UKRAINE PROCUREMENT IMPACT: import costs, energy surcharges, war-risk freight insurance for pharma/cosmetics.
 5. ACTION: what logistics/procurement should do now.
-Direct, specific. summary_en: English. summary_ua: Ukrainian. summary_ru: Russian.""",
+Direct, specific. summary_en: English. summary_ua: Ukrainian.""",
 
     "good_news": """You are a warm, uplifting news curator.
-Analyze the article and return ONLY a raw JSON object with keys: summary_en, summary_ua, summary_ru. No markdown, no code blocks — only valid JSON.
+Analyze the article and return ONLY a raw JSON object with keys: summary_en, summary_ua. No markdown, no code blocks — only valid JSON.
 RULES: Each summary 50-70 words, 3-4 sentences.
 Focus on the POSITIVE CORE: a breakthrough, a rescue, a record, a heartwarming act, a scientific win, an environmental success, a community triumph.
 Tone: warm, enthusiastic, uplifting — this should make the reader smile or feel hopeful.
 Do NOT add business context. End with a short inspiring takeaway.
-summary_en: English. summary_ua: Ukrainian. summary_ru: Russian.""",
+summary_en: English. summary_ua: Ukrainian.""",
 }
 
 # Fallback for unknown categories
 _DEFAULT_SYSTEM_PROMPT = """You are a senior B2B market intelligence analyst for a Ukrainian pharmaceutical and chemical raw materials importer.
-Analyze the article and return ONLY a raw JSON object with keys: summary_en, summary_ua, summary_ru. No markdown, no code blocks — only valid JSON.
+Analyze the article and return ONLY a raw JSON object with keys: summary_en, summary_ua. No markdown, no code blocks — only valid JSON.
 RULES: Each summary 60-80 words, 4-5 sentences.
 1. EVENT: what happened, where, who. Include numbers/% if available.
 2. CAUSE: why it happened.
 3. GLOBAL MARKET IMPACT: effect on global markets, supply chains, or trade.
 4. UKRAINE B2B IMPACT: effect on a Ukrainian importer of pharma ingredients, cosmetic raw materials, packaging, or food-grade materials.
 5. ACTION: what procurement should do now.
-Direct, specific. No vague phrases. summary_en: English. summary_ua: Ukrainian. summary_ru: Russian."""
+Direct, specific. No vague phrases. summary_en: English. summary_ua: Ukrainian."""
 
 
 async def generate_summary(text: str, category: str = "", title: str = ""):
@@ -1210,28 +1319,32 @@ async def generate_summary(text: str, category: str = "", title: str = ""):
     if title_only_mode:
         prompt = (
             "You are a professional translator. Translate the given news headline into "
-            "Ukrainian and Russian. Return ONLY a raw JSON object with keys: "
-            "title_ua (Ukrainian), title_ru (Russian). No markdown, no extra text."
+            "Ukrainian. Return ONLY a raw JSON object with the key: "
+            "title_ua (Ukrainian). No markdown, no extra text."
         )
         user_content = f"Headline: {title}"
     else:
         title_instruction = (
-            "\n\nAlso translate the news headline into Ukrainian and Russian. "
-            "Add two extra keys to the JSON: title_ua (Ukrainian translation of the title) "
-            "and title_ru (Russian translation of the title). "
-            "Total JSON keys: summary_en, summary_ua, summary_ru, title_ua, title_ru."
+            "\n\nAlso translate the news headline into Ukrainian. "
+            "Add one extra key to the JSON: title_ua (Ukrainian translation of the title). "
+            "Total JSON keys: summary_en, summary_ua, title_ua."
         ) if title else ""
         prompt = base_prompt + title_instruction
         user_content = (f"Title: {title}\nArticle:\n{text[:3000]}" if title
                         else f"Article:\n{text[:3000]}")
 
     def _parse(parsed: dict, fallback: str) -> dict:
+        ua = parsed.get("summary_ua", fallback[:200])
+        title_ua = parsed.get("title_ua", title)
+        # Russian support was removed (UA + EN only). We still populate the
+        # legacy *_ru keys (mirroring UA) so DB inserts and any residual reader
+        # keep working without a schema change.
         return {
             "summary_en": parsed.get("summary_en", fallback[:200]),
-            "summary_ua": parsed.get("summary_ua", fallback[:200]),
-            "summary_ru": parsed.get("summary_ru", fallback[:200]),
-            "title_ua":   parsed.get("title_ua", title),
-            "title_ru":   parsed.get("title_ru", title),
+            "summary_ua": ua,
+            "summary_ru": ua,
+            "title_ua":   title_ua,
+            "title_ru":   title_ua,
         }
 
     # Primary: OpenAI GPT-4o-mini
@@ -2946,6 +3059,50 @@ DEPARTMENTS = [
     },
 ]
 
+# ── DEPARTMENT_TOPICS: the live-feed subscription menu ─────────────────────────
+# Maps each business department to the individual news topics (RSS categories)
+# a user can toggle on/off. This drives the paginated Telegram menu (◀ ▶ between
+# departments, checkboxes per topic) and the per-topic live push filtering.
+# Every code here MUST be a pushable category (present in RSS_FEEDS or a virtual
+# category like market_alerts, and NOT in INTERNAL_CATEGORIES).
+DEPARTMENT_TOPICS = [
+    {"code": "procurement", "name": {"ua": "Закупівля", "en": "Procurement"},
+     "topics": [
+         ("api",        {"ua": "Фарм. субстанції (API)", "en": "Pharma API"}),
+         ("cosmetic",   {"ua": "Косметичні субстанції",  "en": "Cosmetics"}),
+         ("herbal",     {"ua": "Трави / рослинна сировина", "en": "Herbal"}),
+         ("veterinary", {"ua": "Ветеринарні субстанції", "en": "Veterinary"}),
+         ("food",       {"ua": "Харчова сировина",       "en": "Food"}),
+         ("feed",       {"ua": "Кормові амінокислоти",   "en": "Feed"}),
+         ("capsules",   {"ua": "Капсули",                "en": "Capsules"}),
+         ("pvc",        {"ua": "ПВХ / пакування",        "en": "PVC / Packaging"}),
+     ]},
+    {"code": "logistics", "name": {"ua": "Логістика", "en": "Logistics"},
+     "topics": [
+         ("logistics",  {"ua": "Логістика та фрахт", "en": "Logistics & freight"}),
+     ]},
+    {"code": "world", "name": {"ua": "Світ", "en": "World"},
+     "topics": [
+         ("global_sources", {"ua": "Глобальна економіка", "en": "Global economy"}),
+         ("market_alerts",  {"ua": "Ринкові алерти ⚡",     "en": "Market alerts ⚡"}),
+         ("good_news",      {"ua": "Позитивні новини 🌞",   "en": "Good news 🌞"}),
+     ]},
+    {"code": "wars", "name": {"ua": "Війни", "en": "Wars"},
+     "topics": [
+         ("geopolitics", {"ua": "Геополітика / конфлікти", "en": "Geopolitics"}),
+         ("middle_east", {"ua": "Близький Схід",           "en": "Middle East"}),
+     ]},
+    {"code": "laws", "name": {"ua": "Закони", "en": "Laws"},
+     "topics": [
+         ("regulation", {"ua": "Регуляції / санкції / тарифи", "en": "Regulation / sanctions"}),
+         ("apteka",     {"ua": "Аптека.ua",           "en": "Apteka.ua"}),
+         ("dls",        {"ua": "Держлікслужба (ДЛС)",  "en": "State Medicines Service"}),
+         ("kmu",        {"ua": "КМУ / НПА",            "en": "Cabinet of Ministers"}),
+     ]},
+]
+
+_ALL_TOPIC_CODES = all_topic_codes(DEPARTMENT_TOPICS)
+
 # Keywords to identify Middle East news in title/summary
 MIDDLE_EAST_KEYWORDS = [
     "iran", "israel", "israeli", "iranian", "tehran", "middle east",
@@ -4576,7 +4733,7 @@ async def _push_market_alert(title: str, body: str, link: str, emoji: str):
                 """
                 INSERT INTO articles
                     (title, link, published, category,
-                     summary_en, summary_ua, summary_ru,
+                     summary_en, summary_ua,
                      image_url, extraction_status, facts_status,
                      title_ua, title_ru)
                 VALUES (%s, %s, %s, 'market_alerts', %s, %s, %s, %s, 'skipped', 'skipped', %s, %s)
@@ -4856,7 +5013,7 @@ async def fetch_and_store_news():
                     title_ru  = summaries.get("title_ru", title)
 
                     cursor.execute('''
-                        INSERT INTO articles (title, link, published, category, summary_en, summary_ua, summary_ru, image_url, extraction_status, title_ua, title_ru)
+                        INSERT INTO articles (title, link, published, category, summary_en, summary_ua, image_url, extraction_status, title_ua, title_ru)
                         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'pending', %s, %s)
                         ON CONFLICT(link) DO NOTHING
                     ''', (title, link, published, category, sum_en, sum_ua, sum_ru, image_url, title_ua, title_ru))
@@ -5178,14 +5335,14 @@ def get_all_news():
     if internal_list:
         placeholders = ",".join(["%s"] * len(internal_list))
         rows = db_fetchall(cursor,
-            f"SELECT title, link, published, category, summary_en, summary_ua, summary_ru, image_url "
+            f"SELECT title, link, published, category, summary_en, summary_ua, image_url "
             f"FROM articles WHERE category NOT IN ({placeholders}) "
             f"ORDER BY published DESC LIMIT 1000",
             tuple(internal_list)
         )
     else:
         rows = db_fetchall(cursor,
-            "SELECT title, link, published, category, summary_en, summary_ua, summary_ru, image_url "
+            "SELECT title, link, published, category, summary_en, summary_ua, image_url "
             "FROM articles ORDER BY published DESC LIMIT 1000"
         )
     conn.close()
@@ -5257,7 +5414,7 @@ def get_category_news(category: str):
     conn   = get_db_connection()
     cursor = conn.cursor()
     rows   = db_fetchall(cursor,
-        "SELECT title, link, published, category, summary_en, summary_ua, summary_ru, image_url "
+        "SELECT title, link, published, category, summary_en, summary_ua, image_url "
         "FROM articles WHERE category = %s ORDER BY published DESC LIMIT 15",
         (category,)
     )
@@ -5518,7 +5675,7 @@ def api_news(category: str = "all", lang: str = "ua", limit: int = 15, offset: i
     conn = get_db_connection()
     cursor = conn.cursor()
     excluded = list(INTERNAL_CATEGORIES)
-    base_cols = "id, title, title_ua, title_ru, link, published, category, summary_en, summary_ua, summary_ru, image_url"
+    base_cols = "id, title, title_ua, title_ru, link, published, category, summary_en, summary_ua, image_url"
     if category == "all":
         if excluded:
             ph = ",".join(["%s"] * len(excluded))
@@ -5594,7 +5751,7 @@ def api_report_date(date: str, lang: str = "ua"):
     params = (*excluded, date, date)
     rows = db_fetchall(cursor,
         f"""
-        SELECT title, title_ua, title_ru, link, published, category, summary_en, summary_ua, summary_ru
+        SELECT title, title_ua, title_ru, link, published, category, summary_en, summary_ua
         FROM articles
         WHERE category NOT IN ({ph})
           AND published >= %s

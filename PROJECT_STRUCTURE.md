@@ -12,7 +12,8 @@ news/                         repo root
 ├── app/                      extracted, testable helper modules
 │   ├── __init__.py
 │   ├── security.py           Telegram initData HMAC verification
-│   └── telegram_articles.py  pure helpers for PDF->per-department Telegram articles
+│   ├── telegram_articles.py  pure helpers for PDF->per-department Telegram articles
+│   └── subscriptions.py      department-paginated topic subscription menu logic
 │
 ├── assets/
 │   └── fonts/DejaVuSans.ttf  bundled PDF font fallback
