@@ -60,6 +60,9 @@ from app.subscriptions import (
 # ── HTML scrapers for gov sources without RSS ──
 from app.scrapers import scrape_dls, scrape_kmu
 
+# ── Keyword pre-filter for broad feeds ──
+from app.keyword_filter import passes_keyword_filter
+
 # ── Chart dependencies (optional — graceful fallback if missing) ──
 try:
     import yfinance as yf
@@ -441,6 +444,17 @@ RSS_FEEDS = {
         ],
         days=5,
     ),
+    # Direct maritime trade-press RSS (broad feeds). These carry a lot of generic
+    # industry news, so they are keyword-filtered (see KEYWORD_FILTERS["maritime"])
+    # before any AI call. A category may hold a LIST of feed URLs — the news loop
+    # fetches each and tags all items with this single category.
+    "maritime": [
+        "https://gcaptain.com/feed/",
+        "https://splash247.com/feed/",
+        "https://www.hellenicshippingnews.com/category/shipping-news/port-news/feed/",
+        "https://www.hellenicshippingnews.com/category/shipping-news/piracy-and-security-news/feed/",
+        "https://www.hellenicshippingnews.com/category/commodities/freight-news/feed/",
+    ],
     # Tier-1 macro/trade news from Reuters, Bloomberg, FT, WTO, IMF etc.
     "global_sources": (
         f"https://news.google.com/rss/search?q=%22global+trade%22+OR+tariffs+OR+"
@@ -513,6 +527,25 @@ INTERNAL_CATEGORIES = set()
 CUSTOM_SCRAPERS = {
     "dls": scrape_dls,
     "kmu": scrape_kmu,
+}
+
+# Categories whose feeds are broad and must be keyword-filtered BEFORE any AI
+# call (full-text/summary/facts). An item is kept only if its title+summary
+# contains at least one keyword. Categories not listed here are not filtered
+# (targeted Google News queries are already pre-filtered by their query).
+KEYWORD_FILTERS = {
+    "maritime": [
+        # disruption / security
+        "red sea", "hormuz", "houthi", "bab el-mandeb", "suez", "strait",
+        "blockade", "piracy", "attack", "strike", "seized", "detained",
+        "war risk", "sanction", "embargo", "missile", "drone",
+        # ports / flow
+        "port congestion", "port closure", "port strike", "backlog",
+        "congestion", "reroute", "diversion", "delay", "closure",
+        # freight / carriers / cargo
+        "freight rate", "blank sailing", "container", "tanker", "vessel",
+        "cargo", "shipping disruption", "supply chain", "schedule",
+    ],
 }
 
 # Categories that ARE visible to Telegram subscribers and appear in /news panel,
@@ -3143,6 +3176,7 @@ DEPARTMENT_TOPICS = [
     {"code": "logistics", "name": {"ua": "Логістика", "en": "Logistics"},
      "topics": [
          ("logistics",     {"ua": "Логістика та фрахт",       "en": "Logistics & freight"}),
+         ("maritime",      {"ua": "Морські новини",            "en": "Maritime news"}),
          ("red_sea",       {"ua": "Червоне море / Ормуз",      "en": "Red Sea / Hormuz"}),
          ("ports_customs", {"ua": "Порти, обстріли, митниця",  "en": "Ports, shelling, customs"}),
          ("carriers",      {"ua": "Контейнерні лінії",          "en": "Container carriers"}),
@@ -4983,7 +5017,17 @@ async def fetch_and_store_news():
             conn = get_db_connection()
             cursor = conn.cursor()
 
-            for category, url in RSS_FEEDS.items():
+            # Flatten feeds: a category's value may be a single URL or a list of
+            # URLs (e.g. "maritime" aggregates several maritime RSS feeds). All
+            # items from every URL are tagged with the same category.
+            _feed_items: list[tuple[str, str]] = []
+            for _cat, _url in RSS_FEEDS.items():
+                if isinstance(_url, (list, tuple)):
+                    _feed_items.extend((_cat, u) for u in _url)
+                else:
+                    _feed_items.append((_cat, _url))
+
+            for category, url in _feed_items:
                 if category in CUSTOM_SCRAPERS:
                     # HTML-scraped source (no RSS) — returns a feedparser-like object.
                     feed = await CUSTOM_SCRAPERS[category](url)
@@ -5033,6 +5077,13 @@ async def fetch_and_store_news():
 
                     if not link or not title:
                         continue
+
+                    # Keyword pre-filter for broad feeds — drop irrelevant items
+                    # BEFORE any DB/AI work so we don't waste extraction/LLM quota.
+                    if category in KEYWORD_FILTERS:
+                        _summary = getattr(entry, "summary", "") or getattr(entry, "description", "")
+                        if not passes_keyword_filter(title, _summary, KEYWORD_FILTERS[category]):
+                            continue
 
                     try:
                         cursor.execute("SELECT 1 FROM articles WHERE link = %s", (link,))

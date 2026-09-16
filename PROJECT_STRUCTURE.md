@@ -14,7 +14,8 @@ news/                         repo root
 │   ├── security.py           Telegram initData HMAC verification
 │   ├── telegram_articles.py  pure helpers for PDF->per-department Telegram articles
 │   ├── subscriptions.py      department-paginated topic subscription menu logic
-│   └── scrapers.py           HTML scrapers for gov sources w/o RSS (dls, kmu)
+│   ├── scrapers.py           HTML scrapers for gov sources w/o RSS (dls, kmu)
+│   └── keyword_filter.py     pre-AI keyword filter for broad feeds (maritime)
 │
 ├── assets/
 │   └── fonts/DejaVuSans.ttf  bundled PDF font fallback
