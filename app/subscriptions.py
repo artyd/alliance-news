@@ -105,6 +105,10 @@ def build_department_keyboard(department_topics: list[dict], dept_idx: int,
         {"text": f"{nm(dept['name'])} · {dept_idx + 1}/{total}", "callback_data": "noop"},
         {"text": "▶", "callback_data": f"dnav:{next_idx}"},
     ])
+    # Language toggle — button shows the language it switches TO.
+    other_lang = "en" if lang == "ua" else "ua"
+    lang_label = "🇬🇧 English" if other_lang == "en" else "🇺🇦 Українська"
+    rows.append([{"text": lang_label, "callback_data": f"dlang:{dept_idx}"}])
     rows.append([
         {"text": L["all_on"], "callback_data": "dsub:all"},
         {"text": L["done"], "callback_data": "ddone"},

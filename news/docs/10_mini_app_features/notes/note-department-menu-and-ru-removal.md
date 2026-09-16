@@ -26,11 +26,21 @@ virtual one like `market_alerts`) and NOT in `INTERNAL_CATEGORIES`.
 ## Law sources (Закони department)
 
 - `apteka` — real RSS: `https://www.apteka.ua/category/rss`.
-- `dls` — Держлікслужба has no RSS; Google News restricted to `dls.gov.ua` (uk).
-- `kmu` — Кабінет Міністрів НПА; Google News restricted to `kmu.gov.ua` (uk).
+- `dls` — Держлікслужба (`dls.gov.ua/for_subject/`) — HTML-scraped (no RSS).
+- `kmu` — Кабінет Міністрів НПА (`kmu.gov.ua/npasearch`) — HTML-scraped.
 
-`dls`/`kmu` are a stopgap until dedicated HTML scrapers are written (the sites
-are not RSS). All three are normal pushable categories.
+`dls`/`kmu` now use real BeautifulSoup scrapers in `app/scrapers.py`, wired via
+`CUSTOM_SCRAPERS` in `main.py`: fetch_and_store_news calls the scraper (which
+returns a feedparser-like object) instead of feedparser for those categories.
+Scrapers fail soft (return no entries) so a markup change never crashes the
+news loop — but selectors may then need a tweak (see tests/test_scrapers.py).
+All three are normal pushable categories.
+
+## Language toggle in the menu
+
+The department keyboard has a language button (🇬🇧 English / 🇺🇦 Українська)
+that flips `telegram_users.language` between ua/en and re-renders the menu in
+place (callback `dlang:<idx>`).
 
 `INTERNAL_CATEGORIES` is now empty — every category (incl. wars/laws) is
 user-selectable and pushed to its subscribers.

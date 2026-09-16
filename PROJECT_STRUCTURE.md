@@ -13,7 +13,8 @@ news/                         repo root
 │   ├── __init__.py
 │   ├── security.py           Telegram initData HMAC verification
 │   ├── telegram_articles.py  pure helpers for PDF->per-department Telegram articles
-│   └── subscriptions.py      department-paginated topic subscription menu logic
+│   ├── subscriptions.py      department-paginated topic subscription menu logic
+│   └── scrapers.py           HTML scrapers for gov sources w/o RSS (dls, kmu)
 │
 ├── assets/
 │   └── fonts/DejaVuSans.ttf  bundled PDF font fallback

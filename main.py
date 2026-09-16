@@ -57,6 +57,9 @@ from app.subscriptions import (
     build_department_keyboard,
 )
 
+# ── HTML scrapers for gov sources without RSS ──
+from app.scrapers import scrape_dls, scrape_kmu
+
 # ── Chart dependencies (optional — graceful fallback if missing) ──
 try:
     import yfinance as yf
@@ -443,19 +446,12 @@ RSS_FEEDS = {
     # ── Ukrainian legal / regulatory sources ("laws" department) ──
     # apteka.ua publishes a real RSS feed of pharma-industry & regulatory news.
     "apteka": "https://www.apteka.ua/category/rss",
-    # Держлікслужба (State Service on Medicines) — no RSS, so we query Google
-    # News restricted to their domain, in Ukrainian.
-    "dls": google_news_rss(
-        phrases=["Держлікслужба", "ліцензія імпорт лікарських засобів",
-                 "обіг лікарських засобів", "відкликання серії"],
-        sites=["dls.gov.ua"], days=10, hl="uk-UA", gl="UA",
-    ),
-    # Кабінет Міністрів — new normative acts (НПА) affecting import/pharma/chemistry.
-    "kmu": google_news_rss(
-        phrases=["постанова Кабінету Міністрів", "нормативно-правовий акт уряд",
-                 "регулювання імпорту", "мито ліки"],
-        sites=["kmu.gov.ua"], days=10, hl="uk-UA", gl="UA",
-    ),
+    # Держлікслужба (State Service on Medicines) and Кабінет Міністрів (НПА) have
+    # no RSS — they are scraped from HTML. The URL here is the listing page; the
+    # actual parsing is handled by CUSTOM_SCRAPERS (see below), which the news
+    # loop uses instead of feedparser for these categories.
+    "dls": "https://www.dls.gov.ua/for_subject/",
+    "kmu": "https://www.kmu.gov.ua/npasearch",
     # Good news — uplifting stories to boost morale. Freshest possible (2d).
     "good_news": (
         "https://news.google.com/rss/search?q=(site:goodnewsnetwork.org+OR+"
@@ -471,6 +467,14 @@ RSS_FEEDS = {
 # is user-selectable through the department menu and pushed to its subscribers.
 # Kept as a set so the `if category in INTERNAL_CATEGORIES` guards still work.
 INTERNAL_CATEGORIES = set()
+
+# Categories whose RSS_FEEDS url is an HTML page scraped by a custom function
+# (no RSS available). fetch_and_store_news calls the scraper instead of
+# feedparser; the scraper returns a feedparser-like object with .entries.
+CUSTOM_SCRAPERS = {
+    "dls": scrape_dls,
+    "kmu": scrape_kmu,
+}
 
 # Categories that ARE visible to Telegram subscribers and appear in /news panel,
 # but DO NOT participate in the B2B daily/midday report, full-text extraction,
@@ -892,6 +896,26 @@ async def poll_telegram_updates():
                                         "chat_id": chat_id,
                                         "message_id": cb["message"]["message_id"],
                                         "reply_markup": build_department_keyboard(DEPARTMENT_TOPICS, idx, current_subs, u_lang),
+                                    })
+                                    await client.post(f"{TELEGRAM_API_URL}/answerCallbackQuery", json={"callback_query_id": cb["id"]})
+
+                                elif data_cb.startswith("dlang:"):
+                                    # Switch UI language (ua<->en) and re-render the menu in place.
+                                    idx = int(data_cb.split(":", 1)[1])
+                                    current_subs, u_lang = get_user_subs_lang(chat_id)
+                                    new_lang = "en" if u_lang == "ua" else "ua"
+                                    conn = get_db_connection()
+                                    cursor = conn.cursor()
+                                    cursor.execute(
+                                        "UPDATE telegram_users SET language = %s WHERE chat_id = %s",
+                                        (new_lang, chat_id))
+                                    conn.commit()
+                                    conn.close()
+                                    await client.post(f"{TELEGRAM_API_URL}/editMessageText", json={
+                                        "chat_id": chat_id,
+                                        "message_id": cb["message"]["message_id"],
+                                        "text": _menu_text(new_lang),
+                                        "reply_markup": build_department_keyboard(DEPARTMENT_TOPICS, idx, current_subs, new_lang),
                                     })
                                     await client.post(f"{TELEGRAM_API_URL}/answerCallbackQuery", json={"callback_query_id": cb["id"]})
 
@@ -4905,7 +4929,11 @@ async def fetch_and_store_news():
             cursor = conn.cursor()
 
             for category, url in RSS_FEEDS.items():
-                feed = await asyncio.to_thread(feedparser.parse, url)
+                if category in CUSTOM_SCRAPERS:
+                    # HTML-scraped source (no RSS) — returns a feedparser-like object.
+                    feed = await CUSTOM_SCRAPERS[category](url)
+                else:
+                    feed = await asyncio.to_thread(feedparser.parse, url)
 
                 # ── Freshness filter ────────────────────────────────────
                 # Google News frequently ignores the `when:7d` URL param for

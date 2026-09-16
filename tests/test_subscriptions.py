@@ -71,8 +71,8 @@ def test_normalize_stable_order():
 def test_keyboard_structure_and_checkmarks():
     kb = build_department_keyboard(DEPTS, 0, "api", lang="ua")
     rows = kb["inline_keyboard"]
-    # dept-all row + 2 topic rows + nav row + footer row
-    assert len(rows) == 5
+    # dept-all row + 2 topic rows + nav row + lang row + footer row
+    assert len(rows) == 6
     # api is on (✅), food is off (☐)
     api_btn = rows[1][0]
     food_btn = rows[2][0]
@@ -84,6 +84,16 @@ def test_keyboard_structure_and_checkmarks():
     assert nav[0]["callback_data"] == "dnav:1"
     assert nav[2]["callback_data"] == "dnav:1"
     assert "1/2" in nav[1]["text"]
+    # language row toggles to the other language
+    lang_btn = rows[4][0]
+    assert lang_btn["callback_data"] == "dlang:0"
+    assert "English" in lang_btn["text"]  # currently ua → offers en
+
+
+def test_keyboard_lang_button_en():
+    kb = build_department_keyboard(DEPTS, 0, "all", lang="en")
+    lang_btn = kb["inline_keyboard"][4][0]
+    assert "Українська" in lang_btn["text"]  # currently en → offers ua
 
 
 def test_keyboard_wraps_index():
