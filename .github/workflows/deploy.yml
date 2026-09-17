@@ -29,5 +29,5 @@ jobs:
           port: ${{ secrets.SSH_PORT || 22 }}
           script: |
             set -e
-            cd /opt/macroharvey
+            cd /root/alliance-news
             bash deploy/deploy.sh

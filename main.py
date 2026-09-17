@@ -5154,7 +5154,7 @@ async def fetch_and_store_news():
                     title_ru  = summaries.get("title_ru", title)
 
                     cursor.execute('''
-                        INSERT INTO articles (title, link, published, category, summary_en, summary_ua, image_url, extraction_status, title_ua, title_ru)
+                        INSERT INTO articles (title, link, published, category, summary_en, summary_ua, summary_ru, image_url, extraction_status, title_ua, title_ru)
                         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'pending', %s, %s)
                         ON CONFLICT(link) DO NOTHING
                     ''', (title, link, published, category, sum_en, sum_ua, sum_ru, image_url, title_ua, title_ru))

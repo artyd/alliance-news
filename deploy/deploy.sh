@@ -6,12 +6,12 @@
 
 set -euo pipefail
 
-APP_DIR="${APP_DIR:-/opt/macroharvey}"
-VENV_DIR="${VENV_DIR:-$APP_DIR/.venv}"
-SERVICE="${SERVICE:-macroharvey}"
+APP_DIR="${APP_DIR:-/root/alliance-news}"
+VENV_DIR="${VENV_DIR:-$APP_DIR/venv}"
+SERVICE="${SERVICE:-alliance}"
 BRANCH="${BRANCH:-main}"
 
-echo "==> Deploying MacroHarvey to $APP_DIR (branch: $BRANCH)"
+echo "==> Deploying Alliance News to $APP_DIR (branch: $BRANCH)"
 cd "$APP_DIR"
 
 echo "==> Fetching latest code"
