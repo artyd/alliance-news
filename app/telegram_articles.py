@@ -123,6 +123,75 @@ def build_synthesis_prompt(dept_name: str, lang: str = "ua") -> str:
     )
 
 
+def build_plain_article_prompt(dept_name: str, lang: str = "ua") -> str:
+    """System prompt: turn a department's facts into a PLAIN-LANGUAGE article.
+
+    Unlike `build_synthesis_prompt` (terse '→ Дія' bullets for a Telegram
+    message), this produces a friendly, easy-to-read article for a Telegra.ph
+    page — explained as if for someone with no background, but still concrete.
+
+    The model must return a JSON object:
+      {"skip": false,
+       "title":   "<short headline, <=80 chars>",
+       "teaser":  "<one plain sentence: what happened + why it matters to us>",
+       "article": "<plain text: 2-5 short paragraphs, simple words. May use\n
+                    '• ' bullet lines. Keep every concrete number/price/date\n
+                    from the facts. End with a short 'Що робимо:' takeaway.>"}
+    If nothing is material, return {"skip": true}.
+    """
+    lang_name = {"ua": "Ukrainian", "en": "English"}.get(lang, "Ukrainian")
+    takeaway = "Що робимо" if lang == "ua" else "What we do"
+    return (
+        "You are a market-intelligence analyst for a Ukrainian importer of "
+        "pharmaceutical and chemical raw materials. Turn the facts for the "
+        f"'{dept_name}' department into a SHORT, PLAIN-LANGUAGE article a busy "
+        f"non-expert can understand in one read. Write in {lang_name}.\n\n"
+        "Return ONLY a JSON object with keys: skip (bool), title, teaser, article.\n"
+        "HARD RULES:\n"
+        "- Use ONLY the facts provided. If nothing is material, return "
+        '{"skip": true}.\n'
+        "- title: a short, human headline (no clickbait), max 80 chars.\n"
+        "- teaser: ONE simple sentence — what happened and why it matters to our "
+        "sourcing/logistics/costs. This is shown next to a button.\n"
+        "- article: 2-5 SHORT paragraphs in simple words, like explaining to a "
+        "friend. Plain text only (no markdown, no '#', no HTML). You MAY use lines "
+        "starting with '• ' for a short list. Keep EVERY concrete number, %, "
+        "price, date, company and country from the facts, but explain what each "
+        "means in practice. Never invent numbers.\n"
+        f"- End the article with one line starting '{takeaway}:' giving ONE "
+        "specific, realistic step for the team.\n"
+        "- Be warm and clear, not bureaucratic. A reader with no finance "
+        "background should fully get it."
+    )
+
+
+def build_digest_message(items: list[dict], date_str: str,
+                         lang: str = "ua") -> tuple[str, list]:
+    """Assemble the ONE summary Telegram message + its inline keyboard.
+
+    items: [{"name": dept_name, "teaser": str, "url": telegraph_url}, ...] —
+    only departments that produced an article.
+    Returns (html_text, inline_keyboard) where inline_keyboard is Telegram's
+    list-of-rows of {"text","url"} buttons (one row per department).
+    """
+    title = "📊 Головне за день" if lang == "ua" else "📊 Daily briefing"
+    read_more = "Детальніше" if lang == "ua" else "Read more"
+    lines = [f"<b>{escape_html(title)}</b>", f"<i>{escape_html(date_str)}</i>", ""]
+    keyboard: list = []
+    for it in items:
+        name = escape_html(it.get("name", ""))
+        teaser = escape_html((it.get("teaser") or "").strip())
+        lines.append(f"📌 <b>{name}</b>")
+        if teaser:
+            lines.append(teaser)
+        lines.append("")
+        url = it.get("url")
+        if url:
+            keyboard.append([{"text": f"{it.get('name','')} — {read_more} →", "url": url}])
+    text = "\n".join(lines).strip()
+    return text, keyboard
+
+
 def telegram_chunks(text: str, limit: int = TELEGRAM_MSG_LIMIT) -> list[str]:
     """Split a message so each chunk is <= limit, breaking on line boundaries
     (and, if a single line is too long, on spaces / hard character cuts)."""

@@ -43,11 +43,14 @@ from app.security import (
 from app.telegram_articles import (
     build_facts_payload,
     build_synthesis_prompt,
+    build_plain_article_prompt,
+    build_digest_message,
     telegram_chunks,
     format_article_html,
     collect_sources,
     bucket_facts_by_department,
 )
+from app import telegraph as tgraph
 
 # ── Department subscription menu (live-feed topic selection) ──
 from app.subscriptions import (
@@ -5599,10 +5602,11 @@ async def generate_department_article(dept_code: str, dept_name: str,
     return format_article_html(dept_name, body, date_str, sources)
 
 
-async def generate_department_articles(mode: str = "daily_brief",
-                                       only_dept: str | None = None) -> list[dict]:
-    """Build per-department Telegram articles for the given report mode.
-    Returns [{dept, name, html}, ...] only for departments with material news."""
+def _collect_department_facts(mode: str = "daily_brief") -> tuple[str, dict]:
+    """Fetch the report window's facts and bucket them into DEPARTMENTS.
+
+    Shared by both digest formats. Returns (date_str, {dept_code: [fact, ...]}).
+    """
     kyiv = pytz.timezone("Europe/Kyiv")
     now = datetime.datetime.now(kyiv)
     yesterday = now - datetime.timedelta(days=1)
@@ -5632,7 +5636,14 @@ async def generate_department_articles(mode: str = "daily_brief",
                 seen_ids.add(fid)
                 flat.append(f)
 
-    by_dept = bucket_facts_by_department(flat, DEPARTMENTS)
+    return date_str, bucket_facts_by_department(flat, DEPARTMENTS)
+
+
+async def generate_department_articles(mode: str = "daily_brief",
+                                       only_dept: str | None = None) -> list[dict]:
+    """Build per-department Telegram articles for the given report mode.
+    Returns [{dept, name, html}, ...] only for departments with material news."""
+    date_str, by_dept = _collect_department_facts(mode)
 
     articles: list[dict] = []
     for d in DEPARTMENTS:
@@ -5692,34 +5703,209 @@ async def send_department_articles_to_users(mode: str = "daily_brief",
     return {"sent": sent, "articles": len(articles), "recipients": len(recipients)}
 
 
+# ── Plain-language digest: ONE summary message + Telegra.ph articles ──────────
+# New format (DIGEST_FORMAT=telegraph, the default): each department with news
+# becomes a plain-language Telegra.ph article; the bot sends ONE summary message
+# whose inline buttons open those articles. Old per-department bullet messages
+# remain available via DIGEST_FORMAT=legacy (or as automatic fallback).
+
+_TELEGRAPH_TOKEN_CACHE: str | None = None
+
+
+async def _get_telegraph_token(client: httpx.AsyncClient) -> str | None:
+    """Telegraph access token from env TELEGRAPH_TOKEN, else create+cache one."""
+    global _TELEGRAPH_TOKEN_CACHE
+    tok = os.getenv("TELEGRAPH_TOKEN") or _TELEGRAPH_TOKEN_CACHE
+    if tok:
+        return tok
+    tok = await tgraph.create_account(client, short_name="AllianceNews",
+                                      author_name="Alliance News")
+    if tok:
+        _TELEGRAPH_TOKEN_CACHE = tok
+        logger.warning("Created a Telegraph account; persist it in .env: "
+                       "TELEGRAPH_TOKEN=%s", tok)
+    else:
+        logger.warning("Telegraph createAccount failed; digest will fall back.")
+    return tok
+
+
+async def _resolve_sources(sources: list, client: httpx.AsyncClient) -> list:
+    """Resolve Google News RSS links to real publisher URLs for the sources list."""
+    out = []
+    for title, url in sources:
+        try:
+            url = await _resolve_google_news_url(url, client)
+        except Exception:
+            pass
+        out.append((title, url))
+    return out
+
+
+async def generate_department_digest_items(mode: str = "daily_brief",
+                                           only_dept: str | None = None,
+                                           client: httpx.AsyncClient | None = None
+                                           ) -> list[dict]:
+    """Build one plain-language Telegra.ph article per department with news.
+    Returns [{dept, name, title, teaser, url}, ...]. Empty if nothing/no token."""
+    if not aclient:
+        return []
+    date_str, by_dept = _collect_department_facts(mode)
+
+    own_client = client is None
+    client = client or httpx.AsyncClient(timeout=30)
+    items: list[dict] = []
+    try:
+        token = await _get_telegraph_token(client)
+        if not token:
+            return []
+        for d in DEPARTMENTS:
+            code, name = d["code"], d["name"]
+            if only_dept and code != only_dept:
+                continue
+            facts = by_dept.get(code) or []
+            payload = build_facts_payload(facts)
+            if not payload.strip():
+                continue
+            try:
+                resp = await aclient.chat.completions.create(
+                    model="gpt-4o-mini",
+                    max_tokens=1400,
+                    temperature=0.4,
+                    response_format={"type": "json_object"},
+                    messages=[
+                        {"role": "system", "content": build_plain_article_prompt(name)},
+                        {"role": "user", "content": payload},
+                    ],
+                )
+                parsed = json.loads(resp.choices[0].message.content or "{}")
+            except Exception as e:
+                logger.warning("digest synthesis failed for %s: %s", code, e)
+                continue
+            if not parsed or parsed.get("skip"):
+                continue
+            article = (parsed.get("article") or "").strip()
+            title = (parsed.get("title") or name).strip()[:250]
+            teaser = (parsed.get("teaser") or "").strip()
+            if not article:
+                continue
+            sources = await _resolve_sources(collect_sources(facts), client)
+            content = tgraph.build_page_content(
+                article, sources, footer=f"Alliance News · {date_str}")
+            url = await tgraph.create_page(client, token, f"{name} — {date_str}",
+                                           content, author_name="Alliance News")
+            if not url:
+                logger.warning("Telegraph createPage failed for %s", code)
+                continue
+            items.append({"dept": code, "name": name, "title": title,
+                          "teaser": teaser, "url": url})
+    finally:
+        if own_client:
+            await client.aclose()
+    return items
+
+
+async def send_daily_digest_to_users(mode: str = "daily_brief",
+                                     only_dept: str | None = None) -> dict:
+    """Send ONE plain-language summary message (with Telegra.ph buttons) to all
+    subscribers. Falls back to the legacy per-department messages if Telegra.ph
+    is unavailable."""
+    async with httpx.AsyncClient(timeout=30) as client:
+        items = await generate_department_digest_items(mode, only_dept, client)
+        if not items:
+            logger.info("digest: no Telegra.ph items for mode=%s — falling back "
+                        "to legacy per-department messages", mode)
+            return await send_department_articles_to_users(mode, only_dept)
+
+        kyiv = pytz.timezone("Europe/Kyiv")
+        subj = datetime.datetime.now(kyiv)
+        if mode != "midday":
+            subj = subj - datetime.timedelta(days=1)
+        text, keyboard = build_digest_message(items, subj.strftime("%d.%m.%Y"))
+
+        conn = get_db_connection()
+        cur = conn.cursor()
+        users = db_fetchall(cur, "SELECT chat_id FROM telegram_users") or []
+        conn.close()
+        recipients: list = [u["chat_id"] for u in users]
+        recipients += [c.strip() for c in os.getenv("TELEGRAM_CHAT_ID", "").split(",") if c.strip()]
+        seen: set[str] = set()
+        recipients = [r for r in recipients if not (str(r) in seen or seen.add(str(r)))]
+
+        sent = 0
+        for chat_id in recipients:
+            try:
+                r = await client.post(
+                    f"{TELEGRAM_API_URL}/sendMessage",
+                    json={
+                        "chat_id": chat_id,
+                        "text": text,
+                        "parse_mode": "HTML",
+                        "disable_web_page_preview": True,
+                        "reply_markup": {"inline_keyboard": keyboard},
+                    },
+                )
+                if r.status_code == 200:
+                    sent += 1
+                else:
+                    logger.warning("digest send to %s failed: %s", chat_id, r.text[:200])
+            except Exception as e:
+                logger.warning("digest send error to %s: %s", chat_id, e)
+    logger.info("digest: %d articles -> %d recipients (%d sent)",
+                len(items), len(recipients), sent)
+    return {"sent": sent, "articles": len(items), "recipients": len(recipients)}
+
+
+def _digest_use_telegraph() -> bool:
+    return os.getenv("DIGEST_FORMAT", "telegraph").strip().lower() != "legacy"
+
+
 async def send_daily_articles_dispatch():
-    """09:00 Kyiv: weekly window on Friday, else daily_brief. Sends per-department
-    Telegram articles (the PDF report is no longer scheduled, only manual)."""
+    """09:00 Kyiv: weekly window on Friday, else daily_brief. Sends the plain-
+    language digest (Telegra.ph + buttons), or legacy per-department messages."""
     now = datetime.datetime.now(pytz.timezone("Europe/Kyiv"))
     mode = "weekly" if now.weekday() == 4 else "daily_brief"
-    await send_department_articles_to_users(mode=mode)
+    if _digest_use_telegraph():
+        await send_daily_digest_to_users(mode=mode)
+    else:
+        await send_department_articles_to_users(mode=mode)
 
 
 async def send_midday_articles_dispatch():
-    """14:00 Kyiv: today-so-far department articles."""
-    await send_department_articles_to_users(mode="midday")
+    """14:00 Kyiv: today-so-far digest."""
+    if _digest_use_telegraph():
+        await send_daily_digest_to_users(mode="midday")
+    else:
+        await send_department_articles_to_users(mode="midday")
 
 
 @app.get("/generate_telegram_articles")
 async def trigger_telegram_articles(request: Request, mode: str = "daily_brief",
-                                    dept: str = "", preview: int = 0):
-    """Admin: generate per-department Telegram articles.
-    ?preview=1 returns the HTML without sending. ?dept=api limits to one department.
-    ?mode=daily_brief|midday|weekly selects the time window."""
+                                    dept: str = "", preview: int = 0,
+                                    fmt: str = ""):
+    """Admin: generate the daily digest.
+    ?preview=1 returns content without sending. ?dept=api limits to one department.
+    ?mode=daily_brief|midday|weekly selects the time window.
+    ?fmt=telegraph (default) uses the new plain-language Telegra.ph digest;
+    ?fmt=legacy uses the old per-department bullet messages."""
     _require_admin_token(request)
     if mode not in ("daily_brief", "midday", "weekly"):
         mode = "daily_brief"
     only = dept or None
+    use_telegraph = (fmt or ("telegraph" if _digest_use_telegraph() else "legacy")) != "legacy"
+
+    if use_telegraph:
+        if preview:
+            items = await generate_department_digest_items(mode, only)
+            return {"mode": mode, "format": "telegraph",
+                    "count": len(items), "items": items}
+        result = await send_daily_digest_to_users(mode, only)
+        return {"ok": True, "mode": mode, "format": "telegraph", **result}
+
     if preview:
         arts = await generate_department_articles(mode, only)
-        return {"mode": mode, "count": len(arts), "articles": arts}
+        return {"mode": mode, "format": "legacy", "count": len(arts), "articles": arts}
     result = await send_department_articles_to_users(mode, only)
-    return {"ok": True, "mode": mode, **result}
+    return {"ok": True, "mode": mode, "format": "legacy", **result}
 
 
 @app.get("/generate_report")
