@@ -5846,6 +5846,22 @@ async def send_daily_digest_to_users(mode: str = "daily_brief",
                 )
                 if r.status_code == 200:
                     sent += 1
+                    # Pin the digest summary message so it stays the "anchor"
+                    # of the day (restored after the plain-language digest
+                    # refactor dropped the old PDF-report pinning).
+                    try:
+                        msg_id = r.json().get("result", {}).get("message_id")
+                        if msg_id:
+                            await client.post(
+                                f"{TELEGRAM_API_URL}/pinChatMessage",
+                                json={
+                                    "chat_id": chat_id,
+                                    "message_id": msg_id,
+                                    "disable_notification": True,
+                                },
+                            )
+                    except Exception as e:
+                        logger.warning("digest pin to %s failed: %s", chat_id, e)
                 else:
                     logger.warning("digest send to %s failed: %s", chat_id, r.text[:200])
             except Exception as e:
