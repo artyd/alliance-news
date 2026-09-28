@@ -9,6 +9,8 @@ from app.telegraph import (
     plain_body_to_nodes,
     sources_to_nodes,
     build_page_content,
+    image_nodes,
+    build_charts_page_content,
 )
 from app.telegram_articles import build_digest_message
 
@@ -82,3 +84,37 @@ def test_digest_message_skips_button_without_url():
     items = [{"name": "X", "teaser": "t", "url": None}]
     text, keyboard = build_digest_message(items, "01.01.2026")
     assert keyboard == []
+
+
+def test_image_nodes_figure_with_caption():
+    nodes = image_nodes("https://telegra.ph/file/x.png", "Brent: 80 $/barrel")
+    assert len(nodes) == 1 and nodes[0]["tag"] == "figure"
+    children = nodes[0]["children"]
+    assert children[0]["tag"] == "img"
+    assert children[0]["attrs"]["src"] == "https://telegra.ph/file/x.png"
+    assert children[1]["tag"] == "figcaption"
+    assert children[1]["children"][0] == "Brent: 80 $/barrel"
+
+
+def test_image_nodes_without_caption_and_empty_src():
+    nodes = image_nodes("https://telegra.ph/file/x.png")
+    assert len(nodes[0]["children"]) == 1  # img only, no figcaption
+    assert image_nodes("") == []
+
+
+def test_build_charts_page_content():
+    charts = [
+        {"src": "https://telegra.ph/file/a.png", "caption": "A"},
+        {"src": "https://telegra.ph/file/b.png", "caption": "B"},
+        {"src": "", "caption": "skipped"},  # no src → dropped
+    ]
+    content = build_charts_page_content(charts, intro="Intro.",
+                                        footer="Alliance News · 01.01.2026")
+    tags = [n["tag"] for n in content]
+    assert tags[0] == "p"                       # intro
+    assert tags.count("figure") == 2            # empty-src entry dropped
+    assert tags[-1] == "p"                      # footer
+
+
+def test_build_charts_page_content_never_empty():
+    assert build_charts_page_content([]) == [{"tag": "p", "children": ["—"]}]

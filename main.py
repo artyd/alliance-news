@@ -2893,6 +2893,20 @@ CHART_TICKERS.update({
     },
 })
 
+# Curated agri + energy + FX subset of CHART_TICKERS shown as price-dynamics
+# charts inside the 09:00 / 14:00 digest. Kept ≤10 so it fits one Telegram album.
+DIGEST_CHART_KEYS = [
+    "НАФТА", "ГАЗ", "КУКУРУДЗА", "ПШЕНИЦЯ",
+    "СОЄВІ_БОБИ", "СОЄВА_ОЛІЯ", "ПАЛЬМОВА", "ЄВРО",
+]
+
+# Digest chart PNGs are self-hosted here and served publicly at /charts/<name>
+# so Telegra.ph can embed them (its own /upload endpoint is defunct). Files
+# persist because Telegra.ph hotlinks them; old ones are pruned on each run.
+_CHART_CACHE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                "chart_cache")
+_CHART_RETENTION_DAYS = 45
+
 
 def _make_candle_chart(tickers: tuple[str, ...], label: str, unit: str,
                        date_from: datetime.date, date_to: datetime.date,
@@ -5804,6 +5818,161 @@ async def generate_department_digest_items(mode: str = "daily_brief",
     return items
 
 
+def _fmt_chart_caption(label: str, pi: dict) -> str:
+    """One-line caption for a chart: label, close price, day change."""
+    up = pi["change_pct"] >= 0
+    sign = "+" if up else ""
+    arrow = "🟢" if up else "🔴"
+    return (f"{label}: {pi['close']} {pi['unit']} "
+            f"{arrow} {sign}{pi['change_pct']}% · {pi['date']}")
+
+
+def _public_base_url() -> str:
+    """Origin (scheme://host) at which our /charts/<name> images are reachable.
+
+    Prefers PUBLIC_BASE_URL, else derives it from WEBAPP_URL (dropping any path),
+    else falls back to the server's sslip.io hostname."""
+    base = os.getenv("PUBLIC_BASE_URL", "").strip().rstrip("/")
+    if base:
+        return base
+    wa = os.getenv("WEBAPP_URL", "").strip()
+    if wa:
+        from urllib.parse import urlparse
+        u = urlparse(wa)
+        if u.scheme and u.netloc:
+            return f"{u.scheme}://{u.netloc}"
+    return "https://178-104-96-245.sslip.io"
+
+
+def _prune_old_charts(max_age_days: int = _CHART_RETENTION_DAYS) -> None:
+    """Delete cached chart PNGs older than max_age_days to bound disk usage."""
+    try:
+        cutoff = time.time() - max_age_days * 86400
+        for fn in os.listdir(_CHART_CACHE_DIR):
+            fp = os.path.join(_CHART_CACHE_DIR, fn)
+            try:
+                if os.path.isfile(fp) and os.path.getmtime(fp) < cutoff:
+                    os.remove(fp)
+            except OSError:
+                pass
+    except FileNotFoundError:
+        pass
+
+
+async def build_digest_charts(mode: str, client: httpx.AsyncClient,
+                              token: str | None) -> dict | None:
+    """Render the curated price-dynamics charts and publish a Telegra.ph page.
+
+    Charts are saved into the self-hosted cache dir (served at /charts/<name>)
+    and embedded into a Telegra.ph page by public URL, since Telegra.ph's own
+    image-upload endpoint is defunct. Returns {"url": <page url or None>,
+    "photos": [{png_path, caption, label}, ...], "date_str": <str>} or None when
+    charts are unavailable / nothing rendered. The PNGs persist (Telegra.ph
+    hotlinks them); the caller does NOT delete them."""
+    if not CHARTS_AVAILABLE:
+        return None
+    kyiv = pytz.timezone("Europe/Kyiv")
+    now = datetime.datetime.now(kyiv)
+    report_date = now.date() if mode == "midday" else (now - datetime.timedelta(days=1)).date()
+    date_str = report_date.strftime("%d.%m.%Y")
+
+    os.makedirs(_CHART_CACHE_DIR, exist_ok=True)
+    _prune_old_charts()
+    base = _public_base_url()
+
+    figures: list = []   # {src, caption} for the Telegra.ph page
+    photos: list = []    # {png_path, caption, label} for the Telegram album
+    for key in DIGEST_CHART_KEYS:
+        cfg = CHART_TICKERS.get(key)
+        if not cfg:
+            continue
+        # ASCII-safe filename (Cyrillic keys → transliterated index) + date/mode.
+        idx = DIGEST_CHART_KEYS.index(key)
+        fname = f"{idx:02d}_{mode}_{report_date.isoformat()}.png"
+        out = os.path.join(_CHART_CACHE_DIR, fname)
+        try:
+            ok, price_info = _make_candle_chart(
+                cfg["tickers"], cfg["label"], cfg["unit"],
+                report_date, report_date, out)
+        except Exception as e:
+            logger.warning("digest chart render failed for %s: %s", key, e)
+            continue
+        if not ok or not price_info:
+            continue
+        caption = _fmt_chart_caption(cfg["label"], price_info)
+        photos.append({"png_path": out, "caption": caption, "label": cfg["label"]})
+        figures.append({"src": f"{base}/charts/{fname}", "caption": caption})
+
+    if not photos:
+        return None
+
+    url = None
+    if token and figures:
+        content = tgraph.build_charts_page_content(
+            figures,
+            intro="Динаміка цін ключових ринків за останні ~45 днів. "
+                  "Помаранчева крапка — ціна закриття звітного дня.",
+            footer=f"Alliance News · {date_str}")
+        url = await tgraph.create_page(
+            client, token, f"📊 Динаміка цін ринку — {date_str}",
+            content, author_name="Alliance News")
+        if not url:
+            logger.warning("Telegraph createPage failed for charts article")
+    return {"url": url, "photos": photos, "date_str": date_str}
+
+
+async def _send_chart_album(client: httpx.AsyncClient, chat_id, photos: list,
+                            cache: dict) -> bool:
+    """Send `photos` to `chat_id` as Telegram album(s) of ≤10.
+
+    `cache` maps label→file_id so each image uploads only once and is reused as a
+    file_id for every later recipient. Mutates `cache`. Returns True if anything
+    was sent."""
+    sent_any = False
+    for i in range(0, len(photos), 10):
+        group = photos[i:i + 10]
+        r = None
+        try:
+            if all(p["label"] in cache for p in group):
+                media = [{"type": "photo", "media": cache[p["label"]],
+                          "caption": p["caption"]} for p in group]
+                r = await client.post(f"{TELEGRAM_API_URL}/sendMediaGroup",
+                                      json={"chat_id": chat_id, "media": media})
+            else:
+                files = {}
+                media = []
+                handles = []
+                try:
+                    for idx, p in enumerate(group):
+                        name = f"photo{idx}"
+                        fh = open(p["png_path"], "rb")
+                        handles.append(fh)
+                        files[name] = (f"{p['label']}.png", fh, "image/png")
+                        media.append({"type": "photo", "media": f"attach://{name}",
+                                      "caption": p["caption"]})
+                    r = await client.post(
+                        f"{TELEGRAM_API_URL}/sendMediaGroup",
+                        data={"chat_id": chat_id,
+                              "media": json.dumps(media, ensure_ascii=False)},
+                        files=files)
+                finally:
+                    for fh in handles:
+                        fh.close()
+                # Cache returned file_ids (largest PhotoSize) for later recipients.
+                if r is not None and r.status_code == 200:
+                    for p, msg in zip(group, r.json().get("result", [])):
+                        sizes = msg.get("photo") or []
+                        if sizes:
+                            cache[p["label"]] = sizes[-1]["file_id"]
+            if r is not None and r.status_code == 200:
+                sent_any = True
+            elif r is not None:
+                logger.warning("chart album to %s failed: %s", chat_id, r.text[:200])
+        except Exception as e:
+            logger.warning("chart album error to %s: %s", chat_id, e)
+    return sent_any
+
+
 async def send_daily_digest_to_users(mode: str = "daily_brief",
                                      only_dept: str | None = None) -> dict:
     """Send ONE plain-language summary message (with Telegra.ph buttons) to all
@@ -5822,6 +5991,17 @@ async def send_daily_digest_to_users(mode: str = "daily_brief",
             subj = subj - datetime.timedelta(days=1)
         text, keyboard = build_digest_message(items, subj.strftime("%d.%m.%Y"))
 
+        # Price-dynamics charts: one Telegra.ph article (linked from a button)
+        # plus the same charts sent as a Telegram photo album to each recipient.
+        charts = None
+        try:
+            token = await _get_telegraph_token(client)
+            charts = await build_digest_charts(mode, client, token)
+        except Exception as e:
+            logger.warning("digest charts build failed: %s", e)
+        if charts and charts.get("url"):
+            keyboard.append([{"text": "📊 Графіки ринку →", "url": charts["url"]}])
+
         conn = get_db_connection()
         cur = conn.cursor()
         users = db_fetchall(cur, "SELECT chat_id FROM telegram_users") or []
@@ -5832,6 +6012,7 @@ async def send_daily_digest_to_users(mode: str = "daily_brief",
         recipients = [r for r in recipients if not (str(r) in seen or seen.add(str(r)))]
 
         sent = 0
+        chart_cache: dict = {}  # label → file_id, so each chart uploads once
         for chat_id in recipients:
             try:
                 r = await client.post(
@@ -5862,6 +6043,10 @@ async def send_daily_digest_to_users(mode: str = "daily_brief",
                             )
                     except Exception as e:
                         logger.warning("digest pin to %s failed: %s", chat_id, e)
+                    # Send the chart album right after the summary message.
+                    if charts and charts.get("photos"):
+                        await _send_chart_album(client, chat_id,
+                                                charts["photos"], chart_cache)
                 else:
                     logger.warning("digest send to %s failed: %s", chat_id, r.text[:200])
             except Exception as e:
@@ -5982,6 +6167,19 @@ async def serve_logo():
     if os.path.exists(path):
         return FileResponse(path, media_type="image/png")
     raise HTTPException(status_code=404, detail="Logo not found")
+
+
+@app.get("/charts/{name}")
+async def serve_chart(name: str):
+    """Serve a self-hosted digest chart PNG (embedded into Telegra.ph articles)."""
+    safe = os.path.basename(name)
+    if safe != name or not safe.endswith(".png"):
+        raise HTTPException(status_code=404, detail="Not found")
+    path = os.path.join(_CHART_CACHE_DIR, safe)
+    if os.path.exists(path):
+        return FileResponse(path, media_type="image/png",
+                            headers={"Cache-Control": "public, max-age=86400"})
+    raise HTTPException(status_code=404, detail="Chart not found")
 
 
 # ── Mini App HTML is stored in webapp.html (loaded once at import). ──

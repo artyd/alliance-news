@@ -99,6 +99,39 @@ def sources_to_nodes(sources: list, heading: str = "Джерела") -> list:
     return [{"tag": "h4", "children": [heading]}, {"tag": "ul", "children": items}]
 
 
+def image_nodes(src: str, caption: str | None = None) -> list:
+    """A <figure> holding an <img> and an optional <figcaption> caption.
+
+    `src` must be an absolute URL (Telegraph does not host local files) — use
+    `upload_image` to get one. Returns [] when src is empty.
+    """
+    if not src:
+        return []
+    children: list = [{"tag": "img", "attrs": {"src": src}}]
+    if caption:
+        children.append({"tag": "figcaption", "children": [caption]})
+    return [{"tag": "figure", "children": children}]
+
+
+def build_charts_page_content(charts: list, intro: str | None = None,
+                              footer: str | None = None) -> list:
+    """Assemble a Telegraph page of price-dynamics charts.
+
+    charts: list of {"src": <uploaded img url>, "caption": <str>} — already
+    uploaded via `upload_image`. Entries without a src are skipped.
+    """
+    content: list = []
+    if intro:
+        content.append(_p(intro))
+    for ch in charts or []:
+        content.extend(image_nodes(ch.get("src"), ch.get("caption")))
+    if footer:
+        content.append({"tag": "p", "children": [{"tag": "i", "children": [footer]}]})
+    if not content:
+        content = [_p("—")]
+    return content
+
+
 def build_page_content(body: str, sources: list | None = None,
                        footer: str | None = None) -> list:
     """Assemble the full Telegraph page: body paragraphs, sources, optional footer."""
