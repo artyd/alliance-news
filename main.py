@@ -1230,6 +1230,27 @@ async def poll_telegram_updates():
                                             "text": "❌ Не вдалося згенерувати полуденне оновлення. Перевірте логи сервера."
                                         })
 
+                                elif text.startswith("/digest"):
+                                    # Manual test of the NEW plain-language digest
+                                    # WITH price-dynamics charts — sent to the
+                                    # requester only (does not fan out to all users).
+                                    parts = text.split()
+                                    arg = parts[1].lower() if len(parts) > 1 else "daily_brief"
+                                    dmode = arg if arg in ("daily_brief", "midday", "weekly") else "daily_brief"
+                                    await client.post(f"{TELEGRAM_API_URL}/sendMessage", json={
+                                        "chat_id": chat_id,
+                                        "text": f"⏳ Генерую дайджест ({dmode}) з графіками, зачекайте...",
+                                    })
+                                    try:
+                                        await send_daily_digest_to_users(mode=dmode,
+                                                                         only_chat=str(chat_id))
+                                    except Exception as e:
+                                        logger.warning("/digest failed for %s: %s", chat_id, e)
+                                        await client.post(f"{TELEGRAM_API_URL}/sendMessage", json={
+                                            "chat_id": chat_id,
+                                            "text": "❌ Не вдалося згенерувати дайджест. Перевірте логи сервера.",
+                                        })
+
                                 elif text.startswith("/app"):
                                     if WEBAPP_URL:
                                         await client.post(f"{TELEGRAM_API_URL}/sendMessage", json={
@@ -5974,13 +5995,21 @@ async def _send_chart_album(client: httpx.AsyncClient, chat_id, photos: list,
 
 
 async def send_daily_digest_to_users(mode: str = "daily_brief",
-                                     only_dept: str | None = None) -> dict:
+                                     only_dept: str | None = None,
+                                     only_chat: str | None = None) -> dict:
     """Send ONE plain-language summary message (with Telegra.ph buttons) to all
     subscribers. Falls back to the legacy per-department messages if Telegra.ph
-    is unavailable."""
+    is unavailable. If only_chat is set, sends to just that chat (manual test)
+    and does NOT fan out on fallback."""
     async with httpx.AsyncClient(timeout=30) as client:
         items = await generate_department_digest_items(mode, only_dept, client)
         if not items:
+            if only_chat:
+                await client.post(f"{TELEGRAM_API_URL}/sendMessage", json={
+                    "chat_id": only_chat,
+                    "text": "ℹ️ Для цього періоду немає матеріалу для дайджесту.",
+                })
+                return {"sent": 0, "articles": 0, "recipients": 1}
             logger.info("digest: no Telegra.ph items for mode=%s — falling back "
                         "to legacy per-department messages", mode)
             return await send_department_articles_to_users(mode, only_dept)
@@ -6002,14 +6031,17 @@ async def send_daily_digest_to_users(mode: str = "daily_brief",
         if charts and charts.get("url"):
             keyboard.append([{"text": "📊 Графіки ринку →", "url": charts["url"]}])
 
-        conn = get_db_connection()
-        cur = conn.cursor()
-        users = db_fetchall(cur, "SELECT chat_id FROM telegram_users") or []
-        conn.close()
-        recipients: list = [u["chat_id"] for u in users]
-        recipients += [c.strip() for c in os.getenv("TELEGRAM_CHAT_ID", "").split(",") if c.strip()]
-        seen: set[str] = set()
-        recipients = [r for r in recipients if not (str(r) in seen or seen.add(str(r)))]
+        if only_chat:
+            recipients: list = [only_chat]
+        else:
+            conn = get_db_connection()
+            cur = conn.cursor()
+            users = db_fetchall(cur, "SELECT chat_id FROM telegram_users") or []
+            conn.close()
+            recipients = [u["chat_id"] for u in users]
+            recipients += [c.strip() for c in os.getenv("TELEGRAM_CHAT_ID", "").split(",") if c.strip()]
+            seen: set[str] = set()
+            recipients = [r for r in recipients if not (str(r) in seen or seen.add(str(r)))]
 
         sent = 0
         chart_cache: dict = {}  # label → file_id, so each chart uploads once
