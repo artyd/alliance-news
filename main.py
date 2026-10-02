@@ -6193,6 +6193,48 @@ async def send_midday_articles_dispatch():
         await send_department_articles_to_users(mode="midday")
 
 
+@app.get("/admin/restart_users")
+async def admin_restart_users(request: Request, chat_id: str = ""):
+    """Admin: "restart" the bot for every user (or just ?chat_id=): language → ua,
+    create the chat topics ("📋 Звіти" first, then departments) and post a
+    welcome + subscription menu into "📋 Звіти". Subscriptions are kept."""
+    _require_admin_token(request)
+    conn = get_db_connection()
+    cur = conn.cursor()
+    if chat_id:
+        cur.execute("UPDATE telegram_users SET language = 'ua' WHERE chat_id = %s", (int(chat_id),))
+    else:
+        cur.execute("UPDATE telegram_users SET language = 'ua'")
+    conn.commit()
+    users = db_fetchall(cur, "SELECT chat_id, subscriptions FROM telegram_users"
+                        + (" WHERE chat_id = %s" if chat_id else ""),
+                        (int(chat_id),) if chat_id else ()) or []
+    conn.close()
+
+    results = []
+    async with httpx.AsyncClient(timeout=30) as client:
+        for u in users:
+            cid = u["chat_id"]
+            try:
+                threads = await ensure_chat_topics(client, cid)
+                r = await send_to_topic(client, cid, REPORTS_KEY, {
+                    "text": "🔄 Бот оновлено! Тепер усе розкладено по гілках: "
+                            "«📋 Звіти» — щоденні звіти, далі — гілка для кожного "
+                            "відділу з його новинами.\n\n" + _menu_text("ua"),
+                    "reply_markup": build_department_keyboard(
+                        DEPARTMENT_TOPICS, 0, u["subscriptions"] or "all", "ua"),
+                })
+                results.append({"chat_id": cid, "topics": len(threads),
+                                "welcome": r.status_code == 200,
+                                "error": None if r.status_code == 200 else r.text[:120]})
+            except Exception as e:
+                results.append({"chat_id": cid, "topics": 0, "welcome": False, "error": str(e)[:120]})
+            await asyncio.sleep(0.3)   # stay well under Telegram rate limits
+    ok = sum(1 for x in results if x["welcome"])
+    logger.info("admin restart_users: %d/%d ok", ok, len(results))
+    return {"users": len(results), "ok": ok, "results": results}
+
+
 @app.get("/generate_telegram_articles")
 async def trigger_telegram_articles(request: Request, mode: str = "daily_brief",
                                     dept: str = "", preview: int = 0,
