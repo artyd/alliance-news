@@ -938,8 +938,8 @@ async def poll_telegram_updates():
                                     )
                                     conn.close()
 
-                                    # Create the chat's topics now ("📋 Звіти" first,
-                                    # then departments) so their order is fixed.
+                                    # Create the chat's topics now (see topic_plan for
+                                    # the order) so the tabs are laid out predictably.
                                     try:
                                         await ensure_chat_topics(client, chat_id)
                                     except Exception as e:
@@ -3322,7 +3322,7 @@ async def _bot_topics_enabled(client: httpx.AsyncClient) -> bool:
 
 
 async def ensure_chat_topics(client: httpx.AsyncClient, chat_id) -> dict[str, int]:
-    """Create any missing topics for a private chat (reports first) and return
+    """Create any missing topics for a private chat (topic_plan order) and return
     {topic_key: thread_id}. Returns {} for groups or when threaded mode is off."""
     key = str(chat_id)
     try:
@@ -3384,6 +3384,20 @@ def _forget_chat_topic(chat_id, topic_key: str):
                 (int(chat_id), topic_key))
     conn.commit()
     conn.close()
+
+
+async def delete_chat_topics(client: httpx.AsyncClient, chat_id):
+    """Delete all of a chat's stored topics (with their messages) in Telegram
+    and forget them, so ensure_chat_topics recreates them in plan order."""
+    threads = await ensure_chat_topics(client, chat_id)
+    for topic_key, tid in threads.items():
+        try:
+            await client.post(f"{TELEGRAM_API_URL}/deleteForumTopic",
+                              json={"chat_id": chat_id, "message_thread_id": tid})
+        except Exception as e:
+            logger.warning("topics: delete %s for %s error: %s", topic_key, chat_id, e)
+        _forget_chat_topic(chat_id, topic_key)
+    _TOPICS_RETRY_AT.pop(str(chat_id), None)
 
 
 async def send_to_topic(client: httpx.AsyncClient, chat_id, topic_key: str | None,
@@ -6194,10 +6208,11 @@ async def send_midday_articles_dispatch():
 
 
 @app.get("/admin/restart_users")
-async def admin_restart_users(request: Request, chat_id: str = ""):
+async def admin_restart_users(request: Request, chat_id: str = "", recreate: int = 0):
     """Admin: "restart" the bot for every user (or just ?chat_id=): language → ua,
-    create the chat topics ("📋 Звіти" first, then departments) and post a
-    welcome + subscription menu into "📋 Звіти". Subscriptions are kept."""
+    create the chat topics (Звіти, Закупівля, Логістика, ...) and post a
+    welcome + subscription menu into "📋 Звіти". Subscriptions are kept.
+    ?recreate=1 first deletes the user's existing topics (to fix their order)."""
     _require_admin_token(request)
     conn = get_db_connection()
     cur = conn.cursor()
@@ -6216,6 +6231,8 @@ async def admin_restart_users(request: Request, chat_id: str = ""):
         for u in users:
             cid = u["chat_id"]
             try:
+                if recreate:
+                    await delete_chat_topics(client, cid)
                 threads = await ensure_chat_topics(client, cid)
                 r = await send_to_topic(client, cid, REPORTS_KEY, {
                     "text": "🔄 Бот оновлено! Тепер усе розкладено по гілках: "
