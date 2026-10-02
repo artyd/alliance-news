@@ -54,6 +54,7 @@ CREATE TABLE IF NOT EXISTS forum_topics (
     chat_id   BIGINT NOT NULL,
     topic_key TEXT NOT NULL,
     thread_id BIGINT NOT NULL,
+    name      TEXT,
     PRIMARY KEY (chat_id, topic_key)
 );
 

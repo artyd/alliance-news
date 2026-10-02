@@ -209,6 +209,7 @@ def init_db():
             PRIMARY KEY (chat_id, topic_key)
         )
     ''')
+    cursor.execute("ALTER TABLE forum_topics ADD COLUMN IF NOT EXISTS name TEXT")
 
     # ── Stage 2: structured facts extracted from articles ──────────
     # Each row is one atomic fact pulled from one article by gpt-4o-mini.
@@ -3231,7 +3232,7 @@ DEPARTMENTS = [
 # Every code here MUST be a pushable category (present in RSS_FEEDS or a virtual
 # category like market_alerts, and NOT in INTERNAL_CATEGORIES).
 DEPARTMENT_TOPICS = [
-    {"code": "procurement", "name": {"ua": "Закупівля", "en": "Procurement"},
+    {"code": "procurement", "emoji": "🛒", "name": {"ua": "Закупівля", "en": "Procurement"},
      "topics": [
          ("api",        {"ua": "Фарм. субстанції (API)", "en": "Pharma API"}),
          ("cosmetic",   {"ua": "Косметичні субстанції",  "en": "Cosmetics"}),
@@ -3242,7 +3243,7 @@ DEPARTMENT_TOPICS = [
          ("capsules",   {"ua": "Капсули",                "en": "Capsules"}),
          ("pvc",        {"ua": "ПВХ / пакування",        "en": "PVC / Packaging"}),
      ]},
-    {"code": "logistics", "name": {"ua": "Логістика", "en": "Logistics"},
+    {"code": "logistics", "emoji": "🚢", "name": {"ua": "Логістика", "en": "Logistics"},
      "topics": [
          ("logistics",     {"ua": "Логістика та фрахт",       "en": "Logistics & freight"}),
          ("maritime",      {"ua": "Морські новини",            "en": "Maritime news"}),
@@ -3250,19 +3251,19 @@ DEPARTMENT_TOPICS = [
          ("ports_customs", {"ua": "Порти, обстріли, митниця",  "en": "Ports, shelling, customs"}),
          ("carriers",      {"ua": "Контейнерні лінії",          "en": "Container carriers"}),
      ]},
-    {"code": "world", "name": {"ua": "Світ", "en": "World"},
+    {"code": "world", "emoji": "🌍", "name": {"ua": "Світ", "en": "World"},
      "topics": [
          ("global_sources", {"ua": "Глобальна економіка", "en": "Global economy"}),
          ("market_alerts",  {"ua": "Ринкові алерти ⚡",     "en": "Market alerts ⚡"}),
          ("good_news",      {"ua": "Позитивні новини 🌞",   "en": "Good news 🌞"}),
      ]},
-    {"code": "wars", "name": {"ua": "Війни", "en": "Wars"},
+    {"code": "wars", "emoji": "⚔️", "name": {"ua": "Війни", "en": "Wars"},
      "topics": [
          ("geopolitics", {"ua": "Геополітика / конфлікти", "en": "Geopolitics"}),
          ("middle_east", {"ua": "Близький Схід",           "en": "Middle East"}),
          ("us_iran",     {"ua": "Переговори США–Іран",     "en": "US–Iran talks"}),
      ]},
-    {"code": "laws", "name": {"ua": "Закони", "en": "Laws"},
+    {"code": "laws", "emoji": "⚖️", "name": {"ua": "Закони", "en": "Laws"},
      "topics": [
          ("regulation", {"ua": "Регуляції / санкції / тарифи", "en": "Regulation / sanctions"}),
          ("apteka",     {"ua": "Аптека.ua",           "en": "Apteka.ua"}),
@@ -3364,15 +3365,48 @@ async def ensure_chat_topics(client: httpx.AsyncClient, chat_id) -> dict[str, in
                                    r.text[:200] if r is not None else "")
                     _TOPICS_RETRY_AT[key] = time.time() + 600
                     break      # keep order: don't create later topics before this one
-                cur.execute("INSERT INTO forum_topics (chat_id, topic_key, thread_id) "
-                            "VALUES (%s, %s, %s) ON CONFLICT (chat_id, topic_key) "
-                            "DO UPDATE SET thread_id = EXCLUDED.thread_id",
-                            (int(chat_id), t["key"], tid))
+                cur.execute("INSERT INTO forum_topics (chat_id, topic_key, thread_id, name) "
+                            "VALUES (%s, %s, %s, %s) ON CONFLICT (chat_id, topic_key) "
+                            "DO UPDATE SET thread_id = EXCLUDED.thread_id, name = EXCLUDED.name",
+                            (int(chat_id), t["key"], tid, t["name"]))
                 conn.commit()
                 known[t["key"]] = tid
         finally:
             conn.close()
         return dict(known)
+
+
+async def sync_topic_names(client: httpx.AsyncClient) -> int:
+    """Rename existing topics whose stored name differs from topic_plan (e.g.
+    after adding emojis to DEPARTMENT_TOPICS). Returns how many were renamed."""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    rows = db_fetchall(cur, "SELECT f.chat_id, f.topic_key, f.thread_id, f.name, u.language "
+                            "FROM forum_topics f LEFT JOIN telegram_users u "
+                            "ON u.chat_id = f.chat_id") or []
+    renamed = 0
+    try:
+        for row in rows:
+            want = {t["key"]: t["name"] for t in
+                    topic_plan(DEPARTMENT_TOPICS, row["language"] or "ua")}.get(row["topic_key"])
+            if not want or want == row["name"]:
+                continue
+            r = await client.post(f"{TELEGRAM_API_URL}/editForumTopic", json={
+                "chat_id": row["chat_id"], "message_thread_id": row["thread_id"], "name": want})
+            if r.status_code == 200 or "TOPIC_NOT_MODIFIED" in r.text:
+                cur.execute("UPDATE forum_topics SET name = %s WHERE chat_id = %s AND topic_key = %s",
+                            (want, row["chat_id"], row["topic_key"]))
+                conn.commit()
+                renamed += 1
+            else:
+                logger.warning("topics: rename %s for %s failed: %s",
+                               row["topic_key"], row["chat_id"], r.text[:120])
+            await asyncio.sleep(0.1)
+    finally:
+        conn.close()
+    if renamed:
+        logger.info("topics: renamed %d topics to current names", renamed)
+    return renamed
 
 
 def _forget_chat_topic(chat_id, topic_key: str):
@@ -5527,6 +5561,14 @@ async def lifespan(app: FastAPI):
             if not await _bot_topics_enabled(_hc):
                 logger.warning("lifespan: bot threaded mode is OFF — messages go "
                                "without topics (enable it in @BotFather)")
+
+        async def _sync_names():
+            try:
+                async with httpx.AsyncClient(timeout=15) as hc:
+                    await sync_topic_names(hc)
+            except Exception as e:
+                logger.warning("topics: name sync failed: %s", e)
+        asyncio.create_task(_sync_names())
 
     task_news    = asyncio.create_task(fetch_and_store_news())
     task_tg      = asyncio.create_task(poll_telegram_updates())

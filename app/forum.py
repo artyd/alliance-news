@@ -25,7 +25,8 @@ def topic_plan(department_topics: list[dict], lang: str = "ua") -> list[dict]:
     "📋 Звіти" last → shown as Звіти, Закупівля, Логістика, ... (menu order)."""
     lang = lang if lang in _REPORTS_NAME else "ua"
     depts = [{"key": d["code"],
-              "name": d["name"].get(lang) or d["code"],
+              "name": " ".join(filter(None, [d.get("emoji"),
+                                             d["name"].get(lang) or d["code"]])),
               "icon_color": _ICON_COLORS[i % len(_ICON_COLORS)]}
              for i, d in enumerate(department_topics, start=1)]
     return depts[::-1] + [{"key": REPORTS_KEY, "name": _REPORTS_NAME[lang],

@@ -2,7 +2,7 @@ from app.forum import (REPORTS_KEY, category_to_department, missing_topics,
                        topic_plan)
 
 DT = [
-    {"code": "procurement", "name": {"ua": "Закупівля", "en": "Procurement"},
+    {"code": "procurement", "emoji": "🛒", "name": {"ua": "Закупівля", "en": "Procurement"},
      "topics": [("api", {}), ("pvc", {})]},
     {"code": "logistics", "name": {"ua": "Логістика", "en": "Logistics"},
      "topics": [("maritime", {})]},
@@ -13,12 +13,12 @@ def test_plan_creates_bottom_tab_first_and_reports_last():
     # Telegram shows newest topics first → displayed: Звіти, Закупівля, Логістика.
     plan = topic_plan(DT)
     assert [p["key"] for p in plan] == ["logistics", "procurement", REPORTS_KEY]
-    assert [p["name"] for p in plan] == ["Логістика", "Закупівля", "📋 Звіти"]
+    assert [p["name"] for p in plan] == ["Логістика", "🛒 Закупівля", "📋 Звіти"]
     assert all(isinstance(p["icon_color"], int) for p in plan)
 
 
 def test_plan_uses_user_language_with_ua_fallback():
-    assert [p["name"] for p in topic_plan(DT, "en")] == ["Logistics", "Procurement", "📋 Reports"]
+    assert [p["name"] for p in topic_plan(DT, "en")] == ["Logistics", "🛒 Procurement", "📋 Reports"]
     assert topic_plan(DT, "ru")[-1]["name"] == "📋 Звіти"
 
 
