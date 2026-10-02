@@ -94,17 +94,17 @@ No other code changes required.
 
 ## Telegram articles (PDF → messages)
 
-Preview without sending (admin token required):
+Preview without sending (send the admin token as header `X-Admin-Token: $ADMIN_TOKEN`):
 
 ```
-GET /generate_telegram_articles?preview=1&mode=daily_brief&token=YOUR_ADMIN_TOKEN
-GET /generate_telegram_articles?preview=1&dept=excipients&token=...   # one department
+GET /generate_telegram_articles?preview=1&mode=daily_brief
+GET /generate_telegram_articles?preview=1&dept=excipients   # one department
 ```
 
 Send to all subscribers:
 
 ```
-GET /generate_telegram_articles?mode=daily_brief&token=YOUR_ADMIN_TOKEN
+GET /generate_telegram_articles?mode=daily_brief
 ```
 
 `mode` = `daily_brief` (yesterday) | `midday` (today so far) | `weekly` (7 days).

@@ -5641,7 +5641,9 @@ def verified_uid(request: Request, fallback: int | None = None) -> int:
 
 
 def _require_admin_token(request: Request) -> None:
-    """Guard expensive/manual endpoints. Requires ?token= matching ADMIN_TOKEN.
+    """Guard expensive/manual endpoints. Requires an X-Admin-Token header
+    matching ADMIN_TOKEN. Deliberately NOT a ?token= query param: URLs end up in
+    the uvicorn access log, which leaked the token.
 
     If ADMIN_TOKEN is unset the guard is open (kept for local dev) but a warning
     is logged so it is not forgotten in production.
@@ -5650,7 +5652,7 @@ def _require_admin_token(request: Request) -> None:
     if not admin_token:
         logger.warning("ADMIN_TOKEN not set — %s is publicly triggerable", request.url.path)
         return
-    supplied = request.query_params.get("token", "")
+    supplied = request.headers.get("x-admin-token", "")
     if not hmac_compare(supplied, admin_token):
         raise HTTPException(status_code=403, detail="Forbidden")
 
