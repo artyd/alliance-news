@@ -49,7 +49,7 @@ CREATE TABLE IF NOT EXISTS telegram_sent (
 );
 CREATE INDEX IF NOT EXISTS idx_sent_link ON telegram_sent(article_link);
 
--- Forum supergroup topics: department code -> message_thread_id
+-- Topics in each user's private chat with the bot: (chat, topic) -> message_thread_id
 CREATE TABLE IF NOT EXISTS forum_topics (
     chat_id   BIGINT NOT NULL,
     topic_key TEXT NOT NULL,

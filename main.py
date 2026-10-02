@@ -66,10 +66,9 @@ from app.scrapers import scrape_dls, scrape_kmu
 # ── Keyword pre-filter for broad feeds ──
 from app.keyword_filter import passes_keyword_filter
 
-# ── Forum supergroup routing (reports topic + one topic per department) ──
+# ── Topics in the bot's private chats (reports topic + one per department) ──
 from app.forum import (
-    REPORTS_KEY, REPORTS_TOPIC_NAME,
-    department_topic_plan, category_to_department, missing_topics,
+    REPORTS_KEY, topic_plan, category_to_department, missing_topics,
 )
 
 # ── Chart dependencies (optional — graceful fallback if missing) ──
@@ -199,8 +198,9 @@ def init_db():
         )
     ''')
 
-    # Forum supergroup topics ("гілки"): department code → message_thread_id.
-    # Telegram has no "list topics" method for bots, so ids are stored here.
+    # Topics ("гілки") in each user's private chat with the bot:
+    # (chat_id, topic_key) → message_thread_id. Telegram has no "list topics"
+    # method for bots, so ids are stored here.
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS forum_topics (
             chat_id BIGINT NOT NULL,
@@ -938,6 +938,13 @@ async def poll_telegram_updates():
                                     )
                                     conn.close()
 
+                                    # Create the chat's topics now ("📋 Звіти" first,
+                                    # then departments) so their order is fixed.
+                                    try:
+                                        await ensure_chat_topics(client, chat_id)
+                                    except Exception as e:
+                                        logger.warning("topics setup for %s failed: %s", chat_id, e)
+
                                     current_subs = user_row["subscriptions"] if user_row and user_row["subscriptions"] else "all"
                                     only_daily_mode = user_row["only_daily_mode"] if user_row else False
 
@@ -1246,15 +1253,6 @@ async def poll_telegram_updates():
                                             "chat_id": chat_id,
                                             "text": "❌ Не вдалося згенерувати полуденне оновлення. Перевірте логи сервера."
                                         })
-
-                                elif text.startswith("/chatid"):
-                                    # Helper for setup: tells the id to put into FORUM_CHAT_ID.
-                                    reply = {"chat_id": chat_id,
-                                             "text": f"chat_id: <code>{chat_id}</code>",
-                                             "parse_mode": "HTML"}
-                                    if msg.get("message_thread_id"):
-                                        reply["message_thread_id"] = msg["message_thread_id"]
-                                    await client.post(f"{TELEGRAM_API_URL}/sendMessage", json=reply)
 
                                 elif text.startswith("/digest"):
                                     # Manual test of the NEW plain-language digest
@@ -3286,148 +3284,130 @@ for _code in _ALL_TOPIC_CODES:
         logger.warning("DEPARTMENT_TOPICS: '%s' is INTERNAL — it won't be pushed live", _code)
 
 
-# ── Forum supergroup: reports topic + one topic per department ────────────────
-# If FORUM_CHAT_ID is set (a supergroup with Topics enabled, bot = admin with
-# "Manage topics"), the bot mirrors its output there split into topics:
-#   * General topic (always first) is renamed "📋 Звіти" → reports only;
-#   * one topic per DEPARTMENT_TOPICS department → only that department's news.
-# The forum chat is excluded from the ordinary per-chat fan-out so it never gets
-# everything dumped into General.
+# ── Topics ("гілки") in the bot's private chat with each user ────────────────
+# With "Threaded mode" enabled for the bot in @BotFather (Bot API 9.3+), every
+# user's chat with the bot is split into topics: "📋 Звіти" (created first) gets
+# only the reports; one topic per DEPARTMENT_TOPICS department gets only that
+# department's live news. Thread ids are stored per user in forum_topics.
+# If threaded mode is off (getMe.has_topics_enabled=false) or the chat is a
+# group, messages are sent exactly as before, without a thread.
 
 _CAT_TO_DEPT = category_to_department(DEPARTMENT_TOPICS)
-_FORUM_THREADS: dict[str, int] | None = None   # topic_key → message_thread_id
-_FORUM_LOCK = asyncio.Lock()
-_FORUM_RETRY_AT = 0.0   # after a createForumTopic failure, back off 10 min
-
-
-def _forum_chat_id() -> str | None:
-    cid = os.getenv("FORUM_CHAT_ID", "").strip()
-    return cid or None
-
-
-def _is_forum_chat(chat_id) -> bool:
-    fid = _forum_chat_id()
-    return fid is not None and str(chat_id) == fid
+_CHAT_TOPICS: dict[str, dict[str, int]] = {}   # chat_id → {topic_key: thread_id}
+_TOPICS_LOCK = asyncio.Lock()
+_TOPICS_RETRY_AT: dict[str, float] = {}        # chat_id → no create attempts before
+_BOT_TOPICS: dict = {"enabled": False, "checked": 0.0}
 
 
 def _env_chat_ids() -> list[str]:
-    """TELEGRAM_CHAT_ID (comma-separated) minus the forum group."""
-    return [c.strip() for c in os.getenv("TELEGRAM_CHAT_ID", "").split(",")
-            if c.strip() and not _is_forum_chat(c.strip())]
+    """Static chat ids from TELEGRAM_CHAT_ID (comma-separated)."""
+    return [c.strip() for c in os.getenv("TELEGRAM_CHAT_ID", "").split(",") if c.strip()]
 
 
-async def ensure_forum_topics(client: httpx.AsyncClient) -> dict[str, int]:
-    """Rename General → reports and create any missing department topics.
-    Idempotent: thread ids are persisted in forum_topics and reused."""
-    global _FORUM_THREADS, _FORUM_RETRY_AT
-    fid = _forum_chat_id()
-    if not fid:
+async def _bot_topics_enabled(client: httpx.AsyncClient) -> bool:
+    """getMe.has_topics_enabled, re-checked every 10 minutes."""
+    if time.time() - _BOT_TOPICS["checked"] < 600:
+        return _BOT_TOPICS["enabled"]
+    _BOT_TOPICS["checked"] = time.time()
+    try:
+        r = await client.get(f"{TELEGRAM_API_URL}/getMe")
+        enabled = bool(r.json().get("result", {}).get("has_topics_enabled"))
+    except Exception as e:
+        logger.warning("topics: getMe failed: %s", e)
+        return _BOT_TOPICS["enabled"]
+    if enabled != _BOT_TOPICS["enabled"]:
+        logger.info("topics: bot threaded mode %s", "ON" if enabled else "OFF")
+    _BOT_TOPICS["enabled"] = enabled
+    return enabled
+
+
+async def ensure_chat_topics(client: httpx.AsyncClient, chat_id) -> dict[str, int]:
+    """Create any missing topics for a private chat (reports first) and return
+    {topic_key: thread_id}. Returns {} for groups or when threaded mode is off."""
+    key = str(chat_id)
+    try:
+        if int(chat_id) <= 0:          # groups/channels: no per-user topics
+            return {}
+    except (TypeError, ValueError):
         return {}
-    async with _FORUM_LOCK:
-        if _FORUM_THREADS is None:
+    if not await _bot_topics_enabled(client):
+        return {}
+    async with _TOPICS_LOCK:
+        if key not in _CHAT_TOPICS:
             conn = get_db_connection()
             cur = conn.cursor()
             rows = db_fetchall(cur, "SELECT topic_key, thread_id FROM forum_topics "
-                                    "WHERE chat_id = %s", (int(fid),)) or []
+                                    "WHERE chat_id = %s", (int(chat_id),)) or []
             conn.close()
-            _FORUM_THREADS = {r["topic_key"]: int(r["thread_id"]) for r in rows}
-            # Once per process: make sure General carries the reports name.
-            try:
-                r = await client.post(f"{TELEGRAM_API_URL}/editGeneralForumTopic",
-                                      json={"chat_id": fid, "name": REPORTS_TOPIC_NAME})
-                if r.status_code != 200 and "TOPIC_NOT_MODIFIED" not in r.text:
-                    logger.warning("forum: rename General failed: %s", r.text[:200])
-            except Exception as e:
-                logger.warning("forum: rename General error: %s", e)
+            _CHAT_TOPICS[key] = {r["topic_key"]: int(r["thread_id"]) for r in rows}
+        known = _CHAT_TOPICS[key]
+        if len(known) > len(DEPARTMENT_TOPICS) or time.time() < _TOPICS_RETRY_AT.get(key, 0):
+            return dict(known)
 
-        todo = missing_topics(department_topic_plan(DEPARTMENT_TOPICS), _FORUM_THREADS)
-        if todo and time.time() < _FORUM_RETRY_AT:
-            return dict(_FORUM_THREADS)
-        for t in todo:
-            try:
-                r = await client.post(f"{TELEGRAM_API_URL}/createForumTopic", json={
-                    "chat_id": fid, "name": t["name"], "icon_color": t["icon_color"]})
-                if r.status_code != 200:
-                    logger.warning("forum: createForumTopic %s failed: %s",
-                                   t["key"], r.text[:200])
-                    _FORUM_RETRY_AT = time.time() + 600
-                    continue
-                tid = int(r.json()["result"]["message_thread_id"])
-            except Exception as e:
-                logger.warning("forum: createForumTopic %s error: %s", t["key"], e)
-                _FORUM_RETRY_AT = time.time() + 600
-                continue
-            conn = get_db_connection()
-            cur = conn.cursor()
-            cur.execute("INSERT INTO forum_topics (chat_id, topic_key, thread_id) "
-                        "VALUES (%s, %s, %s) ON CONFLICT (chat_id, topic_key) "
-                        "DO UPDATE SET thread_id = EXCLUDED.thread_id",
-                        (int(fid), t["key"], tid))
-            conn.commit()
+        conn = get_db_connection()
+        cur = conn.cursor()
+        try:
+            lang_rows = db_fetchall(cur, "SELECT language FROM telegram_users "
+                                         "WHERE chat_id = %s", (int(chat_id),))
+            lang = (lang_rows[0]["language"] if lang_rows else None) or "ua"
+            for t in missing_topics(topic_plan(DEPARTMENT_TOPICS, lang), known):
+                r = None
+                try:
+                    r = await client.post(f"{TELEGRAM_API_URL}/createForumTopic", json={
+                        "chat_id": chat_id, "name": t["name"], "icon_color": t["icon_color"]})
+                    tid = int(r.json()["result"]["message_thread_id"]) if r.status_code == 200 else None
+                except Exception as e:
+                    logger.warning("topics: create %s for %s error: %s", t["key"], chat_id, e)
+                    tid = None
+                if tid is None:
+                    logger.warning("topics: create %s for %s failed: %s", t["key"], chat_id,
+                                   r.text[:200] if r is not None else "")
+                    _TOPICS_RETRY_AT[key] = time.time() + 600
+                    break      # keep order: don't create later topics before this one
+                cur.execute("INSERT INTO forum_topics (chat_id, topic_key, thread_id) "
+                            "VALUES (%s, %s, %s) ON CONFLICT (chat_id, topic_key) "
+                            "DO UPDATE SET thread_id = EXCLUDED.thread_id",
+                            (int(chat_id), t["key"], tid))
+                conn.commit()
+                known[t["key"]] = tid
+        finally:
             conn.close()
-            _FORUM_THREADS[t["key"]] = tid
-            logger.info("forum: created topic %s → thread %s", t["key"], tid)
-        return dict(_FORUM_THREADS)
+        return dict(known)
 
 
-async def _forget_forum_topic(key: str):
-    """Drop a stored thread id (topic was deleted in Telegram) so it's recreated."""
-    fid = _forum_chat_id()
-    if _FORUM_THREADS is not None:
-        _FORUM_THREADS.pop(key, None)
+def _forget_chat_topic(chat_id, topic_key: str):
+    """Drop a stored thread id (user deleted the topic) so it gets recreated."""
+    _CHAT_TOPICS.get(str(chat_id), {}).pop(topic_key, None)
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute("DELETE FROM forum_topics WHERE chat_id = %s AND topic_key = %s",
-                (int(fid), key))
+                (int(chat_id), topic_key))
     conn.commit()
     conn.close()
 
 
-async def forum_send(client: httpx.AsyncClient, topic_key: str, payload: dict):
-    """sendMessage into a forum topic. topic_key=REPORTS_KEY → General.
-    Returns the httpx response, or None if the forum isn't configured."""
-    fid = _forum_chat_id()
-    if not fid:
-        return None
-    body = dict(payload, chat_id=fid)
-    if topic_key != REPORTS_KEY:
-        threads = await ensure_forum_topics(client)
-        if topic_key not in threads:
-            return None
-        body["message_thread_id"] = threads[topic_key]
+async def send_to_topic(client: httpx.AsyncClient, chat_id, topic_key: str | None,
+                        payload: dict):
+    """sendMessage to chat_id, inside its `topic_key` topic when available
+    (REPORTS_KEY or a department code). Falls back to a plain message."""
+    body = dict(payload, chat_id=chat_id)
+    tid = (await ensure_chat_topics(client, chat_id)).get(topic_key) if topic_key else None
+    if tid:
+        body["message_thread_id"] = tid
     r = await client.post(f"{TELEGRAM_API_URL}/sendMessage", json=body)
-    if (r.status_code == 400 and topic_key != REPORTS_KEY
-            and "thread not found" in r.text.lower()):
-        # Topic deleted by an admin → recreate once and retry.
-        await _forget_forum_topic(topic_key)
-        threads = await ensure_forum_topics(client)
-        if topic_key in threads:
-            body["message_thread_id"] = threads[topic_key]
-            r = await client.post(f"{TELEGRAM_API_URL}/sendMessage", json=body)
-    if r.status_code != 200:
-        logger.warning("forum send to %s failed: %s", topic_key, r.text[:200])
+    if tid and r.status_code == 400 and "thread" in r.text.lower():
+        # Topic was deleted by the user → recreate once and retry.
+        _forget_chat_topic(chat_id, topic_key)
+        _TOPICS_RETRY_AT.pop(str(chat_id), None)
+        tid = (await ensure_chat_topics(client, chat_id)).get(topic_key)
+        if tid:
+            body["message_thread_id"] = tid
+        else:
+            body.pop("message_thread_id", None)
+        r = await client.post(f"{TELEGRAM_API_URL}/sendMessage", json=body)
     return r
 
 
-async def forum_post_news(client: httpx.AsyncClient, cursor, conn,
-                          category: str, link: str, text: str):
-    """Post one live news item into its department topic (deduped by link)."""
-    fid = _forum_chat_id()
-    dept = _CAT_TO_DEPT.get(category)
-    if not fid or not dept:
-        return
-    try:
-        cursor.execute("SELECT 1 FROM telegram_sent WHERE chat_id = %s AND article_link = %s",
-                       (int(fid), link))
-        if cursor.fetchone() is not None:
-            return
-        r = await forum_send(client, dept, {"text": text, "parse_mode": "HTML"})
-        if r is not None and r.status_code == 200:
-            cursor.execute("INSERT INTO telegram_sent (chat_id, article_link) "
-                           "VALUES (%s, %s) ON CONFLICT DO NOTHING", (int(fid), link))
-            conn.commit()
-    except Exception as e:
-        logger.warning("forum news post (%s) failed: %s", category, e)
 if len(_ALL_TOPIC_CODES) != len(set(_ALL_TOPIC_CODES)):
     logger.warning("DEPARTMENT_TOPICS: duplicate topic codes detected")
 
@@ -5092,7 +5072,7 @@ async def _push_market_alert(title: str, body: str, link: str, emoji: str):
         async with httpx.AsyncClient() as http_client:
             for user in users:
                 try:
-                    if user["only_daily_mode"] or _is_forum_chat(user["chat_id"]):
+                    if user["only_daily_mode"]:
                         continue
                     chat_id = user["chat_id"]
                     subs = user["subscriptions"] or "all"
@@ -5100,13 +5080,9 @@ async def _push_market_alert(title: str, body: str, link: str, emoji: str):
                         continue
 
                     msg = f"{emoji} <b>{title}</b>\n\n{body}"
-                    resp = await http_client.post(
-                        f"{TELEGRAM_API_URL}/sendMessage",
-                        json={
-                            "chat_id": chat_id,
-                            "text": msg,
-                            "parse_mode": "HTML",
-                        },
+                    resp = await send_to_topic(
+                        http_client, chat_id, _CAT_TO_DEPT.get("market_alerts"),
+                        {"text": msg, "parse_mode": "HTML"},
                     )
                     if resp.status_code == 200:
                         try:
@@ -5126,15 +5102,12 @@ async def _push_market_alert(title: str, body: str, link: str, emoji: str):
             for admin_chat_id in admin_chat_ids:
                 try:
                     msg = f"{emoji} <b>{title}</b>\n\n{body}"
-                    await http_client.post(
-                        f"{TELEGRAM_API_URL}/sendMessage",
-                        json={"chat_id": admin_chat_id, "text": msg, "parse_mode": "HTML"},
+                    await send_to_topic(
+                        http_client, admin_chat_id, _CAT_TO_DEPT.get("market_alerts"),
+                        {"text": msg, "parse_mode": "HTML"},
                     )
                 except Exception as e:
                     logger.info(f"Market alert push to admin {admin_chat_id} failed: {e}")
-
-            await forum_post_news(http_client, cursor, conn, "market_alerts", link,
-                                  f"{emoji} <b>{title}</b>\n\n{body}")
     finally:
         if conn is not None:
             try:
@@ -5393,7 +5366,7 @@ async def fetch_and_store_news():
                             )
                             for user in users:
                                 try:
-                                    if user["only_daily_mode"] or _is_forum_chat(user["chat_id"]):
+                                    if user["only_daily_mode"]:
                                         continue
                                     chat_id = user["chat_id"]
                                     lang    = user["language"]
@@ -5414,8 +5387,7 @@ async def fetch_and_store_news():
                                     msg = _build_tg_msg(title, summary_text, category, link,
                                                         lang=lang, title_ua=title_ua, title_ru=title_ru)
 
-                                    resp = await http_client.post(f"{TELEGRAM_API_URL}/sendMessage", json={
-                                        "chat_id": chat_id,
+                                    resp = await send_to_topic(http_client, chat_id, _CAT_TO_DEPT.get(category), {
                                         "text": msg,
                                         "parse_mode": "HTML"
                                     })
@@ -5441,8 +5413,7 @@ async def fetch_and_store_news():
 
                                     msg = _build_tg_msg(title, sum_ua, category, link,
                                                         lang="ua", title_ua=title_ua, title_ru=title_ru)
-                                    resp = await http_client.post(f"{TELEGRAM_API_URL}/sendMessage", json={
-                                        "chat_id": admin_chat_id,
+                                    resp = await send_to_topic(http_client, admin_chat_id, _CAT_TO_DEPT.get(category), {
                                         "text": msg,
                                         "parse_mode": "HTML"
                                     })
@@ -5455,11 +5426,6 @@ async def fetch_and_store_news():
                                 except Exception as e:
                                     logger.info(f"Error sending to static chat_id {admin_chat_id}: {e}")
 
-                            # Forum group: only into this category's department topic.
-                            await forum_post_news(
-                                http_client, cursor, conn, category, link,
-                                _build_tg_msg(title, sum_ua, category, link,
-                                              lang="ua", title_ua=title_ua, title_ru=title_ru))
                     except Exception as e:
                         logger.info(f"Error broadcasting to Telegram: {e}")
 
@@ -5541,14 +5507,12 @@ async def lifespan(app: FastAPI):
         except Exception as _e:
             logger.info(f"lifespan: failed to set menu button: {_e}")
 
-    # Forum group topics: rename General → reports, create department topics.
-    if _forum_chat_id() and TELEGRAM_BOT_TOKEN:
-        try:
-            async with httpx.AsyncClient(timeout=30) as _hc:
-                _threads = await ensure_forum_topics(_hc)
-            logger.info("lifespan: forum topics ready: %s", _threads)
-        except Exception as _e:
-            logger.warning("lifespan: forum topics setup failed: %s", _e)
+    # Private-chat topics need "Threaded mode" enabled for the bot in @BotFather.
+    if TELEGRAM_BOT_TOKEN:
+        async with httpx.AsyncClient(timeout=15) as _hc:
+            if not await _bot_topics_enabled(_hc):
+                logger.warning("lifespan: bot threaded mode is OFF — messages go "
+                               "without topics (enable it in @BotFather)")
 
     task_news    = asyncio.create_task(fetch_and_store_news())
     task_tg      = asyncio.create_task(poll_telegram_updates())
@@ -5889,7 +5853,7 @@ async def send_department_articles_to_users(mode: str = "daily_brief",
     users = db_fetchall(cur, "SELECT chat_id FROM telegram_users") or []
     conn.close()
 
-    recipients: list = [u["chat_id"] for u in users if not _is_forum_chat(u["chat_id"])]
+    recipients: list = [u["chat_id"] for u in users]
     recipients += _env_chat_ids()
     # De-duplicate (a subscriber may also be an env admin id).
     seen: set[str] = set()
@@ -5901,15 +5865,11 @@ async def send_department_articles_to_users(mode: str = "daily_brief",
             for art in articles:
                 for chunk in telegram_chunks(art["html"]):
                     try:
-                        r = await client.post(
-                            f"{TELEGRAM_API_URL}/sendMessage",
-                            json={
-                                "chat_id": chat_id,
-                                "text": chunk,
-                                "parse_mode": "HTML",
-                                "disable_web_page_preview": True,
-                            },
-                        )
+                        r = await send_to_topic(client, chat_id, REPORTS_KEY, {
+                            "text": chunk,
+                            "parse_mode": "HTML",
+                            "disable_web_page_preview": True,
+                        })
                         if r.status_code == 200:
                             sent += 1
                         else:
@@ -5917,16 +5877,6 @@ async def send_department_articles_to_users(mode: str = "daily_brief",
                                            art["dept"], chat_id, r.text[:200])
                     except Exception as e:
                         logger.warning("tg-article send error to %s: %s", chat_id, e)
-        # Forum group: these are reports too → reports topic only.
-        if _forum_chat_id():
-            for art in articles:
-                for chunk in telegram_chunks(art["html"]):
-                    try:
-                        await forum_send(client, REPORTS_KEY, {
-                            "text": chunk, "parse_mode": "HTML",
-                            "disable_web_page_preview": True})
-                    except Exception as e:
-                        logger.warning("tg-article forum send error: %s", e)
     logger.info("telegram-articles: %d departments -> %d recipients (%d messages)",
                 len(articles), len(recipients), sent)
     return {"sent": sent, "articles": len(articles), "recipients": len(recipients)}
@@ -6177,7 +6127,7 @@ async def send_daily_digest_to_users(mode: str = "daily_brief",
             cur = conn.cursor()
             users = db_fetchall(cur, "SELECT chat_id FROM telegram_users") or []
             conn.close()
-            recipients = [u["chat_id"] for u in users if not _is_forum_chat(u["chat_id"])]
+            recipients = [u["chat_id"] for u in users]
             recipients += _env_chat_ids()
             seen: set[str] = set()
             recipients = [r for r in recipients if not (str(r) in seen or seen.add(str(r)))]
@@ -6185,16 +6135,13 @@ async def send_daily_digest_to_users(mode: str = "daily_brief",
         sent = 0
         for chat_id in recipients:
             try:
-                r = await client.post(
-                    f"{TELEGRAM_API_URL}/sendMessage",
-                    json={
-                        "chat_id": chat_id,
-                        "text": text,
-                        "parse_mode": "HTML",
-                        "disable_web_page_preview": True,
-                        "reply_markup": {"inline_keyboard": keyboard},
-                    },
-                )
+                # Into the user's "📋 Звіти" topic (plain message if no topics).
+                r = await send_to_topic(client, chat_id, REPORTS_KEY, {
+                    "text": text,
+                    "parse_mode": "HTML",
+                    "disable_web_page_preview": True,
+                    "reply_markup": {"inline_keyboard": keyboard},
+                })
                 if r.status_code == 200:
                     sent += 1
                     # Pin the digest summary message so it stays the "anchor"
@@ -6218,21 +6165,6 @@ async def send_daily_digest_to_users(mode: str = "daily_brief",
             except Exception as e:
                 logger.warning("digest send error to %s: %s", chat_id, e)
 
-        # Forum group: the report goes ONLY into the reports topic (General).
-        if not only_chat and _forum_chat_id():
-            try:
-                r = await forum_send(client, REPORTS_KEY, {
-                    "text": text, "parse_mode": "HTML",
-                    "disable_web_page_preview": True,
-                    "reply_markup": {"inline_keyboard": keyboard},
-                })
-                msg_id = r.json().get("result", {}).get("message_id") if r is not None and r.status_code == 200 else None
-                if msg_id:
-                    await client.post(f"{TELEGRAM_API_URL}/pinChatMessage", json={
-                        "chat_id": _forum_chat_id(), "message_id": msg_id,
-                        "disable_notification": True})
-            except Exception as e:
-                logger.warning("digest forum send failed: %s", e)
     logger.info("digest: %d articles -> %d recipients (%d sent)",
                 len(items), len(recipients), sent)
     return {"sent": sent, "articles": len(items), "recipients": len(recipients)}
