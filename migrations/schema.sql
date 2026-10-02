@@ -49,6 +49,14 @@ CREATE TABLE IF NOT EXISTS telegram_sent (
 );
 CREATE INDEX IF NOT EXISTS idx_sent_link ON telegram_sent(article_link);
 
+-- Forum supergroup topics: department code -> message_thread_id
+CREATE TABLE IF NOT EXISTS forum_topics (
+    chat_id   BIGINT NOT NULL,
+    topic_key TEXT NOT NULL,
+    thread_id BIGINT NOT NULL,
+    PRIMARY KEY (chat_id, topic_key)
+);
+
 CREATE TABLE IF NOT EXISTS article_facts (
     id                  SERIAL PRIMARY KEY,
     article_id          INTEGER NOT NULL REFERENCES articles(id) ON DELETE CASCADE,
