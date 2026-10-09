@@ -1,6 +1,6 @@
 name: Deploy to server
 
-# Autodeploy: every push to main triggers an SSH deploy on the server.
+# Every push to main: run the tests, and only if they pass — SSH deploy.
 # Configure these repository secrets (Settings -> Secrets and variables -> Actions):
 #   SSH_HOST        e.g. 178.104.96.245
 #   SSH_USER        e.g. root  (or a deploy user with sudo for systemctl)
@@ -17,7 +17,36 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql://postgres:test@localhost:5432/test
+      UI_TESTS: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install dependencies
+        run: pip install -r requirements.txt pytest playwright
+      - name: Install Chromium for Playwright
+        run: python -m playwright install --with-deps chromium
+      - name: Unit tests + Mini App UI tests (3 phone sizes × 2 themes)
+        run: python -m pytest -q tests
+
   deploy:
+    needs: test
     runs-on: ubuntu-latest
     steps:
       - name: Deploy over SSH
