@@ -8948,7 +8948,12 @@ def api_corp_shipments(request: Request, user_id: int = 0):
     items = []
     for r in rows:
         it = json.loads(r["data_json"])
-        it["live_status"] = r["live_status"] or ""
+        live = r["live_status"] or ""
+        # the first carrier query only registers the number — don't let that
+        # placeholder hide the sheet's own status
+        if any(p in live.lower() for p in ("очікуємо даних", "трекінг зареєстровано", "запит відправлено")):
+            live = ""
+        it["live_status"] = live
         it["live_carrier"] = r["live_carrier"] or ""
         it["live_steps"] = json.loads(r["live_steps"]) if r["live_steps"] else []
         it["tracking_url"] = it.get("tracking_url") or r["live_url"] or ""
