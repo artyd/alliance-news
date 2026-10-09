@@ -170,3 +170,15 @@ def test_event_as_fact_lands_in_strikes_department():
              {"code": "strikes", "sectors": [], "event_types": ["strike"]}]
     out = bucket_facts_by_department([fact], depts)
     assert out["strikes"] == [fact] and out["laws"] == []
+
+
+def test_borderline_and_team_examples():
+    base = {"is_strike": True, "in_ukraine": True}
+    assert strikes.is_borderline("irrelevant", dict(base, category="other_business"))
+    assert not strikes.is_borderline("irrelevant", dict(base, category="not_enterprise"))
+    assert strikes.is_borderline("matched", dict(base, category="unnamed"))
+    assert not strikes.is_borderline("matched", dict(base, category="pharma", is_pharma=True))
+    assert not strikes.is_borderline("irrelevant", {"is_strike": True, "in_ukraine": False, "category": "other_business"})
+    p = strikes.build_classify_prompt([("Удар по складу Нової пошти", "show"), ("Пошкоджено СТО", "hide")])
+    assert "РІШЕННЯ КОМАНДИ" in p and "ПОКАЗУВАТИ: Удар по складу Нової пошти" in p and "НЕ показувати: Пошкоджено СТО" in p
+    assert "РІШЕННЯ КОМАНДИ" not in strikes.build_classify_prompt()

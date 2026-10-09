@@ -305,7 +305,7 @@ def is_reportable(cls: dict) -> bool:
     return bool(cls.get("canonical")) and cls.get("category") not in NEVER_REPORTED
 
 
-def build_classify_prompt() -> str:
+def build_classify_prompt(examples: list[tuple[str, str]] | None = None) -> str:
     cats = "\n".join(f'  "{k}": {v}' for k, v in CATEGORIES.items())
     return (
         "Ти аналітик фармацевтичного ринку України. Тобі дають одне повідомлення "
@@ -339,7 +339,32 @@ def build_classify_prompt() -> str:
         '  "summary": "1-2 речення українською: що сталося"\n'
         "}\n"
         "Не вигадуй фактів, яких немає в тексті."
+        + team_examples_block(examples)
     )
+
+
+def team_examples_block(examples: list[tuple[str, str]] | None) -> str:
+    """The team's own decisions on borderline reports (Mini App «🎯 Перевірка
+    ударів»): 'show' = should be reported, 'hide' = should not. They override
+    the general rules above for similar cases."""
+    if not examples:
+        return ""
+    lines = [f"- {'ПОКАЗУВАТИ' if v == 'show' else 'НЕ показувати'}: {t[:160]}" for t, v in examples[:20]]
+    return ("\n\nРІШЕННЯ КОМАНДИ щодо схожих повідомлень (вони важливіші за загальні правила; "
+            "для схожого випадку став category/is_strike так, щоб результат збігся):\n" + "\n".join(lines))
+
+
+def is_borderline(status: str, cls: dict) -> bool:
+    """Reports worth a human look: dropped as «інший бізнес» though it was a
+    strike in Ukraine, or reported only as an unnamed / adjacent site."""
+    if not cls or not cls.get("is_strike") or not cls.get("in_ukraine"):
+        return False
+    cat = cls.get("category")
+    if status == "irrelevant":
+        return cat == "other_business"
+    if status == "matched":
+        return cat in ("unnamed", "adjacent") and not cls.get("is_pharma")
+    return False
 
 
 def build_classify_input(item: dict) -> str:

@@ -419,6 +419,12 @@ body.curr-edit .curr-remove-btn{display:flex}
 .wh-det-row{padding:12px 15px;border-radius:20px;margin-bottom:8px}
 .wh-det-lbl{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-3);margin-bottom:4px}
 .wh-det-val{font-size:14px;line-height:1.5}
+/* «🎯 Перевірка ударів» */
+.rv-card .bot{display:inline-block;font-size:11.5px;font-weight:700;padding:2px 8px;border-radius:99px;margin-top:8px}
+.rv-card .bot.shown{background:color-mix(in srgb,var(--green) 14%,transparent);color:var(--green)}
+.rv-card .bot.hidden{background:var(--glass-soft);color:var(--ink-3)}
+.rv-card .vote{display:flex;gap:8px;margin-top:12px}
+.rv-card .vote .pill{flex:1}
 /* «Вантажі компанії» */
 .corp-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
 .corp-stats .stat{padding:11px 10px;cursor:pointer}
@@ -853,6 +859,10 @@ body.curr-edit .curr-remove-btn{display:flex}
       <div class="rv"><div class="sec"><h3>📝 <span data-t="notes"></span></h3><a onclick="openNote()" data-t="newNote"></a></div>
         <div class="list" id="noteList"></div></div>
 
+      <div class="rv" id="reviewWrap" style="display:none"><div class="sec"><h3>🎯 <span data-t="review"></span></h3><span class="eyebrow" id="reviewCount"></span></div>
+        <div class="hint" data-t="reviewHint" style="margin:-4px 4px 10px"></div>
+        <div class="list" id="reviewList"></div></div>
+
       <div class="rv"><div class="sec"><h3>🧭 <span data-t="toolbar"></span></h3><span class="eyebrow" id="tbCount"></span></div>
         <div class="glass tb-preview" id="tbPreview"></div>
         <div class="glass menu" id="tbOn"></div>
@@ -1051,7 +1061,7 @@ const N = {
     heroTitle:'Головне для закупівлі та логістики',readAll:'Усі звіти',askHarvey:'Спитати асистента',charts:'Графіки ринку',
     noDigest:'Найголовніше зі стрічки',newsCount:'новин',searchPh:'Новини, удари, компанії, сировина',nothing:'Нічого не знайдено',
     aiPh:'Запитайте про ринок, ціни, удари…',aiHello:'Привіт! Я твій персональний асистент 🤖 Чим можу допомогти? Знаю новини, удари по підприємствах, ринки й курси. Пишіть або надиктуйте голосом 🎤',
-    aiErr:'Асистент зараз не може відповісти — спробуйте ще раз.',recording:'Запис…',listen:'🔊 Прослухати',stopListen:'⏹ Зупинити',autoOn:'🔊 Відповіді озвучуються',autoOff:'🔇 Озвучування вимкнено',noUkVoice:'На телефоні немає українського голосу — встановіть його в налаштуваннях мовлення',noTts:'Озвучування недоступне на цьому пристрої',micNo:'Голосовий запис тут недоступний',micDenied:'Немає доступу до мікрофона',voiceEmpty:'Не вдалося розібрати — спробуйте ще раз',voiceErr:'Не вдалося розпізнати голос',s1:'Що з обстрілами фармзаводів цього тижня?',s2:'Що важливого для закупівлі API?',
+    aiErr:'Асистент зараз не може відповісти — спробуйте ще раз.',recording:'Запис…',review:'Перевірка ударів',reviewHint:'Спірні випадки за тиждень. Ваше рішення навчає фільтр — схожі новини далі оброблятимуться так само.',botShown:'Бот показав',botHidden:'Бот відсіяв',showIt:'✅ Показувати',hideIt:'❌ Не показувати',voted:'Дякую! Фільтр врахує це',listen:'🔊 Прослухати',stopListen:'⏹ Зупинити',autoOn:'🔊 Відповіді озвучуються',autoOff:'🔇 Озвучування вимкнено',noUkVoice:'На телефоні немає українського голосу — встановіть його в налаштуваннях мовлення',noTts:'Озвучування недоступне на цьому пристрої',micNo:'Голосовий запис тут недоступний',micDenied:'Немає доступу до мікрофона',voiceEmpty:'Не вдалося розібрати — спробуйте ще раз',voiceErr:'Не вдалося розпізнати голос',s1:'Що з обстрілами фармзаводів цього тижня?',s2:'Що важливого для закупівлі API?',
     s3:'Як справи з фрахтом і Червоним морем?',s4:'Що нового в регуляціях?',fresh:'за добу',noNews:'Новин поки немає',loadError:'Помилка завантаження',
     onlyDaily:'Лише дайджести 9:00 / 14:00',onlyDailySub:'Без миттєвих новин',startBot:'Спершу запустіть бота командою /start',
     receive:'Отримувати в Telegram',off:'Вимкнено',auto:'Авто',light:'Світла',dark:'Темна',tbMax:'Максимум 5 вкладок разом з «Моє»',
@@ -1089,7 +1099,7 @@ const N = {
     heroTitle:'What matters for sourcing & logistics',readAll:'All reports',askHarvey:'Ask the assistant',charts:'Market charts',
     noDigest:'Top stories from the feed',newsCount:'news',searchPh:'News, strikes, companies, commodities',nothing:'Nothing found',
     aiPh:'Ask about markets, prices, strikes…',aiHello:'Hi! I’m your personal assistant 🤖 How can I help? I know the news, strikes on enterprises, markets and rates. Type or dictate by voice 🎤',
-    aiErr:'The assistant can’t answer right now — please try again.',recording:'Recording…',listen:'🔊 Listen',stopListen:'⏹ Stop',autoOn:'🔊 Answers are read aloud',autoOff:'🔇 Read-aloud off',noUkVoice:'No voice for this language on the device',noTts:'Read-aloud is not available on this device',micNo:'Voice recording is not available here',micDenied:'No microphone access',voiceEmpty:'Couldn’t make that out — try again',voiceErr:'Voice recognition failed',s1:'Any strikes on pharma plants this week?',s2:'What matters for API sourcing?',
+    aiErr:'The assistant can’t answer right now — please try again.',recording:'Recording…',review:'Strike review',reviewHint:'Borderline cases of the week. Your verdict teaches the filter — similar news will be handled the same way.',botShown:'Bot showed it',botHidden:'Bot dropped it',showIt:'✅ Show',hideIt:'❌ Don’t show',voted:'Thanks! The filter will learn from it',listen:'🔊 Listen',stopListen:'⏹ Stop',autoOn:'🔊 Answers are read aloud',autoOff:'🔇 Read-aloud off',noUkVoice:'No voice for this language on the device',noTts:'Read-aloud is not available on this device',micNo:'Voice recording is not available here',micDenied:'No microphone access',voiceEmpty:'Couldn’t make that out — try again',voiceErr:'Voice recognition failed',s1:'Any strikes on pharma plants this week?',s2:'What matters for API sourcing?',
     s3:'How are freight and the Red Sea?',s4:'What’s new in regulation?',fresh:'in 24h',noNews:'No news yet',loadError:'Loading error',
     onlyDaily:'Digests only (09:00 / 14:00)',onlyDailySub:'No instant news',startBot:'Start the bot with /start first',
     receive:'Receive in Telegram',off:'Off',auto:'Auto',light:'Light',dark:'Dark',tbMax:'Up to 5 tabs including «Me»',
@@ -1652,6 +1662,7 @@ function renderMe(){
       <div class="d">${new Date(n.updated_at).toLocaleString(LOCALE(), {day:'numeric', month:'short', hour:'2-digit', minute:'2-digit'})}</div>
       <div class="b">${esc(n.text)}</div>${n.ref_title ? `<div class="ref">↳ ${esc(n.ref_title)}</div>` : ''}</div>`).join('')
     : `<div class="glass empty">${T('notesEmpty')}</div>`);
+  loadReview();
   renderToolbarEditor();
   setHTML('secGrid', [...SECTIONS].map(k => `<button class="glass secbtn" onclick="go('${k}')">${ICON[k]}${esc(T(k))}</button>`).join(''));
   loadSubs();
@@ -1696,6 +1707,26 @@ function setLang(l){
   if(loaded.strikes) renderStrikes();
   byId('rlist').innerHTML = ''; if(cur === 'reports') loadReports();
   renderMe(); byId('chat').innerHTML = ''; AIHIST = [];
+}
+let REVIEW = [];
+async function loadReview(){
+  try{ REVIEW = (await (await fetch('/api/webapp/strikes/review?user_id=' + uid())).json()).items || []; }catch{ REVIEW = []; }
+  renderReview();
+}
+function renderReview(){
+  showEl('reviewWrap', REVIEW.length ? '' : 'none');
+  setText('reviewCount', REVIEW.length ? String(REVIEW.length) : '');
+  setHTML('reviewList', REVIEW.map(r => `<article class="glass card rv-card" id="rv${r.id}">
+    <div class="meta"><span>${esc(r.source || '')}</span>${r.published ? '· ' + ago(r.published) : ''}${r.place ? ' · ' + esc(r.place) : ''}</div>
+    <h4 onclick="openExt(${esc(JSON.stringify(r.link || ''))})">${esc(r.title || '')}</h4>
+    ${r.text ? `<p>${esc(r.text)}</p>` : ''}
+    <span class="bot ${r.shown ? 'shown' : 'hidden'}">${r.shown ? T('botShown') : T('botHidden')}</span>
+    <div class="vote"><button class="pill primary" onclick="voteReview(${r.id},'show')">${T('showIt')}</button>
+      <button class="pill ghost" onclick="voteReview(${r.id},'hide')">${T('hideIt')}</button></div></article>`).join(''));
+}
+async function voteReview(id, verdict){
+  REVIEW = REVIEW.filter(r => r.id !== id); renderReview(); toast(T('voted')); hap('ok');
+  try{ await fetch('/api/webapp/strikes/review', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({user_id: uid(), item_id: id, verdict})}); }catch{}
 }
 let SUBS = null;
 async function loadSubs(){

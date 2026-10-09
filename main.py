@@ -434,6 +434,17 @@ def init_db():
     ''')
     cursor.execute("ALTER TABLE user_app_prefs ADD COLUMN IF NOT EXISTS cargo_mode TEXT NOT NULL DEFAULT 'all'")
 
+    # «🎯 Перевірка ударів»: the team's verdicts on borderline strike reports,
+    # fed back to the classifier as examples.
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS strike_feedback (
+            item_id    INTEGER PRIMARY KEY REFERENCES strike_items(id) ON DELETE CASCADE,
+            verdict    TEXT NOT NULL,
+            user_id    BIGINT,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+    ''')
+
     # One-shot data migrations, each applied once (keyed by name).
     cursor.execute("CREATE TABLE IF NOT EXISTS schema_flags ("
                    "key TEXT PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW())")
@@ -5995,6 +6006,24 @@ async def _strikes_publish_update(client, cur, conn, ev: dict, push: bool) -> bo
     return significant
 
 
+_TEAM_EX: dict = {"t": 0.0, "v": []}
+
+
+def _strike_team_examples() -> list[tuple[str, str]]:
+    """Latest team verdicts (title, 'show'|'hide'), cached for 10 minutes."""
+    if time.time() - _TEAM_EX["t"] < 600:
+        return _TEAM_EX["v"]
+    try:
+        conn = get_db_connection(); cur = conn.cursor()
+        rows = db_fetchall(cur, "SELECT i.title, f.verdict FROM strike_feedback f JOIN strike_items i "
+                                "ON i.id = f.item_id ORDER BY f.created_at DESC LIMIT 20") or []
+        conn.close()
+        _TEAM_EX.update(t=time.time(), v=[(r["title"] or "", r["verdict"]) for r in rows])
+    except Exception as e:
+        logger.info("strikes: team examples unavailable: %s", e)
+    return _TEAM_EX["v"]
+
+
 async def _strikes_process_item(client, cur, conn, it: dict, stats: dict) -> int | None:
     """Classify one candidate report and attach it to an event. Returns the
     event id, or None if irrelevant. Raises on LLM failure (item not stored →
@@ -6005,7 +6034,8 @@ async def _strikes_process_item(client, cur, conn, it: dict, stats: dict) -> int
             it["text"] = ext["text"]
         if ext.get("final_url") and "news.google.com" not in ext["final_url"]:
             it["display_url"] = ext["final_url"]
-    cls = await _strikes_llm(strikes.build_classify_prompt(), strikes.build_classify_input(it), bulk=True)
+    cls = await _strikes_llm(strikes.build_classify_prompt(_strike_team_examples()),
+                             strikes.build_classify_input(it), bulk=True)
     cls["is_pharma"] = bool(cls.get("is_pharma")) or cls.get("category") == "pharma"
     text = f"{it['title']}\n{it.get('text') or ''}"
     cls["watchlist"] = bool(cls.get("watchlist")) or bool(strikes.watchlist_hits(text))
@@ -7595,6 +7625,60 @@ async def api_ask(request: Request):
         return {"ok": False, "answer": "Асистент зараз не може відповісти — спробуйте за хвилину.", "sources": []}
     cited = {int(n) for n in re.findall(r"\[(\d+)\]", answer)}
     return {"ok": True, "answer": answer, "sources": [x for x in src.items if x["n"] in cited]}
+
+
+@app.get("/api/webapp/strikes/review")
+def api_strike_review(request: Request, user_id: int = 0):
+    """«🎯 Перевірка ударів»: borderline reports of the last 7 days nobody has
+    judged yet (max 12)."""
+    verified_uid(request, fallback=user_id)
+    conn = get_db_connection(); cur = conn.cursor()
+    try:
+        rows = db_fetchall(cur, "SELECT i.id, i.title, i.source, COALESCE(i.display_url, i.link) AS link, i.text, "
+                                "i.status, i.cls_json, i.published FROM strike_items i "
+                                "LEFT JOIN strike_feedback f ON f.item_id = i.id "
+                                "WHERE f.item_id IS NULL AND i.cls_json IS NOT NULL "
+                                "AND i.status IN ('matched', 'irrelevant') "
+                                "AND i.created_at >= NOW() - INTERVAL '7 days' "
+                                "ORDER BY i.created_at DESC LIMIT 400") or []
+    finally:
+        conn.close()
+    out, seen = [], set()
+    for r in rows:
+        cls = strikes.parse_json(r["cls_json"] or "")
+        if not strikes.is_borderline(r["status"], cls):
+            continue
+        key = (r["title"] or "")[:60].lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append({"id": r["id"], "title": r["title"], "source": r["source"], "link": r["link"],
+                    "text": (r["text"] or "")[:600], "shown": r["status"] == "matched",
+                    "category": cls.get("category"), "company": cls.get("company"),
+                    "place": strikes.format_place(cls.get("city"), cls.get("region")),
+                    "published": r["published"].isoformat() if r["published"] else None})
+        if len(out) >= 12:
+            break
+    return {"ok": True, "items": out}
+
+
+@app.post("/api/webapp/strikes/review")
+async def api_strike_review_vote(request: Request):
+    """Body: {item_id, verdict: show|hide}. The first answer wins."""
+    body = await request.json()
+    uid = verified_uid(request, fallback=int(body.get("user_id") or 0))
+    verdict = body.get("verdict")
+    if verdict not in ("show", "hide"):
+        raise HTTPException(status_code=400, detail="verdict must be show|hide")
+    conn = get_db_connection(); cur = conn.cursor()
+    try:
+        cur.execute("INSERT INTO strike_feedback (item_id, verdict, user_id) VALUES (%s, %s, %s) "
+                    "ON CONFLICT (item_id) DO NOTHING", (int(body.get("item_id") or 0), verdict, uid))
+        conn.commit()
+    finally:
+        conn.close()
+    _TEAM_EX["t"] = 0.0          # use the new verdict on the next classification
+    return {"ok": True}
 
 
 @app.get("/api/webapp/strikes")
