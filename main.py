@@ -64,6 +64,7 @@ from app.subscriptions import (
 from app.scrapers import scrape_dls, scrape_kmu
 from app import strikes
 from app import miniapp
+from app import corp_tracking
 
 # ── Keyword pre-filter for broad feeds ──
 from app.keyword_filter import passes_keyword_filter
@@ -399,6 +400,23 @@ def init_db():
             items_json TEXT NOT NULL,
             charts_url TEXT,
             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+    ''')
+
+    # «Вантажі компанії»: shipments from the logistics team's Google Sheet
+    # (synced hourly) + the live carrier status we fetch for them.
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS corp_shipments (
+            key          TEXT PRIMARY KEY,
+            data_json    TEXT NOT NULL,
+            number       TEXT,
+            in_sheet     BOOLEAN NOT NULL DEFAULT TRUE,
+            synced_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            live_status  TEXT,
+            live_carrier TEXT,
+            live_url     TEXT,
+            live_steps   TEXT,
+            last_checked TIMESTAMPTZ
         )
     ''')
 
@@ -6227,6 +6245,9 @@ async def lifespan(app: FastAPI):
     # Same pattern before the midday report: 13:45 = 15 min before 14:00.
     scheduler.add_job(backfill_missing_facts, 'cron', hour=13, minute=45, id='backfill_facts_midday')
     scheduler.add_job(refresh_tracked_shipments, 'interval', minutes=60, id='refresh_tracking')
+    # «Вантажі компанії»: sheet + live statuses every hour, and once right after start
+    scheduler.add_job(_corp_sync_job, 'interval', minutes=60, id='corp_tracking',
+                      next_run_time=datetime.datetime.now(pytz.timezone('Europe/Kyiv')) + datetime.timedelta(seconds=60))
     scheduler.start()
 
     yield
@@ -8912,6 +8933,48 @@ def _stamp_tracking_meta(result: dict, number: str, carrier_code: str) -> dict:
     return result
 
 
+@app.get("/api/webapp/track/corporate")
+def api_corp_shipments(request: Request, user_id: int = 0):
+    """«Вантажі компанії» for every bot user: sheet data + live status, with
+    header stats. Company data → Telegram-signed requests only."""
+    verified_uid(request, fallback=user_id)
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        rows = db_fetchall(cur, "SELECT data_json, live_status, live_carrier, live_url, live_steps, "
+                                "last_checked, synced_at FROM corp_shipments WHERE in_sheet") or []
+    finally:
+        conn.close()
+    items = []
+    for r in rows:
+        it = json.loads(r["data_json"])
+        it["live_status"] = r["live_status"] or ""
+        it["live_carrier"] = r["live_carrier"] or ""
+        it["live_steps"] = json.loads(r["live_steps"]) if r["live_steps"] else []
+        it["tracking_url"] = it.get("tracking_url") or r["live_url"] or ""
+        it["last_checked"] = r["last_checked"].isoformat() if r["last_checked"] else None
+        # the live status can move a shipment forward (arrived / delivered)
+        live_stage = corp_tracking.stage_of(it["live_status"])
+        order = {"transit": 0, "arrived": 1, "done": 2}
+        if order[live_stage] > order[it.get("stage", "transit")]:
+            it["stage"] = live_stage
+            it["done"] = live_stage == "done"
+        items.append(it)
+    rank = {"transit": 0, "arrived": 1, "done": 2}
+    items.sort(key=lambda i: (rank.get(i.get("stage"), 0), i.get("eta") or "9999", i["product"].lower()))
+    synced = max((r["synced_at"] for r in rows), default=None)
+    return {"ok": True, "items": items, "stats": corp_tracking.stats(items),
+            "synced_at": synced.isoformat() if synced else None,
+            "sheet_ok": _CORP_SYNC.get("ok")}
+
+
+@app.post("/admin/corp-tracking/sync")
+async def trigger_corp_sync(request: Request, live: int = 1):
+    """Admin: sync the company shipments sheet now (?live=0 skips carrier calls)."""
+    _require_admin_token(request)
+    return await sync_corp_shipments(live=bool(live))
+
+
 @app.get("/api/webapp/track")
 async def api_webapp_track(number: str, carrier: str = "auto", _bg: bool = False):
     """Unified parcel & sea-container tracking endpoint. _bg=True → background refresh (no realtime)."""
@@ -9149,6 +9212,83 @@ async def api_track_remove(request: Request, number: str, user_id: int = 0):
     finally:
         if conn:
             conn.close()
+
+
+# ── «Вантажі компанії»: hourly sync from the shared Google Sheet ─────────────
+_CORP_SYNC: dict = {"at": None, "ok": None, "error": "", "rows": 0}
+_CORP_LOCK = asyncio.Lock()
+
+
+async def sync_corp_shipments(live: bool = True) -> dict:
+    """Download the sheet, upsert its shipments, then refresh the live carrier
+    status of active ones (each at most once an hour)."""
+    async with _CORP_LOCK:
+        url = os.getenv("CORP_SHEET_CSV_URL", corp_tracking.DEFAULT_SHEET_CSV)
+        try:
+            async with httpx.AsyncClient(follow_redirects=True, timeout=30) as hc:
+                r = await hc.get(url)
+            r.raise_for_status()
+            items = corp_tracking.parse_sheet(r.content.decode("utf-8", errors="replace"))
+        except Exception as e:
+            logger.warning("corp tracking: sheet download/parse failed: %s", e)
+            _CORP_SYNC.update(at=datetime.datetime.now(datetime.timezone.utc), ok=False, error=str(e)[:200])
+            return dict(_CORP_SYNC)
+
+        conn = get_db_connection()
+        cur = conn.cursor()
+        try:
+            for it in items:
+                cur.execute("INSERT INTO corp_shipments (key, data_json, number, in_sheet, synced_at) "
+                            "VALUES (%s, %s, %s, TRUE, NOW()) ON CONFLICT (key) DO UPDATE SET "
+                            "data_json = EXCLUDED.data_json, number = EXCLUDED.number, "
+                            "in_sheet = TRUE, synced_at = NOW()",
+                            (it["key"], json.dumps(it, ensure_ascii=False), it["number"] or None))
+            keys = [it["key"] for it in items]
+            cur.execute("UPDATE corp_shipments SET in_sheet = FALSE WHERE NOT (key = ANY(%s))", (keys,))
+            conn.commit()
+            todo = db_fetchall(cur, "SELECT key, number, data_json FROM corp_shipments WHERE in_sheet "
+                                    "AND number IS NOT NULL AND (last_checked IS NULL OR "
+                                    "last_checked < NOW() - INTERVAL '55 minutes') "
+                                    "ORDER BY last_checked NULLS FIRST LIMIT 45") if live else []
+        finally:
+            conn.close()
+        _CORP_SYNC.update(at=datetime.datetime.now(datetime.timezone.utc), ok=True, error="", rows=len(items))
+
+        refreshed = 0
+        for row in todo or []:
+            if json.loads(row["data_json"]).get("done"):
+                continue
+            try:
+                res = await api_webapp_track(row["number"], "auto", _bg=True)
+            except Exception as e:
+                logger.info("corp tracking: live %s failed: %s", row["number"], e)
+                res = None
+            conn = get_db_connection()
+            cur = conn.cursor()
+            try:
+                if res and res.get("ok"):
+                    cur.execute("UPDATE corp_shipments SET live_status = %s, live_carrier = %s, live_url = %s, "
+                                "live_steps = %s, last_checked = NOW() WHERE key = %s",
+                                ((res.get("status") or "")[:500] or None,
+                                 (res.get("carrier_name") or res.get("carrier") or res.get("line") or "")[:100] or None,
+                                 res.get("tracking_url") or None,
+                                 json.dumps(res.get("steps") or [], ensure_ascii=False)[:8000], row["key"]))
+                    refreshed += 1
+                else:
+                    cur.execute("UPDATE corp_shipments SET last_checked = NOW() WHERE key = %s", (row["key"],))
+                conn.commit()
+            finally:
+                conn.close()
+            await asyncio.sleep(1.0)
+        logger.info("corp tracking: %d rows from sheet, %d live statuses refreshed", len(items), refreshed)
+        return dict(_CORP_SYNC, refreshed=refreshed)
+
+
+async def _corp_sync_job():
+    try:
+        await sync_corp_shipments()
+    except Exception as e:
+        logger.warning("corp tracking: sync crashed: %s", e)
 
 
 async def refresh_tracked_shipments():
