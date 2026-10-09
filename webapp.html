@@ -325,6 +325,11 @@ select.field option{color:#111}
 .composer textarea{flex:1;border:0;outline:0;background:none;font-size:15px;resize:none;max-height:110px;line-height:1.4;padding:8px 0}
 .send{width:38px;height:38px;border-radius:50%;background:var(--ink);color:var(--bg);display:grid;place-items:center;flex-shrink:0}
 .send:disabled{opacity:.4}
+.sheet .composer textarea{min-height:0;height:auto;border-radius:0;padding:8px 0;background:none;box-shadow:none}
+.mic{width:38px;height:38px;border-radius:50%;background:var(--glass-soft);color:var(--ink);display:grid;place-items:center;flex-shrink:0}
+.mic.rec{background:var(--red);color:#fff;animation:recPulse 1.2s ease-in-out infinite}
+@keyframes recPulse{0%,100%{box-shadow:0 0 0 0 rgba(229,53,43,.45)}50%{box-shadow:0 0 0 8px rgba(229,53,43,0)}}
+.composer textarea:disabled{opacity:1;color:var(--red)}
 
 /* ════════ Ported modules, restyled ════════ */
 /* Markets */
@@ -841,12 +846,13 @@ body.curr-edit .curr-remove-btn{display:flex}
     <div class="grab"></div>
     <div class="body" id="aiBody">
       <div class="ai-head"><span id="aiFace"></span>
-        <div><div style="font-family:var(--font-display);font-weight:700;font-size:21px">Харві</div>
+        <div><div style="font-family:var(--font-display);font-weight:700;font-size:21px" data-t="assistant"></div>
           <div style="font-size:12.5px;color:var(--ink-3)" data-t="harveySub"></div></div></div>
       <div class="chat" id="chat"></div>
     </div>
     <div class="glass composer"><textarea id="aiQ" rows="1" oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px'"
       onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();askAI()}"></textarea>
+      <button class="mic" id="aiMic" onclick="toggleRec()" aria-label="voice"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg></button>
       <button class="send" id="aiSend" onclick="askAI()" aria-label="send"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button></div>
   </div>
 
@@ -953,7 +959,7 @@ const N = {
     cargo:'Вантажі',handbook:'Довідник речовин',personal:'Особисте',favorites:'Обране',notes:'Нотатки',newNote:'+ Нова',toolbar:'Нижня панель',
     canAdd:'Можна додати',tbHint:'До 5 вкладок разом з «Моє» — вона закріплена, тут налаштування; кнопка з роботом — окремо праворуч. Решта розділів відкривається з «Усі розділи».',
     allSections:'Усі розділи',subscriptions:'Сповіщення в Telegram',settings:'Налаштування',theme:'Тема',language:'Мова',fullscreen:'На весь екран (ПК)',
-    cancel:'Скасувати',addChart:'Графіки на екрані',apply:'Застосувати',harveySub:'Аналітик · знає все, що зібрав бот',
+    cancel:'Скасувати',addChart:'Графіки на екрані',apply:'Застосувати',harveySub:'Персональний помічник · знає все, що зібрав бот',assistant:'Асистент',
     save:'Зберегти',saved:'В обраному',note:'Нотатка',hasNote:'Є нотатка',explain:'Пояснити',source:'Джерело',myNote:'Моя нотатка',
     notePh:'Що це означає для нас? Кому переслати?',saveNote:'Зберегти нотатку',deleteNote:'Видалити',noteSaved:'📝 Нотатку збережено',
     noteDeleted:'Нотатку видалено',favAdded:'★ Додано в обране',favRemoved:'Прибрано з обраного',
@@ -963,10 +969,10 @@ const N = {
     sources:'Джерела',events:'подій',pharma:'фарма',namedCo:'названих компаній',d7:'7 днів',d30:'30 днів',d90:'90 днів',ever:'Весь час',
     allCompanies:'Усі компанії',allRegions:'Усі області',noEvents:'Подій за цей період немає',strikesLbl:'Удари по підприємствах',in30:'за 30 днів',
     morningDigest:'Ранковий дайджест · 09:00',middayDigest:'Полуденне оновлення · 14:00',weeklyDigest:'Тижневий дайджест',
-    heroTitle:'Головне для закупівлі та логістики',readAll:'Усі звіти',askHarvey:'Спитати Харві',charts:'Графіки ринку',
+    heroTitle:'Головне для закупівлі та логістики',readAll:'Усі звіти',askHarvey:'Спитати асистента',charts:'Графіки ринку',
     noDigest:'Найголовніше зі стрічки',newsCount:'новин',searchPh:'Новини, удари, компанії, сировина',nothing:'Нічого не знайдено',
-    aiPh:'Запитайте про ринок, ціни, удари…',aiHello:'Привіт! Я Харві 🐰 Знаю все, що зібрав бот: новини, удари по підприємствах, ринки й курси. Що цікавить?',
-    aiErr:'Харві зараз не може відповісти — спробуйте ще раз.',s1:'Що з обстрілами фармзаводів цього тижня?',s2:'Що важливого для закупівлі API?',
+    aiPh:'Запитайте про ринок, ціни, удари…',aiHello:'Привіт! Я твій персональний асистент 🤖 Чим можу допомогти? Знаю новини, удари по підприємствах, ринки й курси. Пишіть або надиктуйте голосом 🎤',
+    aiErr:'Асистент зараз не може відповісти — спробуйте ще раз.',recording:'Запис…',micNo:'Голосовий запис тут недоступний',micDenied:'Немає доступу до мікрофона',voiceEmpty:'Не вдалося розібрати — спробуйте ще раз',voiceErr:'Не вдалося розпізнати голос',s1:'Що з обстрілами фармзаводів цього тижня?',s2:'Що важливого для закупівлі API?',
     s3:'Як справи з фрахтом і Червоним морем?',s4:'Що нового в регуляціях?',fresh:'за добу',noNews:'Новин поки немає',loadError:'Помилка завантаження',
     onlyDaily:'Лише дайджести 9:00 / 14:00',onlyDailySub:'Без миттєвих новин',startBot:'Спершу запустіть бота командою /start',
     receive:'Отримувати в Telegram',off:'Вимкнено',auto:'Авто',light:'Світла',dark:'Темна',tbMax:'Максимум 5 вкладок разом з «Моє»',
@@ -979,7 +985,7 @@ const N = {
     cargo:'Cargo',handbook:'Substance handbook',personal:'Personal',favorites:'Saved',notes:'Notes',newNote:'+ New',toolbar:'Bottom bar',
     canAdd:'Available',tbHint:'Up to 5 tabs including «Me» — it is pinned and holds the settings; the robot button sits separately on the right. Other sections open from «All sections».',
     allSections:'All sections',subscriptions:'Telegram notifications',settings:'Settings',theme:'Theme',language:'Language',fullscreen:'Fullscreen (desktop)',
-    cancel:'Cancel',addChart:'Charts on screen',apply:'Apply',harveySub:'Analyst · knows everything the bot collected',
+    cancel:'Cancel',addChart:'Charts on screen',apply:'Apply',harveySub:'Personal helper · knows everything the bot collected',assistant:'Assistant',
     save:'Save',saved:'Saved',note:'Note',hasNote:'Has note',explain:'Explain',source:'Source',myNote:'My note',
     notePh:'What does it mean for us? Who should know?',saveNote:'Save note',deleteNote:'Delete',noteSaved:'📝 Note saved',
     noteDeleted:'Note deleted',favAdded:'★ Saved',favRemoved:'Removed from saved',
@@ -989,10 +995,10 @@ const N = {
     sources:'Sources',events:'events',pharma:'pharma',namedCo:'named companies',d7:'7 days',d30:'30 days',d90:'90 days',ever:'All time',
     allCompanies:'All companies',allRegions:'All regions',noEvents:'No events for this period',strikesLbl:'Strikes on enterprises',in30:'in 30 days',
     morningDigest:'Morning digest · 09:00',middayDigest:'Midday update · 14:00',weeklyDigest:'Weekly digest',
-    heroTitle:'What matters for sourcing & logistics',readAll:'All reports',askHarvey:'Ask Harvey',charts:'Market charts',
+    heroTitle:'What matters for sourcing & logistics',readAll:'All reports',askHarvey:'Ask the assistant',charts:'Market charts',
     noDigest:'Top stories from the feed',newsCount:'news',searchPh:'News, strikes, companies, commodities',nothing:'Nothing found',
-    aiPh:'Ask about markets, prices, strikes…',aiHello:'Hi! I’m Harvey 🐰 I know everything the bot collected: news, strikes on enterprises, markets and rates. What would you like to know?',
-    aiErr:'Harvey can’t answer right now — please try again.',s1:'Any strikes on pharma plants this week?',s2:'What matters for API sourcing?',
+    aiPh:'Ask about markets, prices, strikes…',aiHello:'Hi! I’m your personal assistant 🤖 How can I help? I know the news, strikes on enterprises, markets and rates. Type or dictate by voice 🎤',
+    aiErr:'The assistant can’t answer right now — please try again.',recording:'Recording…',micNo:'Voice recording is not available here',micDenied:'No microphone access',voiceEmpty:'Couldn’t make that out — try again',voiceErr:'Voice recognition failed',s1:'Any strikes on pharma plants this week?',s2:'What matters for API sourcing?',
     s3:'How are freight and the Red Sea?',s4:'What’s new in regulation?',fresh:'in 24h',noNews:'No news yet',loadError:'Loading error',
     onlyDaily:'Digests only (09:00 / 14:00)',onlyDailySub:'No instant news',startBot:'Start the bot with /start first',
     receive:'Receive in Telegram',off:'Off',auto:'Auto',light:'Light',dark:'Dark',tbMax:'Up to 5 tabs including «Me»',
@@ -1645,7 +1651,7 @@ async function renderSearch(q){
   el.innerHTML = hits.join('') || `<div class="glass empty">${T('nothing')} «${esc(q)}»</div>`;
 }
 
-// ════════════════════════ Спитати Харві ════════════════════════
+// ════════════════════════ personal assistant ════════════════════════
 let AIHIST = [], AISRC = [], _aiBusy = false;
 function openAI(q){
   addCls('aiSheet','on'); addCls('scrim','on'); syncBack();
@@ -1671,13 +1677,13 @@ function openSource(msgIdx, n){
   openExt(s.link);
 }
 function setHarvey(state){ document.querySelectorAll('#aiFace .rb, #orb .rb').forEach(h => { h.classList.remove('think','happy'); if(state) h.classList.add(state === 'thinking' ? 'think' : state); }); }
-async function askAI(q){
+async function askAI(q, voice){
   const inp = byId('aiQ');
-  q = (q || inp.value).trim(); if(!q || _aiBusy) return;
+  q = (typeof q === 'string' ? q : inp.value).trim(); if(!q || _aiBusy) return;
   inp.value = ''; inp.style.height = 'auto';
   _aiBusy = true; byId('aiSend').disabled = true;
   const chat = byId('chat'), body = byId('aiBody');
-  chat.insertAdjacentHTML('beforeend', `<div class="msg me">${esc(q)}</div><div class="msg ai typing" id="typing"><span></span><span></span><span></span></div>`);
+  chat.insertAdjacentHTML('beforeend', `<div class="msg me">${voice ? '🎤 ' : ''}${esc(q)}</div><div class="msg ai typing" id="typing"><span></span><span></span><span></span></div>`);
   body.scrollTop = 1e6; setHarvey('thinking');
   let ans, sources = [];
   try{
@@ -1694,6 +1700,55 @@ async function askAI(q){
   body.scrollTop = 1e6;
   setHarvey('happy'); setTimeout(() => setHarvey(null), 700); hap('light');
   _aiBusy = false; byId('aiSend').disabled = false;
+}
+
+// ── Voice questions: record → /api/webapp/transcribe → askAI ──
+let _rec = null, _recChunks = [], _recStart = 0, _recTimer = null;
+async function toggleRec(){
+  if(_rec){ _rec.stop(); return; }
+  if(_aiBusy) return;
+  if(!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder){ toast(T('micNo')); return; }
+  let stream;
+  try{ stream = await navigator.mediaDevices.getUserMedia({audio: true}); }catch{ toast(T('micDenied')); return; }
+  const type = ['audio/webm;codecs=opus','audio/mp4','audio/ogg;codecs=opus','audio/webm']
+    .find(t => window.MediaRecorder.isTypeSupported?.(t)) || '';
+  try{ _rec = new MediaRecorder(stream, type ? {mimeType: type} : undefined); }
+  catch{ stream.getTracks().forEach(t => t.stop()); toast(T('micNo')); return; }
+  _recChunks = [];
+  _rec.ondataavailable = e => { if(e.data && e.data.size) _recChunks.push(e.data); };
+  _rec.onstop = async () => {
+    stream.getTracks().forEach(t => t.stop());
+    clearInterval(_recTimer);
+    const mime = (_rec.mimeType || type || 'audio/webm');
+    const tooShort = Date.now() - _recStart < 700;
+    _rec = null; setRecUI(false);
+    const blob = new Blob(_recChunks, {type: mime});
+    if(tooShort || blob.size < 1000) return;
+    await sendVoice(blob, mime);
+  };
+  _rec.start(250); _recStart = Date.now(); setRecUI(true); hap('medium');
+  _recTimer = setInterval(() => {
+    const sec = Math.floor((Date.now() - _recStart) / 1000);
+    byId('aiQ').placeholder = '🔴 ' + T('recording') + ' ' + Math.floor(sec/60) + ':' + String(sec%60).padStart(2,'0');
+    if(sec >= 120 && _rec) _rec.stop();
+  }, 250);
+}
+function setRecUI(on){
+  byId('aiMic').classList.toggle('rec', on);
+  const q = byId('aiQ'); q.disabled = on; if(!on) q.placeholder = T('aiPh');
+}
+async function sendVoice(blob, mime){
+  const chat = byId('chat'), body = byId('aiBody');
+  chat.insertAdjacentHTML('beforeend', '<div class="msg me typing" id="voiceMsg">🎤 <span></span><span></span><span></span></div>');
+  body.scrollTop = 1e6; setHarvey('thinking');
+  try{
+    const r = await fetch('/api/webapp/transcribe?lang=' + lang + '&user_id=' + uid(), {method:'POST', headers:{'Content-Type': mime.split(';')[0]}, body: blob});
+    const d = await r.json();
+    byId('voiceMsg')?.remove();
+    const text = (d.text || '').trim();
+    if(!text){ setHarvey(null); toast(T('voiceEmpty')); return; }
+    askAI(text, true);
+  }catch{ byId('voiceMsg')?.remove(); setHarvey(null); toast(T('voiceErr')); }
 }
 
 // ════════════════════════ MARKETS (core) ════════════════════════

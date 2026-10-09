@@ -3566,34 +3566,11 @@ async def delete_chat_topics(client: httpx.AsyncClient, chat_id):
     _TOPICS_RETRY_AT.pop(str(chat_id), None)
 
 
-def _with_app_button(body: dict) -> dict:
-    """Add a «📱 Відкрити додаток» Mini App button under every message in a
-    private chat (Telegram allows web_app buttons only there). An existing
-    inline keyboard gets it as an extra last row; other keyboards are kept."""
-    url = os.getenv("WEBAPP_URL", "")
-    try:
-        private = int(body.get("chat_id")) > 0
-    except (TypeError, ValueError):
-        private = False
-    if not url or not private:
-        return body
-    btn = [{"text": "📱 Відкрити додаток", "web_app": {"url": url}}]
-    rm = body.get("reply_markup")
-    if rm is None:
-        return dict(body, reply_markup={"inline_keyboard": [btn]})
-    if isinstance(rm, dict) and "inline_keyboard" in rm:
-        rows = rm["inline_keyboard"]
-        if any("web_app" in b for row in rows for b in row):
-            return body
-        return dict(body, reply_markup={**rm, "inline_keyboard": rows + [btn]})
-    return body
-
-
 async def send_to_topic(client: httpx.AsyncClient, chat_id, topic_key: str | None,
                         payload: dict):
     """sendMessage to chat_id, inside its `topic_key` topic when available
     (REPORTS_KEY or a department code). Falls back to a plain message."""
-    body = _with_app_button(dict(payload, chat_id=chat_id))
+    body = dict(payload, chat_id=chat_id)
     tid = (await ensure_chat_topics(client, chat_id)).get(topic_key) if topic_key else None
     if tid:
         body["message_thread_id"] = tid
@@ -7072,7 +7049,7 @@ async def serve_webapp():
     return HTMLResponse(content=_WEBAPP_HTML, status_code=200, headers=_NO_CACHE_HEADERS)
 
 
-# ── Mini App: personal data, digest, subscriptions, "Спитати Харві" ─────────
+# ── Mini App: personal data, digest, subscriptions, personal assistant ──────
 
 @app.get("/api/webapp/digest/latest")
 def api_digest_latest():
@@ -7306,9 +7283,39 @@ def _ask_news(keywords: list[str], limit: int = 18) -> list[dict]:
     return found
 
 
+_TRANSCRIBE_MAX_BYTES = 10 * 1024 * 1024
+
+
+@app.post("/api/webapp/transcribe")
+async def api_transcribe(request: Request, lang: str = "ua"):
+    """Voice question for the assistant: raw audio body (webm/ogg/mp4 from the
+    browser's MediaRecorder) → text. The client then sends it to /ask."""
+    verified_uid(request, fallback=int(request.query_params.get("user_id") or 0))
+    if not aclient:
+        raise HTTPException(status_code=503, detail="AI unavailable")
+    audio = await request.body()
+    if not audio:
+        raise HTTPException(status_code=400, detail="empty audio")
+    if len(audio) > _TRANSCRIBE_MAX_BYTES:
+        raise HTTPException(status_code=413, detail="audio too long")
+    mime = (request.headers.get("content-type") or "audio/webm").split(";")[0].strip()
+    ext = {"audio/mp4": "m4a", "audio/aac": "m4a", "audio/x-m4a": "m4a", "audio/mpeg": "mp3",
+           "audio/ogg": "ogg", "audio/wav": "wav", "audio/webm": "webm"}.get(mime, "webm")
+    try:
+        tr = await aclient.audio.transcriptions.create(
+            model=os.getenv("TRANSCRIBE_MODEL", "gpt-4o-transcribe"),
+            file=(f"voice.{ext}", audio, mime),
+            language="en" if lang == "en" else "uk",
+        )
+    except Exception as e:
+        logger.warning("transcribe failed: %s", e)
+        raise HTTPException(status_code=502, detail="transcription failed")
+    return {"ok": True, "text": (tr.text or "").strip()}
+
+
 @app.post("/api/webapp/ask")
 async def api_ask(request: Request):
-    """"Спитати Харві": answer a question from the bot's own data (news,
+    """Personal assistant: answer a question from the bot's own data (news,
     strikes, markets, NBU rates) with numbered source citations.
     Body: {question, history?: [{role, content}], lang?}."""
     body = await request.json()
@@ -7343,7 +7350,7 @@ async def api_ask(request: Request):
         answer = (resp.choices[0].message.content or "").strip()
     except Exception as e:
         logger.warning("ask: LLM failed: %s", e)
-        return {"ok": False, "answer": "Харві зараз не може відповісти — спробуйте за хвилину.",
+        return {"ok": False, "answer": "Асистент зараз не може відповісти — спробуйте за хвилину.",
                 "sources": []}
     cited = {int(n) for n in re.findall(r"\[(\d+)\]", answer)}
     return {"ok": True, "answer": answer,

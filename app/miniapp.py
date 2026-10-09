@@ -2,7 +2,7 @@
 
 * the bottom toolbar: which sections exist and how a user's choice is
   normalised (max 5 tabs, "Моє" always pinned last);
-* "Спитати Харві" — the AI chat: keyword extraction for retrieval, the context
+* the personal assistant (AI chat): keyword extraction for retrieval, the context
   block handed to the model and the system prompt;
 * department-level subscription toggles for the settings screen.
 
@@ -82,7 +82,7 @@ def set_department(department_topics: list[dict], subs: str | None,
     return ",".join(c for c in all_codes if c in enabled)
 
 
-# ── "Спитати Харві" ─────────────────────────────────────────────────────────
+# ── Personal assistant (AI chat) ─────────────────────────────────────────────────────────
 _STOP = {
     "що", "як", "який", "яка", "які", "яке", "чи", "де", "коли", "чому", "хто", "про",
     "для", "від", "або", "але", "щодо", "цього", "цей", "ця", "ці", "тиждень", "тижня",
@@ -155,7 +155,7 @@ def build_context(news: list[dict], strikes: list[dict], markets: list[dict],
 def build_ask_prompt(lang: str = "ua") -> str:
     language = "English" if lang == "en" else "Ukrainian"
     return (
-        "Ти — Харві, робот-аналітик у застосунку Alliance News. Допомагаєш команді "
+        "Ти — персональний асистент користувача в застосунку Alliance News. Допомагаєш команді "
         "українського імпортера фармацевтичної та хімічної сировини (Китай, Індія) "
         "розібратися в новинах, ринках, логістиці, регуляціях і ударах по "
         "підприємствах.\n"
@@ -168,6 +168,6 @@ def build_ask_prompt(lang: str = "ua") -> str:
         "- Якщо в контексті немає відповіді — чесно скажи, що в базі бота цього немає, "
         "і запропонуй, що можна запитати інакше. Нічого не вигадуй: ні цифр, ні дат.\n"
         "- Можна виділяти **жирним** ключові цифри. Без заголовків і таблиць.\n"
-        "- Тон дружній і професійний; можна зрідка легкий жарт у стилі робота-аналітика, "
+        "- Тон дружній і професійний; можна зрідка легкий жарт, "
         "але не в темі обстрілів і загиблих."
     )
