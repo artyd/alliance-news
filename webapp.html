@@ -89,8 +89,8 @@ a{color:inherit}
 #app.on{opacity:1;visibility:visible;pointer-events:auto}
 @keyframes forceShowApp{to{opacity:1;visibility:visible;pointer-events:auto}}
 @keyframes forceHideSplash{to{opacity:0;visibility:hidden;pointer-events:none}}
-#app{animation:forceShowApp .1s linear 3s forwards}
-#splash{animation:forceHideSplash .1s linear 3s forwards}
+#app{animation:forceShowApp .1s linear 4s forwards}
+#splash{animation:forceHideSplash .1s linear 4s forwards}
 body.boot-fallback #app{opacity:1!important;visibility:visible!important;pointer-events:auto!important}
 body.boot-fallback #splash{display:none!important}
 .safe-mode-msg{display:none;position:relative;z-index:5;font-size:12.5px;text-align:center;padding:8px 16px;color:var(--ink-2)}
@@ -566,7 +566,8 @@ body.curr-edit .curr-remove-btn{display:flex}
   .curr-list.compact{grid-template-columns:repeat(3,1fr)}
   .depts{grid-template-columns:repeat(3,1fr)}
 }
-@media (prefers-reduced-motion: reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
+@media (prefers-reduced-motion: reduce){*:not(.sp-logo-img),*::before,*::after{animation:none!important;transition:none!important}
+  .sp-logo-img{animation:logo-pulse 2s ease-in-out infinite!important}}
 </style>
 </head>
 
@@ -583,7 +584,7 @@ body.curr-edit .curr-remove-btn{display:flex}
       if(s){s.style.display='none';}
     }catch(e){}
   }
-  setTimeout(_earlyShow,3000);
+  setTimeout(_earlyShow,4000);
   // theme before first paint: Telegram scheme or system
   try{
     var tw=window.Telegram&&window.Telegram.WebApp;
@@ -3450,7 +3451,7 @@ window.onerror = function(msg, src, line, col, err){
 window.addEventListener('unhandledrejection', ev => { console.error('WEBAPP PROMISE ERROR:', ev.reason); hideSplash(); });
 
 window.addEventListener('load', async () => {
-  setTimeout(hideSplash, 1800);
+  setTimeout(hideSplash, 2500);
   try{
     applyTheme(); applyStaticText(); updateStaticText();
     setHTML('orbFace', harveySVG(false)); setHTML('aiFace', harveySVG(true));
