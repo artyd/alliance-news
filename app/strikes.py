@@ -44,8 +44,12 @@ WATCHLIST: list[dict] = [
      "aliases": ["київмедпрепарат", "kyivmedpreparat"]},
     {"name": "Галичфарм", "kind": "manufacturer",
      "aliases": ["галичфарм", "galychpharm"]},
+    # Not the bare adjective: "Борщагівська громада" / "Софіївська Борщагівка"
+    # are places. Any case form of the adjective + a plant word.
     {"name": "Борщагівський ХФЗ", "kind": "manufacturer",
-     "aliases": ["борщагівський", "бхфз", "borshchahivskiy"]},
+     "query": "борщагівський хіміко-фармацевтичний",
+     "aliases": [r"re:борщагівськ\w*\s+(?:хіміко|хфз|завод|фармзавод|фармацевтичн)\w*",
+                 "бхфз", "borshchahivskiy"]},
     {"name": "Здоров'я (Харків)", "kind": "manufacturer",
      "aliases": ["фармацевтична компанія «здоров'я»", "фармацевтична компанія здоров'я",
                  "фк «здоров'я»", "фк здоров'я", "фк «здоровʼя»", "фк здоровʼя",
@@ -89,8 +93,10 @@ _KIND_UA = {"manufacturer": "виробник ліків", "distributor": "фа�
 
 
 def _word_re(words: list[str]) -> re.Pattern:
-    """Whole-word, case-insensitive alternation (\\w is Unicode → Cyrillic-aware)."""
-    alts = sorted({re.escape(w.lower()) for w in words}, key=len, reverse=True)
+    """Whole-word, case-insensitive alternation (\\w is Unicode → Cyrillic-aware).
+    An alias starting with 're:' is a raw regex (for case forms)."""
+    alts = sorted({w[3:] if w.startswith("re:") else re.escape(w.lower()) for w in words},
+                  key=len, reverse=True)
     return re.compile(r"(?<!\w)(?:" + "|".join(alts) + r")(?!\w)", re.IGNORECASE)
 
 
@@ -148,12 +154,16 @@ def google_news_url(query: str, days: int = 2) -> str:
     return f"https://news.google.com/rss/search?q={q}&hl=uk&gl=UA&ceid=UA:uk"
 
 
+def search_name(company: dict) -> str:
+    """Spelling used in the Google News query: an explicit "query", else the
+    first (most specific) alias."""
+    return company.get("query") or company["aliases"][0]
+
+
 def _company_queries(batch: int = 6) -> list[str]:
     names = []
     for c in WATCHLIST:
-        # The first alias is the most specific spelling of the name.
-        a = c["aliases"][0]
-        names.append(f'"{a}"')
+        names.append(f'"{search_name(c)}"')
     out = []
     for i in range(0, len(names), batch):
         out.append("(" + " OR ".join(names[i:i + batch]) + ") " + _ATTACK_Q)
@@ -280,6 +290,7 @@ CATEGORIES = {
                       "зведення без пошкодженого підприємства",
 }
 REPORTED_CATEGORIES = {"pharma", "adjacent", "unnamed"}
+NEVER_REPORTED = {"not_enterprise", "energy_infra"}
 
 
 def is_reportable(cls: dict) -> bool:
@@ -287,7 +298,11 @@ def is_reportable(cls: dict) -> bool:
     in Ukraine, on a site in a reported category — or on a tracked company."""
     if not cls.get("is_strike") or not cls.get("in_ukraine"):
         return False
-    return cls.get("category") in REPORTED_CATEGORIES or bool(cls.get("watchlist"))
+    if cls.get("category") in REPORTED_CATEGORIES:
+        return True
+    # A tracked company counts even if the model filed it under "other
+    # business" — but never housing / energy (e.g. "Борщагівська громада").
+    return bool(cls.get("canonical")) and cls.get("category") not in NEVER_REPORTED
 
 
 def build_classify_prompt() -> str:
@@ -359,10 +374,13 @@ def canonical_company(cls: dict, text: str = "") -> str | None:
     """Watchlist name for the company the classifier found (or that the text
     mentions), so every report about e.g. Борщагівський ХФЗ carries the same
     name and events can be merged without the LLM."""
-    hits = watchlist_hits(_val(cls.get("company")))
-    if not hits and cls.get("watchlist"):
-        hits = watchlist_hits(text)
-    return hits[0] if hits else None
+    # The name must actually occur in the report: the model sometimes copies a
+    # watchlist name onto an unrelated place with a similar name.
+    in_text = watchlist_hits(text)
+    names = watchlist_hits(_val(cls.get("company")))
+    if not names and cls.get("watchlist"):
+        names = in_text
+    return next((n for n in names if n in in_text), None)
 
 
 def build_match_input(cls: dict, events: list[dict]) -> str:

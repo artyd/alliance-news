@@ -67,7 +67,8 @@ def test_google_news_url_is_ukrainian_edition():
 def test_every_watchlist_company_is_queried():
     joined = " ".join(strikes.GOOGLE_NEWS_QUERIES)
     for c in strikes.WATCHLIST:
-        assert f'"{c["aliases"][0]}"' in joined
+        assert f'"{strikes.search_name(c)}"' in joined
+        assert "re:" not in strikes.search_name(c)
 
 
 def test_parse_json_lenient():
@@ -127,9 +128,29 @@ def test_reportable_rule():
     assert strikes.is_reportable(dict(base, category="pharma"))
     assert strikes.is_reportable(dict(base, category="unnamed"))
     assert not strikes.is_reportable(dict(base, category="other_business"))
-    assert strikes.is_reportable(dict(base, category="other_business", watchlist=True))
+    assert strikes.is_reportable(dict(base, category="other_business", canonical="Фармак"))
+    # a tracked name never overrides housing / energy
+    assert not strikes.is_reportable(dict(base, category="not_enterprise", canonical="Фармак"))
     assert not strikes.is_reportable(dict(base, category="pharma", in_ukraine=False))
     assert not strikes.is_reportable({"is_strike": False, "in_ukraine": True, "category": "pharma"})
+
+
+def test_borshchahivka_place_is_not_the_plant():
+    # Regression: houses in "Борщагівська громада" were filed as Борщагівський ХФЗ.
+    text = "У Борщагівський громаді фіксують пошкодження приватних будинків"
+    assert strikes.watchlist_hits(text) == []
+    cls = {"company": "Борщагівський ХФЗ", "watchlist": True}
+    assert strikes.canonical_company(cls, text) is None
+    for t in ("Удар по Борщагівському хіміко-фармацевтичному заводу",
+              "Росія атакувала Борщагівський ХФЗ", "дрони вдарили по БХФЗ",
+              "пошкоджено цех Борщагівського заводу", "Борщагівський фармацевтичний завод"):
+        assert strikes.watchlist_hits(t) == ["Борщагівський ХФЗ"], t
+        assert strikes.canonical_company({"company": "Борщагівський завод"}, t) == "Борщагівський ХФЗ"
+
+
+def test_canonical_requires_name_in_text():
+    assert strikes.canonical_company({"company": "Фармак"}, "Удар по складу в Києві") is None
+    assert strikes.canonical_company({"company": "АТ «Фармак»"}, "Удар по складу Фармак") == "Фармак"
 
 
 def test_format_update():
