@@ -3566,11 +3566,34 @@ async def delete_chat_topics(client: httpx.AsyncClient, chat_id):
     _TOPICS_RETRY_AT.pop(str(chat_id), None)
 
 
+def _with_app_button(body: dict) -> dict:
+    """Add a «📱 Відкрити додаток» Mini App button under every message in a
+    private chat (Telegram allows web_app buttons only there). An existing
+    inline keyboard gets it as an extra last row; other keyboards are kept."""
+    url = os.getenv("WEBAPP_URL", "")
+    try:
+        private = int(body.get("chat_id")) > 0
+    except (TypeError, ValueError):
+        private = False
+    if not url or not private:
+        return body
+    btn = [{"text": "📱 Відкрити додаток", "web_app": {"url": url}}]
+    rm = body.get("reply_markup")
+    if rm is None:
+        return dict(body, reply_markup={"inline_keyboard": [btn]})
+    if isinstance(rm, dict) and "inline_keyboard" in rm:
+        rows = rm["inline_keyboard"]
+        if any("web_app" in b for row in rows for b in row):
+            return body
+        return dict(body, reply_markup={**rm, "inline_keyboard": rows + [btn]})
+    return body
+
+
 async def send_to_topic(client: httpx.AsyncClient, chat_id, topic_key: str | None,
                         payload: dict):
     """sendMessage to chat_id, inside its `topic_key` topic when available
     (REPORTS_KEY or a department code). Falls back to a plain message."""
-    body = dict(payload, chat_id=chat_id)
+    body = _with_app_button(dict(payload, chat_id=chat_id))
     tid = (await ensure_chat_topics(client, chat_id)).get(topic_key) if topic_key else None
     if tid:
         body["message_thread_id"] = tid

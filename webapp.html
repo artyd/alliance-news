@@ -17,33 +17,33 @@
 :root{
   --font-display:'Geologica','Onest',-apple-system,sans-serif;
   --font:'Onest','Geologica',-apple-system,sans-serif;
-  --bg:#E9EDF4;
-  --ink:#0B1220; --ink-2:rgba(11,18,32,.66); --ink-3:rgba(11,18,32,.42);
+  --bg:#FFFFFF;
+  --ink:#0B1220; --ink-2:rgba(11,18,32,.66); --ink-3:rgba(11,18,32,.45);
   --hair:rgba(11,18,32,.08);
-  --glass:rgba(255,255,255,.52); --glass-strong:rgba(255,255,255,.74); --glass-soft:rgba(255,255,255,.34);
-  --rim-hi:rgba(255,255,255,.95); --rim-lo:rgba(255,255,255,.25); --edge:rgba(255,255,255,.65);
-  --shadow:0 18px 40px -18px rgba(30,45,80,.35), 0 2px 6px rgba(30,45,80,.06);
-  --blob-1:#7CC4FF; --blob-2:#FFC37A; --blob-3:#C9A7FF; --blob-4:#7EF0C8;
-  --blue:#0A84FF; --teal:#2BB6D6; --indigo:#5E5CE6; --amber:#F59E0B; --violet:#AF52DE;
+  /* solid surfaces: cards, elevated (sheets/bar), soft (chips, inputs) */
+  --glass:#F4F5F8; --glass-strong:#FFFFFF; --glass-soft:#ECEEF2;
+  --edge:rgba(11,18,32,.07); --rim-hi:transparent; --rim-lo:transparent;
+  --shadow:none; --shadow-up:0 10px 30px -10px rgba(20,30,60,.25), 0 0 0 1px rgba(11,18,32,.06);
+  --blue:#0A84FF; --teal:#1AA6C4; --indigo:#5E5CE6; --amber:#F59E0B; --violet:#AF52DE;
   --green:#16A34A; --red:#E5352B; --up:#16A34A; --down:#E5352B;
-  --strike:#FF3B30; --strike-tint:rgba(255,59,48,.10);
+  --strike:#FF3B30; --strike-tint:rgba(255,59,48,.08);
   --chart-text:#5B6475; --chart-grid:rgba(11,18,32,.08); --chart-tip:#FFFFFF;
-  /* legacy aliases used by ported modules */
   --text:var(--ink); --sub:var(--ink-2); --muted:var(--ink-3); --border:var(--edge);
   --surface:var(--glass); --surface2:var(--glass-strong); --r:20px;
   --safe-b:env(safe-area-inset-bottom,0px);
+  /* top inset: device notch + Telegram's own header in fullscreen mode */
+  --safe-t:max(env(safe-area-inset-top,0px), calc(var(--tg-safe-area-inset-top,0px) + var(--tg-content-safe-area-inset-top,0px)));
 }
 :root[data-theme="dark"]{
-  --bg:#05070D;
-  --ink:#F3F5FA; --ink-2:rgba(243,245,250,.68); --ink-3:rgba(243,245,250,.42);
+  --bg:#000000;
+  --ink:#F3F5FA; --ink-2:rgba(243,245,250,.68); --ink-3:rgba(243,245,250,.45);
   --hair:rgba(255,255,255,.08);
-  --glass:rgba(28,32,46,.46); --glass-strong:rgba(40,45,62,.70); --glass-soft:rgba(28,32,46,.30);
-  --rim-hi:rgba(255,255,255,.28); --rim-lo:rgba(255,255,255,.04); --edge:rgba(255,255,255,.12);
-  --shadow:0 20px 50px -20px rgba(0,0,0,.8), 0 2px 8px rgba(0,0,0,.3);
-  --blob-1:#173A8C; --blob-2:#8A4416; --blob-3:#4A2591; --blob-4:#0B6B63;
+  --glass:#121317; --glass-strong:#1C1D22; --glass-soft:#24262C;
+  --edge:rgba(255,255,255,.07);
+  --shadow-up:0 10px 30px -10px rgba(0,0,0,.9), 0 0 0 1px rgba(255,255,255,.07);
   --green:#30D158; --red:#FF453A; --up:#30D158; --down:#FF453A;
-  --strike:#FF453A; --strike-tint:rgba(255,69,58,.16);
-  --chart-text:#9AA3B5; --chart-grid:rgba(255,255,255,.07); --chart-tip:#151a26;
+  --strike:#FF453A; --strike-tint:rgba(255,69,58,.12);
+  --chart-text:#9AA3B5; --chart-grid:rgba(255,255,255,.07); --chart-tip:#1C1D22;
 }
 
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -53,33 +53,13 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
 input,textarea,select{font:inherit;color:inherit}
 a{color:inherit}
 
-/* ── Aurora behind the glass ── */
-.aurora{position:fixed;inset:-20%;z-index:0;filter:blur(60px) saturate(140%);opacity:.9;pointer-events:none}
-:root[data-theme="dark"] .aurora{opacity:.8}
-.aurora i{position:absolute;border-radius:50%;animation:drift 22s ease-in-out infinite alternate}
-.aurora i:nth-child(1){width:60%;height:45%;left:-5%;top:0;background:var(--blob-1)}
-.aurora i:nth-child(2){width:55%;height:40%;right:-10%;top:18%;background:var(--blob-2);animation-duration:26s;animation-delay:-6s}
-.aurora i:nth-child(3){width:50%;height:42%;left:10%;bottom:8%;background:var(--blob-3);animation-duration:30s;animation-delay:-12s}
-.aurora i:nth-child(4){width:40%;height:30%;right:0;bottom:-4%;background:var(--blob-4);animation-duration:24s;animation-delay:-3s}
-@keyframes drift{0%{transform:translate(0,0) scale(1)}50%{transform:translate(8%,6%) scale(1.12)}100%{transform:translate(-6%,-4%) scale(.95)}}
-.grain{position:fixed;inset:0;z-index:1;pointer-events:none;opacity:.06;mix-blend-mode:overlay;
-  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")}
-
-/* ── Liquid Glass material ── */
-.glass{position:relative;background:var(--glass);
-  -webkit-backdrop-filter:blur(26px) saturate(190%);backdrop-filter:blur(26px) saturate(190%);
-  border-radius:26px;box-shadow:var(--shadow), inset 0 1px 0 var(--rim-hi), inset 0 -1px 0 var(--rim-lo)}
-.glass::before{content:'';position:absolute;inset:0;border-radius:inherit;padding:1px;pointer-events:none;
-  background:linear-gradient(140deg,var(--rim-hi),transparent 38%,transparent 62%,var(--edge));
-  -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask-composite:exclude}
-.glass.sheen::after{content:'';position:absolute;inset:0;border-radius:inherit;pointer-events:none;
-  background:radial-gradient(120% 60% at 30% 0%,rgba(255,255,255,.18),transparent 60%)}
+/* ── Surfaces (flat — no blur: blur on every card made scrolling lag) ── */
+.glass{position:relative;background:var(--glass);border-radius:26px;box-shadow:inset 0 0 0 1px var(--edge)}
 .glass.strong{background:var(--glass-strong)}
 
-/* ── SPLASH: pulsing logo over the aurora ── */
+/* ── SPLASH: pulsing logo ── */
 #splash{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;z-index:9999;
   background:var(--bg);transition:opacity .5s ease;overflow:hidden}
-#splash .aurora{position:absolute}
 .sp-logo-img{width:62vw;max-width:320px;height:auto;object-fit:contain;z-index:2;position:relative;
   animation:logo-pulse 2s ease-in-out infinite;filter:drop-shadow(0 20px 40px rgba(0,0,0,.18))}
 @keyframes logo-pulse{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.06);opacity:.85}}
@@ -97,14 +77,10 @@ body.boot-fallback #splash{display:none!important}
 body.boot-error .safe-mode-msg{display:block}
 
 .views{position:absolute;inset:0;z-index:2;max-width:720px;margin:0 auto}
-.view{position:absolute;inset:0;overflow-y:auto;overflow-x:hidden;padding:max(14px,env(safe-area-inset-top)) 16px calc(130px + var(--safe-b));
-  scrollbar-width:none;opacity:0;pointer-events:none;transform:translateY(10px);transition:opacity .3s,transform .45s cubic-bezier(.2,.8,.2,1)}
+.view{position:absolute;inset:0;overflow-y:auto;overflow-x:hidden;padding:calc(14px + var(--safe-t)) 16px calc(130px + var(--safe-b));
+  scrollbar-width:none;opacity:0;pointer-events:none;transition:opacity .2s}
 .view::-webkit-scrollbar{display:none}
-.view.on{opacity:1;pointer-events:auto;transform:none}
-.view.on .rv{animation:rise .6s cubic-bezier(.2,.8,.2,1) both}
-.view.on .rv:nth-child(2){animation-delay:.05s}.view.on .rv:nth-child(3){animation-delay:.1s}
-.view.on .rv:nth-child(4){animation-delay:.15s}.view.on .rv:nth-child(5){animation-delay:.2s}
-.view.on .rv:nth-child(6){animation-delay:.25s}.view.on .rv:nth-child(7){animation-delay:.3s}
+.view.on{opacity:1;pointer-events:auto}
 @keyframes rise{from{opacity:0;transform:translateY(16px) scale(.985)}to{opacity:1;transform:none}}
 
 /* ── Headers ── */
@@ -273,9 +249,8 @@ select.field option{color:#111}
 .hint{font-size:12.5px;color:var(--ink-3);margin:8px 4px 0;line-height:1.45}
 
 /* ── Floating tab bar with sliding liquid lens ── */
-.tabbar{position:fixed;left:max(10px,calc(50% - 350px));right:max(10px,calc(50% - 350px));bottom:calc(18px + var(--safe-b));height:66px;border-radius:33px;z-index:30;display:flex;padding:5px}
-.lens{position:absolute;top:5px;bottom:5px;left:5px;border-radius:28px;z-index:0;background:var(--glass-strong);
-  box-shadow:inset 0 1px 0 var(--rim-hi),inset 0 -1px 1px var(--rim-lo),0 6px 16px -6px rgba(0,0,0,.25);
+.tabbar{position:fixed;left:max(12px,calc(50% - 350px));right:max(84px,calc(50% - 278px));background:var(--glass-strong)!important;box-shadow:var(--shadow-up)!important;bottom:calc(18px + var(--safe-b));height:66px;border-radius:33px;z-index:30;display:flex;padding:5px}
+.lens{position:absolute;top:5px;bottom:5px;left:5px;border-radius:28px;z-index:0;background:var(--glass-soft);
   transition:transform .55s cubic-bezier(.3,1.35,.45,1),width .55s cubic-bezier(.3,1.35,.45,1)}
 .tab{position:relative;z-index:1;flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;
   font-size:10.5px;font-weight:600;color:var(--ink-3);transition:color .3s;white-space:nowrap}
@@ -284,13 +259,11 @@ select.field option{color:#111}
 .tab.on svg{transform:scale(1.08)}
 .tab .dotn{position:absolute;top:8px;right:calc(50% - 16px);width:8px;height:8px;border-radius:50%;background:var(--strike);box-shadow:0 0 0 2px var(--bg)}
 
-/* ── AI button (robot) inside the tab bar ── */
-.tab.ai{color:var(--ink)}
-.rbi{display:grid;place-items:center;width:30px;height:30px;margin-top:-3px}
-.rbi svg{width:30px;height:30px;filter:drop-shadow(0 4px 8px rgba(47,91,255,.35))}
-.tab.ai:active .rbi{transform:scale(.92)}
-.tb-preview .rbi{width:22px;height:22px;margin:0}
-.tb-preview .rbi svg{width:22px;height:22px}
+/* ── AI button: a separate round button next to the bar, the robot fills it ── */
+.orb{position:fixed;right:max(12px,calc(50% - 350px));bottom:calc(18px + var(--safe-b));width:66px;height:66px;border-radius:50%;z-index:30;
+  display:grid;place-items:center;background:none;padding:0}
+.orb svg{width:66px;height:66px;filter:drop-shadow(0 8px 14px rgba(47,91,255,.35))}
+.orb:active svg{transform:scale(.94)}
 .rb .eye{transform-box:fill-box;transform-origin:center;animation:rbBlink 4.2s infinite}
 .rb .ant{animation:rbGlow 2s ease-in-out infinite}
 .rb.think .eye{animation:rbScan .9s ease-in-out infinite alternate}
@@ -304,7 +277,7 @@ select.field option{color:#111}
 /* ── Sheets, overlays ── */
 .scrim{position:fixed;inset:0;z-index:40;background:rgba(0,0,0,.22);opacity:0;pointer-events:none;transition:opacity .35s}
 .scrim.on{opacity:1;pointer-events:auto}
-.sheet{position:fixed;left:max(8px,calc(50% - 352px));right:max(8px,calc(50% - 352px));bottom:calc(8px + var(--safe-b));max-height:90%;z-index:50;border-radius:34px;
+.sheet{box-shadow:var(--shadow-up)!important;position:fixed;left:max(8px,calc(50% - 352px));right:max(8px,calc(50% - 352px));bottom:calc(8px + var(--safe-b));max-height:90%;z-index:50;border-radius:34px;
   display:flex;flex-direction:column;transform:translateY(115%);transition:transform .55s cubic-bezier(.2,1.1,.3,1)}
 .sheet.on{transform:none}
 .sheet .grab{width:38px;height:5px;border-radius:5px;background:var(--ink-3);opacity:.5;margin:9px auto 4px;flex-shrink:0}
@@ -316,8 +289,8 @@ select.field option{color:#111}
 .sheet .row{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
 .srcs{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
 .srcs a{font-size:12.5px;font-weight:600;padding:6px 10px;border-radius:99px;background:var(--glass-soft);box-shadow:inset 0 0 0 1px var(--edge);color:var(--ink-2);text-decoration:none}
-.overlay{position:fixed;inset:0;z-index:45;padding:max(16px,env(safe-area-inset-top)) 16px 20px;display:flex;flex-direction:column;
-  background:color-mix(in srgb,var(--bg) 55%,transparent);-webkit-backdrop-filter:blur(30px) saturate(160%);backdrop-filter:blur(30px) saturate(160%);
+.overlay{position:fixed;inset:0;z-index:45;padding:calc(16px + var(--safe-t)) 16px 20px;display:flex;flex-direction:column;
+  background:var(--bg);
   opacity:0;pointer-events:none;transition:opacity .3s}
 .overlay.on{opacity:1;pointer-events:auto}
 .overlay>*{max-width:688px;width:100%;margin-left:auto;margin-right:auto}
@@ -377,7 +350,7 @@ body.mk-edit .pcard{cursor:default;animation:jiggle .35s ease-in-out infinite al
 /* modal list (markets / currencies) */
 .mk-modal-ov{position:fixed;inset:0;background:rgba(0,0,0,.25);z-index:60;display:none;align-items:flex-end;justify-content:center}
 .mk-modal-ov.on{display:flex}
-.mk-modal{width:100%;max-width:704px;margin:0 8px calc(8px + var(--safe-b));max-height:80vh;display:flex;flex-direction:column;border-radius:34px;animation:sheetin .5s cubic-bezier(.2,1.1,.3,1)}
+.mk-modal{box-shadow:var(--shadow-up)!important;width:100%;max-width:704px;margin:0 8px calc(8px + var(--safe-b));max-height:80vh;display:flex;flex-direction:column;border-radius:34px;animation:sheetin .5s cubic-bezier(.2,1.1,.3,1)}
 @keyframes sheetin{from{transform:translateY(100%)}to{transform:none}}
 .mk-modal-top{display:flex;align-items:center;justify-content:space-between;padding:16px 18px 6px}
 .mk-modal-ttl{font-size:17px;font-weight:700;font-family:var(--font-display)}
@@ -442,15 +415,15 @@ body.curr-edit .curr-remove-btn{display:flex}
 .trk-big-sub{font-size:12.5px;color:var(--ink-3);text-align:center;line-height:1.4}
 .trk-nav-row{display:flex;gap:8px;margin-bottom:14px}
 .trk-nav-back{display:inline-flex;align-items:center;gap:7px;padding:9px 15px;border-radius:99px;font-size:13.5px;font-weight:600;cursor:pointer;margin-bottom:14px;
-  background:var(--glass);-webkit-backdrop-filter:blur(20px);backdrop-filter:blur(20px);box-shadow:inset 0 0 0 1px var(--edge);align-self:flex-start}
+  background:var(--glass);box-shadow:inset 0 0 0 1px var(--edge);align-self:flex-start}
 .trk-nav-row .trk-nav-back{margin-bottom:0}
 .trk-carriers{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px}
 .trk-car-btn{padding:12px 8px;border-radius:16px;font-size:13.5px;font-weight:600;text-align:center;color:var(--ink-2);
-  background:var(--glass);-webkit-backdrop-filter:blur(20px);backdrop-filter:blur(20px);box-shadow:inset 0 0 0 1px var(--edge)}
+  background:var(--glass);box-shadow:inset 0 0 0 1px var(--edge)}
 .trk-car-btn.on{background:var(--ink);color:var(--bg);box-shadow:none}
 .trk-input-row{display:flex;flex-direction:column;gap:10px}
 .trk-input{width:100%;padding:14px 16px;border-radius:16px;border:0;outline:0;background:var(--glass);box-shadow:inset 0 0 0 1px var(--edge);font-size:15px;
-  -webkit-backdrop-filter:blur(20px);backdrop-filter:blur(20px)}
+  }
 .trk-input:focus{box-shadow:inset 0 0 0 1.5px var(--blue)}
 .trk-go{width:100%;padding:15px;border-radius:99px;background:var(--ink);color:var(--bg);font-size:15px;font-weight:700}
 .trk-loading{display:flex;flex-direction:column;align-items:center;padding:40px 20px 30px;gap:20px}
@@ -462,7 +435,7 @@ body.curr-edit .curr-remove-btn{display:flex}
 .trk-loading-txt{font-size:13.5px;font-weight:600;color:var(--ink-2)}
 .trk-result{margin-top:14px}
 .trk-error,.trk-delivery,.trk-carrier-banner,.trk-auto-refresh{padding:14px 16px;border-radius:22px;margin-bottom:12px;
-  background:var(--glass);-webkit-backdrop-filter:blur(24px) saturate(180%);backdrop-filter:blur(24px) saturate(180%);box-shadow:var(--shadow),inset 0 0 0 1px var(--edge)}
+  background:var(--glass);box-shadow:var(--shadow),inset 0 0 0 1px var(--edge)}
 .trk-error{font-size:13.5px;color:var(--ink-2);line-height:1.6}
 .trk-error strong{color:var(--ink);display:block;margin-bottom:6px}
 .trk-error code{font-size:11.5px;color:var(--blue);display:block;margin-top:8px;word-break:break-all}
@@ -476,12 +449,12 @@ body.curr-edit .curr-remove-btn{display:flex}
 .trk-carrier-bnum{font-size:12px;color:var(--ink-3);margin-bottom:4px;font-variant-numeric:tabular-nums}
 .trk-carrier-bstat{font-size:14.5px;font-weight:600}
 .trk-open-btn,.trk-refresh-btn,.trk-save-btn{display:block;width:100%;margin-top:10px;padding:14px;border-radius:99px;font-size:14px;font-weight:700;text-align:center;
-  background:var(--glass);box-shadow:inset 0 0 0 1px var(--edge);-webkit-backdrop-filter:blur(20px);backdrop-filter:blur(20px)}
+  background:var(--glass);box-shadow:inset 0 0 0 1px var(--edge);}
 .trk-save-btn{background:var(--green);color:#fff;box-shadow:none}
 .trk-save-btn:disabled,.trk-refresh-btn:disabled{opacity:.5}
 .trk-auto-refresh{font-size:12.5px;color:var(--ink-2);text-align:center}
 .trk-timeline{display:flex;flex-direction:column;margin:6px 0 4px;padding:14px 14px 0;border-radius:22px;background:var(--glass);
-  -webkit-backdrop-filter:blur(24px);backdrop-filter:blur(24px);box-shadow:inset 0 0 0 1px var(--edge)}
+  box-shadow:inset 0 0 0 1px var(--edge)}
 .trk-step{display:flex;align-items:flex-start;gap:13px;position:relative;min-height:70px}
 .trk-step:not(:last-child)::before{content:'';position:absolute;left:17px;top:37px;width:2px;bottom:0;background:var(--hair)}
 .trk-dot{width:36px;height:36px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:16px;z-index:1;position:relative;margin-top:2px}
@@ -498,7 +471,7 @@ body.curr-edit .curr-remove-btn{display:flex}
 .trk-sec-cnt{font-size:11px;font-weight:700;background:var(--glass-soft);padding:2px 7px;border-radius:20px}
 .trk-saved-list{display:flex;flex-direction:column;gap:8px;margin-bottom:18px}
 .trk-sv-card{padding:12px 14px;display:flex;align-items:center;gap:11px;cursor:pointer;border-radius:22px;
-  background:var(--glass);-webkit-backdrop-filter:blur(24px) saturate(180%);backdrop-filter:blur(24px) saturate(180%);box-shadow:var(--shadow),inset 0 0 0 1px var(--edge)}
+  background:var(--glass);box-shadow:var(--shadow),inset 0 0 0 1px var(--edge)}
 .trk-sv-card.arc{opacity:.65}
 .trk-sv-ico{font-size:22px;flex-shrink:0}
 .trk-sv-info{flex:1;min-width:0}
@@ -541,7 +514,7 @@ body.curr-edit .curr-remove-btn{display:flex}
 .weather-loading{padding:30px 14px;text-align:center;color:var(--ink-2);font-size:14px}
 .weather-forecast-wrap{display:none;margin-bottom:12px}
 .weather-forecast{display:grid;grid-template-columns:repeat(5,1fr);gap:6px}
-.weather-day{border-radius:18px;padding:10px 4px;text-align:center;background:var(--glass);-webkit-backdrop-filter:blur(20px);backdrop-filter:blur(20px);box-shadow:inset 0 0 0 1px var(--edge)}
+.weather-day{border-radius:18px;padding:10px 4px;text-align:center;background:var(--glass);box-shadow:inset 0 0 0 1px var(--edge)}
 .weather-day-date{font-size:11px;color:var(--ink-3);margin-bottom:4px}
 .weather-day-icon{font-size:21px;margin-bottom:4px}
 .weather-day-max{font-size:14px;font-weight:700}
@@ -590,12 +563,9 @@ body.curr-edit .curr-remove-btn{display:flex}
 
 <!-- SPLASH: pulsing logo -->
 <div id="splash">
-  <div class="aurora"><i></i><i></i><i></i><i></i></div>
   <img class="sp-logo-img" src="/logo.png" alt="" onerror="this.style.display='none'">
 </div>
 
-<div class="aurora" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
-<div class="grain" aria-hidden="true"></div>
 
 <div id="app">
   <div class="safe-mode-msg">⚠️ Додаток завантажено в безпечному режимі.</div>
@@ -862,6 +832,7 @@ body.curr-edit .curr-remove-btn{display:flex}
   </main>
 
   <nav class="glass tabbar" id="tabbar"><span class="lens" id="lens"></span></nav>
+  <button class="orb" id="orb" onclick="openAI()" aria-label="AI"></button>
 
   <div class="scrim" id="scrim" onclick="back()"></div>
   <div class="glass strong sheet" id="sheet"><div class="grab"></div><div class="body" id="sheetBody"></div></div>
@@ -946,6 +917,10 @@ if(tg){
   tg.ready();
   tg.expand();
   tg.disableVerticalSwipes?.();
+  try{
+    if(['ios','android','android_x'].includes(tg.platform) && tg.isVersionAtLeast?.('8.0') && !tg.isFullscreen) tg.requestFullscreen();
+  }catch(e){}
+  tg.onEvent?.('fullscreenChanged', () => setTimeout(moveLens, 50));
   tg.onEvent?.('viewportChanged', () => setTimeout(handleAppViewportResize, 120));
   tg.onEvent?.('themeChanged', () => { if(PREFS.theme === 'auto') applyTheme(); });
   tg.BackButton?.onClick?.(() => back());
@@ -976,7 +951,7 @@ const N = {
     tracking:'Трекінг',weather:'Погода',warehouse:'Склад',me:'Моє',registry:'Реєстр',all:'Усі',fxNbu:'Курси НБУ',departments:'Відділи',
     latest:'Останнє',loadMore:'Завантажити ще',back:'Назад',relNews:'Пов’язані новини',lastDigest:'Останній дайджест',pdfArchive:'PDF-архів звітів',
     cargo:'Вантажі',handbook:'Довідник речовин',personal:'Особисте',favorites:'Обране',notes:'Нотатки',newNote:'+ Нова',toolbar:'Нижня панель',
-    canAdd:'Можна додати',tbHint:'До 5 вкладок разом з «Моє» — вона закріплена, тут налаштування; кнопка «ШІ» завжди праворуч. Решта розділів відкривається з «Усі розділи».',
+    canAdd:'Можна додати',tbHint:'До 5 вкладок разом з «Моє» — вона закріплена, тут налаштування; кнопка з роботом — окремо праворуч. Решта розділів відкривається з «Усі розділи».',
     allSections:'Усі розділи',subscriptions:'Сповіщення в Telegram',settings:'Налаштування',theme:'Тема',language:'Мова',fullscreen:'На весь екран (ПК)',
     cancel:'Скасувати',addChart:'Графіки на екрані',apply:'Застосувати',harveySub:'Аналітик · знає все, що зібрав бот',
     save:'Зберегти',saved:'В обраному',note:'Нотатка',hasNote:'Є нотатка',explain:'Пояснити',source:'Джерело',myNote:'Моя нотатка',
@@ -1002,7 +977,7 @@ const N = {
     tracking:'Tracking',weather:'Weather',warehouse:'Warehouse',me:'Me',registry:'Registry',all:'All',fxNbu:'NBU rates',departments:'Departments',
     latest:'Latest',loadMore:'Load more',back:'Back',relNews:'Related news',lastDigest:'Latest digest',pdfArchive:'PDF report archive',
     cargo:'Cargo',handbook:'Substance handbook',personal:'Personal',favorites:'Saved',notes:'Notes',newNote:'+ New',toolbar:'Bottom bar',
-    canAdd:'Available',tbHint:'Up to 5 tabs including «Me» — it is pinned and holds the settings; the «AI» button is always on the right. Other sections open from «All sections».',
+    canAdd:'Available',tbHint:'Up to 5 tabs including «Me» — it is pinned and holds the settings; the robot button sits separately on the right. Other sections open from «All sections».',
     allSections:'All sections',subscriptions:'Telegram notifications',settings:'Settings',theme:'Theme',language:'Language',fullscreen:'Fullscreen (desktop)',
     cancel:'Cancel',addChart:'Charts on screen',apply:'Apply',harveySub:'Analyst · knows everything the bot collected',
     save:'Save',saved:'Saved',note:'Note',hasNote:'Has note',explain:'Explain',source:'Source',myNote:'My note',
@@ -1063,7 +1038,7 @@ function applyTheme(){
   const sys = tg?.colorScheme ? tg.colorScheme === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches;
   const dark = PREFS.theme === 'dark' || (PREFS.theme === 'auto' && sys);
   document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
-  const bg = dark ? '#05070D' : '#E9EDF4';
+  const bg = dark ? '#000000' : '#FFFFFF';
   try{ tg?.setHeaderColor?.(bg); tg?.setBackgroundColor?.(bg); tg?.setBottomBarColor?.(bg); }catch{}
   document.querySelectorAll('#themeSeg button').forEach(b => b.classList.toggle('on', b.dataset.v === PREFS.theme));
   try{
@@ -1154,7 +1129,7 @@ function renderTabbar(){
   const keys = [...toolbar(), 'me'];
   bar.innerHTML = '<span class="lens" id="lens"></span>' + keys.map(k =>
     `<button class="tab${k===cur?' on':''}" data-v="${k}" onclick="go('${k}')">${k==='strikes'?'<span class="dotn" id="strikeDot" style="display:none"></span>':''}${ICON[k]}<span>${esc(T(k))}</span></button>`).join('')
-    + `<button class="tab ai" onclick="openAI()" aria-label="${esc(T('ai'))}"><span class="rbi">${robotSVG()}</span><span>${esc(T('ai'))}</span></button>`;
+   ;
   requestAnimationFrame(moveLens);
 }
 function moveLens(){
@@ -1579,8 +1554,7 @@ function renderMe(){
 function renderToolbarEditor(){
   const tb = toolbar();
   setText('tbCount', `${tb.length + 1} / ${MAX_TABS}`);
-  setHTML('tbPreview', [...tb, 'me'].map(k => `<span class="${k==='me'?'pin':''}">${ICON[k]}${esc(T(k))}</span>`).join('')
-    + `<span class="pin"><span class="rbi">${robotSVG()}</span>${esc(T('ai'))}</span>`);
+  setHTML('tbPreview', [...tb, 'me'].map(k => `<span class="${k==='me'?'pin':''}">${ICON[k]}${esc(T(k))}</span>`).join(''));
   setHTML('tbOn', tb.map((k, i) => `<div class="tb-row"><span class="ic">${ICON[k]}</span><div class="nm">${esc(T(k))}</div>
       <button class="tbb glass" onclick="tbMove(${i},-1)" ${i===0?'disabled':''} aria-label="up">↑</button>
       <button class="tbb glass" onclick="tbMove(${i},1)" ${i===tb.length-1?'disabled':''} aria-label="down">↓</button>
@@ -1696,7 +1670,7 @@ function openSource(msgIdx, n){
   if(s.kind === 'news' && NEWS[s.id]){ openNews(s.id); return; }
   openExt(s.link);
 }
-function setHarvey(state){ document.querySelectorAll('#aiFace .rb, #tabbar .rb').forEach(h => { h.classList.remove('think','happy'); if(state) h.classList.add(state === 'thinking' ? 'think' : state); }); }
+function setHarvey(state){ document.querySelectorAll('#aiFace .rb, #orb .rb').forEach(h => { h.classList.remove('think','happy'); if(state) h.classList.add(state === 'thinking' ? 'think' : state); }); }
 async function askAI(q){
   const inp = byId('aiQ');
   q = (q || inp.value).trim(); if(!q || _aiBusy) return;
@@ -3423,7 +3397,7 @@ window.addEventListener('load', async () => {
   setTimeout(hideSplash, 2500);
   try{
     applyTheme(); applyStaticText(); updateStaticText();
-    setHTML('aiFace', robotSVG());
+    setHTML('aiFace', robotSVG()); setHTML('orb', robotSVG());
     // personal toolbar & theme (don't block the UI for more than ~1.5s)
     try{
       const p = await Promise.race([
