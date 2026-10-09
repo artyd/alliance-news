@@ -126,7 +126,9 @@ def test_normalize_region():
 def test_reportable_rule():
     base = {"is_strike": True, "in_ukraine": True}
     assert strikes.is_reportable(dict(base, category="pharma"))
-    assert strikes.is_reportable(dict(base, category="unnamed"))
+    # pharma & medicine only: unnamed enterprises / other warehouses are dropped
+    assert not strikes.is_reportable(dict(base, category="unnamed"))
+    assert not strikes.is_reportable(dict(base, category="adjacent"))
     assert not strikes.is_reportable(dict(base, category="other_business"))
     assert strikes.is_reportable(dict(base, category="other_business", canonical="Фармак"))
     # a tracked name never overrides housing / energy

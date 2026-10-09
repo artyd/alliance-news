@@ -357,6 +357,7 @@ def init_db():
             PRIMARY KEY (event_id, chat_id)
         )
     ''')
+    cursor.execute("ALTER TABLE strike_events ADD COLUMN IF NOT EXISTS hidden BOOLEAN NOT NULL DEFAULT FALSE")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_strike_items_event ON strike_items(event_id)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_strike_events_updated ON strike_events(updated_at DESC)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_strike_events_sent ON strike_events(sent_at DESC)")
@@ -459,6 +460,13 @@ def init_db():
                        "AND NOT (',' || subscriptions || ',') LIKE '%,strikes,%'")
         logger.info("init_db: strikes topic enabled for %d users with custom subscriptions",
                     cursor.rowcount)
+    # Scope narrowed to pharma & medicine only: hide (not delete) earlier
+    # events about unnamed / food / logistics / other sites.
+    cursor.execute("INSERT INTO schema_flags (key) VALUES ('strikes_pharma_only') "
+                   "ON CONFLICT DO NOTHING RETURNING key")
+    if cursor.fetchone():
+        cursor.execute("UPDATE strike_events SET hidden = TRUE WHERE NOT is_pharma AND NOT watchlist")
+        logger.info("init_db: hid %d non-pharma strike events", cursor.rowcount)
     cursor.execute("INSERT INTO schema_flags (key) VALUES ('cargo_default_on') "
                    "ON CONFLICT DO NOTHING RETURNING key")
     if cursor.fetchone():
@@ -5842,7 +5850,7 @@ async def _strikes_match(cur, cls: dict) -> int | None:
     among recent events."""
     since = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(hours=_STRIKES_EVENT_WINDOW_H)
     if cls.get("canonical"):
-        row = db_fetchone(cur, "SELECT id FROM strike_events WHERE company = %s "
+        row = db_fetchone(cur, "SELECT id FROM strike_events WHERE company = %s AND NOT hidden "
                                "AND updated_at >= %s ORDER BY updated_at DESC LIMIT 1",
                           (cls["canonical"], since))
         if row:
@@ -5850,7 +5858,7 @@ async def _strikes_match(cur, cls: dict) -> int | None:
     # No SQL pre-filter by region: the model's spelling of places varies, and
     # a few days rarely hold more than a couple dozen events.
     rows = db_fetchall(cur, "SELECT id, attack_date, company, object_type, city, region, "
-                            "headline, summary FROM strike_events WHERE updated_at >= %s "
+                            "headline, summary FROM strike_events WHERE updated_at >= %s AND NOT hidden "
                             "ORDER BY updated_at DESC LIMIT 25", (since,))
     if not rows:
         return None
@@ -6036,7 +6044,7 @@ async def _strikes_process_item(client, cur, conn, it: dict, stats: dict) -> int
             it["display_url"] = ext["final_url"]
     cls = await _strikes_llm(strikes.build_classify_prompt(_strike_team_examples()),
                              strikes.build_classify_input(it), bulk=True)
-    cls["is_pharma"] = bool(cls.get("is_pharma")) or cls.get("category") == "pharma"
+    cls["is_pharma"] = cls.get("category") == "pharma"
     text = f"{it['title']}\n{it.get('text') or ''}"
     cls["watchlist"] = bool(cls.get("watchlist")) or bool(strikes.watchlist_hits(text))
     cls["canonical"] = strikes.canonical_company(cls, text)
@@ -6166,7 +6174,7 @@ async def monitor_strikes():
 def fetch_strike_events(since: datetime.datetime | None = None, company: str = "",
                         region: str = "", limit: int = 200) -> list[dict]:
     """Published strike events, newest first, with their card and sources."""
-    where, params = ["sent_at IS NOT NULL"], []
+    where, params = ["sent_at IS NOT NULL", "NOT hidden"], []
     if since is not None:
         where.append("sent_at >= %s")
         params.append(since)
@@ -7694,10 +7702,10 @@ def api_strikes(company: str = "", region: str = "", days: int = 0, limit: int =
     cur = conn.cursor()
     try:
         companies = [r["company"] for r in db_fetchall(
-            cur, "SELECT company, COUNT(*) AS n FROM strike_events WHERE sent_at IS NOT NULL "
+            cur, "SELECT company, COUNT(*) AS n FROM strike_events WHERE sent_at IS NOT NULL AND NOT hidden "
                  "AND company IS NOT NULL GROUP BY company ORDER BY n DESC, company") or []]
         regions = [r["region"] for r in db_fetchall(
-            cur, "SELECT region, COUNT(*) AS n FROM strike_events WHERE sent_at IS NOT NULL "
+            cur, "SELECT region, COUNT(*) AS n FROM strike_events WHERE sent_at IS NOT NULL AND NOT hidden "
                  "AND region IS NOT NULL GROUP BY region ORDER BY n DESC, region") or []]
     finally:
         conn.close()

@@ -15,7 +15,7 @@ import re
 ALLOWED_TABLES = {
     "articles": "id, title, title_ua, link, published (TEXT 'YYYY-MM-DD HH:MM:SS' Kyiv), category, summary_ua, summary_en, full_text",
     "article_facts": "id, article_id → articles.id, event_type, what_happened, who, where_loc, magnitude, affected_sectors (CSV), supply_chain_impact, ukraine_relevance, created_at",
-    "strike_events": "id, sent_at, attack_date, company, object_type, city, region, is_pharma, watchlist, headline, summary, card_json (JSON text), update_count",
+    "strike_events": "id, hidden (TRUE = out of scope, ignore), sent_at, attack_date, company, object_type, city, region, is_pharma, watchlist, headline, summary, card_json (JSON text), update_count",
     "strike_items": "id, link, source, title, text, published, status, event_id → strike_events.id",
     "corp_shipments": "key, data_json (JSON text: product, agent, qty, line, container, number, mode, eta, departed, origin, dest, comment, customs, warehouse, stage, sheet_no), number, in_sheet, live_status, live_carrier, last_checked",
     "digest_issues": "id, mode, date_str, items_json (JSON text), created_at",

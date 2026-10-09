@@ -171,14 +171,14 @@ def _company_queries(batch: int = 6) -> list[str]:
 
 
 GOOGLE_NEWS_QUERIES: list[str] = [
-    # Enterprises in general (filtered down by the LLM to pharma & adjacent)
-    _ATTACK_Q + " (підприємство OR завод OR склад OR \"логістичний центр\" OR цех)",
-    # Pharma specifically
+    # Pharma & medicine only
     "(фармацевтичний OR фармзавод OR \"аптечний склад\" OR фармкомпанія OR \"склад ліків\") "
     + _ATTACK_Q,
+    "(аптека OR аптеки OR \"медичних виробів\" OR \"медтовари\" OR ветпрепарати OR "
+    "\"ветеринарних препаратів\" OR \"фармацевтичного підприємства\") " + _ATTACK_Q,
     # Outlets whose own RSS blocks us (403) — reach them through Google News
     "(site:suspilne.media OR site:epravda.com.ua OR site:mind.ua) " + _ATTACK_Q
-    + " (підприємство OR завод OR склад)",
+    + " (фарм OR ліки OR аптек OR медичн)",
     # Pharma trade press
     "(site:apteka.ua OR site:pharma.net.ua OR site:pharmencyclopedia.com.ua) " + _ATTACK_Q,
 ] + _company_queries()
@@ -275,21 +275,21 @@ def _watchlist_block() -> str:
 # pharma + adjacent sectors + unnamed enterprises/warehouses are reported;
 # named businesses outside our sectors, energy etc. are not.
 CATEGORIES = {
-    "pharma": "фармацевтика: фармзавод, офіс/склад фармкомпанії, фармдистриб'ютора, "
-              "аптечної мережі, аптека, склад ліків, фармлабораторія",
-    "adjacent": "суміжне: виробник чи склад упаковки, субстанцій, хімії, медвиробів, "
-                "косметики, харчової сировини, ветпрепаратів, кормів; логістичний центр, "
-                "великий склад чи розподільчий центр (зокрема рітейлу/дистриб'ютора), "
-                "вантажний термінал",
-    "unnamed": "підприємство / завод / склад / цех / виробниче приміщення, галузь і назву "
-               "якого не вказано",
-    "other_business": "інший НАЗВАНИЙ бізнес поза переліченими галузями (одяг, меблі, "
-                      "інструменти, ІТ, магазин, кафе, АЗС, автосервіс тощо)",
+    "pharma": "фармацевтика й медицина: завод/цех, що виробляє ліки, ветпрепарати, медичні "
+              "вироби чи фармсубстанції; офіс або склад фармкомпанії, фарм- чи ветдистриб'ютора, "
+              "аптечної мережі; аптека; склад ліків чи медтоварів; фарм- або медлабораторія",
+    "adjacent": "інша промисловість чи склади НЕ медичні: упаковка, хімія, харчові/продуктові "
+                "склади, корми, косметика, логістичні й розподільчі центри, термінали",
+    "unnamed": "підприємство / завод / склад / цех, галузь якого не вказано",
+    "other_business": "інший названий бізнес (одяг, меблі, станки, обладнання, ІТ, магазин, кафе, "
+                      "АЗС, автосервіс тощо)",
     "energy_infra": "енергетика (ТЕС, ТЕЦ, ГЕС, підстанції), газ, нафта, залізниця, порти",
     "not_enterprise": "житло, лікарні, школи, адмінбудівлі, авто, військові об'єкти, або "
                       "зведення без пошкодженого підприємства",
 }
-REPORTED_CATEGORIES = {"pharma", "adjacent", "unnamed"}
+# Only pharma & medicine is reported (team decision 2026-10-09): no unnamed
+# enterprises, food / clothing / industrial warehouses or logistics centres.
+REPORTED_CATEGORIES = {"pharma"}
 NEVER_REPORTED = {"not_enterprise", "energy_infra"}
 
 
