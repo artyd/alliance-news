@@ -67,3 +67,42 @@ def test_stats():
     st = ct.stats(ct.parse_sheet(csv_text, TODAY), TODAY)
     assert st["active"] == 3 and st["transit"] == 2 and st["arrived"] == 1
     assert st["week"] == 1 and st["late"] == 1
+
+
+def test_shipment_events():
+    t = TODAY
+    cur = {"stage": "transit", "eta": "2026-10-20", "departed": "2026-09-01"}
+    assert ct.shipment_events(None, cur, t) == [("new", "")]            # first seen, ETA in 11 days
+    old_row = {"stage": "transit", "eta": "2026-08-01", "departed": "2026-07-01"}
+    assert ct.shipment_events(None, old_row, t) == []                   # an old row is not "new"
+    prev = {"stage": "transit", "eta": "2026-10-20"}
+    assert ct.shipment_events(prev, dict(cur, stage="arrived"), t) == [("arrived", "")]
+    assert ct.shipment_events(prev, dict(cur, eta="2026-10-25"), t) == [("eta", "2026-10-20|2026-10-25|5")]
+    assert ct.shipment_events(prev, dict(cur, eta="2026-10-21"), t) == []   # 1 day — noise
+    late = dict(cur, eta="2026-10-05")
+    assert ct.shipment_events({"stage": "transit", "eta": "2026-10-05"}, late, t) == [("late", "4")]
+    assert ct.shipment_events({"stage": "transit", "eta": "2026-10-05", "late_notified": True}, late, t) == []
+    assert ct.shipment_events({"stage": "arrived", "eta": "2026-10-05"}, dict(late, stage="arrived"), t) == []
+
+
+def test_cities_and_clients():
+    assert ct.cities_in("Удар по Одесі? ні — по Одесі та Чорноморську") >= {"Чорноморськ"}
+    assert ct.cities_in("шел в Черноморск, перенаправлен в Констанцу") == {"Чорноморськ"}
+    assert ct.cities_in("Склад: Киев, Юля") == {"Київ"}
+    assert ct.cities_in("Харківщина, пошкоджено склад") == {"Харків"}
+    assert ct.clients_in("Мометазон Лубны") == {"Лубнифарм"}
+    assert ct.clients_in("Метоклопрамид БХФЗ") == {"Борщагівський ХФЗ"}
+
+
+def test_strike_hits():
+    ships = [
+        {"product": "Мометазон Лубны", "dest": "Варшава", "done": False},
+        {"product": "Сорбитол", "dest": "Одесса", "done": False},
+        {"product": "Старе", "dest": "Одесса", "done": True},
+        {"product": "Капсулы", "dest": "Гданск", "warehouse": "Киев", "done": False},
+    ]
+    hits = ct.strike_hits("Удар по складу в Одесі, Одеська обл.", "", ships)
+    assert [(h[0]["product"], h[1]) for h in hits] == [("Сорбитол", "city:Одеса")]
+    hits = ct.strike_hits("Атака на завод у Лубнах", "Лубнифарм", ships)
+    assert [(h[0]["product"], h[1]) for h in hits] == [("Мометазон Лубны", "client:Лубнифарм")]
+    assert [h[0]["product"] for h in ct.strike_hits("Київ, склад", "", ships)] == ["Капсулы"]

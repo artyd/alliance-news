@@ -1018,7 +1018,7 @@ const N = {
     syncedAt:'Дані з таблиці логістики · оновлено',number:'Номер',lineCarrier:'Лінія / перевізник',agent:'Хто везе',qty:'Кількість',
     from:'Звідки',to:'Куди',departed:'Вихід',etaL:'Прибуття (план)',customs:'Розмитнення',warehouseL:'Склад',sheetNo:'№ листа',
     sheetStatus:'Статус у таблиці',liveStatus:'Статус перевізника',openCarrier:'Відкрити на сайті перевізника',copyNum:'Копіювати номер',
-    copied:'Скопійовано',noCorp:'Немає вантажів за цим фільтром',ai:'ШІ',ago_now:'щойно',ago_m:'хв',ago_h:'год',goodMorning:'Доброго ранку',goodDay:'Доброго дня',goodEvening:'Доброго вечора'},
+    copied:'Скопійовано',noCorp:'Немає вантажів за цим фільтром',follow:'🔔 Відстежувати',unfollow:'🔕 Не відстежувати',followOn:'🔔 Відстежую — сповіщення прийдуть у гілку «Вантажі компанії»',followOff:'Більше не відстежуєте',myCargo:'🔔 Мої',cargoNotif:'📦 Вантажі компанії',cargoAll:'Усі',cargoMine:'Лише мої',cargoSub:'Сповіщення: прибуття, зміна ETA, прострочення, удари поруч',ai:'ШІ',ago_now:'щойно',ago_m:'хв',ago_h:'год',goodMorning:'Доброго ранку',goodDay:'Доброго дня',goodEvening:'Доброго вечора'},
   en:{today:'Today',feed:'Feed',news:'News',strikes:'Strikes',markets:'Markets',currencies:'Currencies',reports:'Reports',
     tracking:'Tracking',weather:'Weather',warehouse:'Warehouse',me:'Me',registry:'Registry',all:'All',fxNbu:'NBU rates',departments:'Departments',
     latest:'Latest',loadMore:'Load more',back:'Back',relNews:'Related news',lastDigest:'Latest digest',pdfArchive:'PDF report archive',
@@ -1056,7 +1056,7 @@ const N = {
     syncedAt:'Logistics sheet data · updated',number:'Number',lineCarrier:'Line / carrier',agent:'Forwarder',qty:'Quantity',
     from:'From',to:'To',departed:'Departed',etaL:'ETA',customs:'Customs',warehouseL:'Warehouse',sheetNo:'Sheet №',
     sheetStatus:'Sheet status',liveStatus:'Carrier status',openCarrier:'Open on carrier site',copyNum:'Copy number',
-    copied:'Copied',noCorp:'No shipments for this filter',ai:'AI',ago_now:'just now',ago_m:'min',ago_h:'h',goodMorning:'Good morning',goodDay:'Good afternoon',goodEvening:'Good evening'},
+    copied:'Copied',noCorp:'No shipments for this filter',follow:'🔔 Follow',unfollow:'🔕 Unfollow',followOn:'🔔 Following — alerts go to the «Company cargo» topic',followOff:'No longer following',myCargo:'🔔 Mine',cargoNotif:'📦 Company cargo',cargoAll:'All',cargoMine:'Only mine',cargoSub:'Alerts: arrival, ETA change, delay, strikes nearby',ai:'AI',ago_now:'just now',ago_m:'min',ago_h:'h',goodMorning:'Good morning',goodDay:'Good afternoon',goodEvening:'Good evening'},
 };
 function T(k){ return (N[lang] && N[lang][k]) || N.ua[k] || k; }
 function applyStaticText(){
@@ -1087,7 +1087,7 @@ function ago(pub){
 }
 
 // ── Theme ─────────────────────────────────────────────────────
-const PREFS = {toolbar: null, theme: localStorage.getItem('an_theme') || 'auto'};
+const PREFS = {toolbar: null, theme: localStorage.getItem('an_theme') || 'auto', cargo_mode: 'all'};
 function isLight(){ return document.documentElement.getAttribute('data-theme') !== 'dark'; }
 function applyTheme(){
   const sys = tg?.colorScheme ? tg.colorScheme === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches;
@@ -1632,6 +1632,8 @@ function tbRemove(k){ const tb = toolbar().filter(x => x !== k); if(!tb.length){
   PREFS.toolbar = tb; hap('light'); renderTabbar(); renderToolbarEditor(); savePrefs(); }
 function tbAdd(k){ const tb = [...toolbar()]; if(tb.length >= MAX_TABS - 1){ toast(T('tbMax')); return; }
   tb.push(k); PREFS.toolbar = tb; hap('ok'); renderTabbar(); renderToolbarEditor(); savePrefs(); }
+function setCargoMode(m){ PREFS.cargo_mode = m; renderSubs(); hap('light');
+  fetch('/api/webapp/user/app-prefs', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({user_id: uid(), cargo_mode: m})}).catch(() => {}); }
 function setTheme(t){ PREFS.theme = t; try{ localStorage.setItem('an_theme', t === 'auto' ? '' : t); }catch{} applyTheme(); savePrefs(); hap('light'); }
 function setLang(l){
   lang = l; try{ localStorage.setItem('an_lang', l); }catch{}
@@ -1655,6 +1657,10 @@ function renderSubs(){
       <span class="ic" style="background:var(--glass-soft)">${d.emoji || '•'}</span>
       <div class="tx">${esc(d.name[lang] || d.name.ua)}<small>${d.on ? T('receive') : T('off')}</small></div>
       <span class="toggle ${d.on?'on':''}"></span></div>`).join('')
+    + `<div class="mi" style="cursor:default"><span class="ic" style="background:var(--glass-soft)">📦</span>
+      <div class="tx">${T('cargoNotif')}<small>${T('cargoSub')}</small></div>
+      <div class="seg" style="width:150px;flex-shrink:0"><button class="${PREFS.cargo_mode!=='followed'?'on':''}" onclick="setCargoMode('all')">${T('cargoAll')}</button>
+        <button class="${PREFS.cargo_mode==='followed'?'on':''}" onclick="setCargoMode('followed')">${T('cargoMine')}</button></div></div>`
     + `<div class="mi" onclick="setSub(null,null,${!SUBS.only_daily})"><span class="ic" style="background:var(--glass-soft)">📋</span>
       <div class="tx">${T('onlyDaily')}<small>${T('onlyDailySub')}</small></div><span class="toggle ${SUBS.only_daily?'on':''}"></span></div>`;
 }
@@ -1801,7 +1807,7 @@ async function sendVoice(blob, mime){
 }
 
 // ════════════════════════ «Вантажі компанії» ════════════════════════
-let _trkPane = 'corp', CORP = [], CORP_STATS = null, CORP_SYNCED = null, corpFilter = 'all', _corpLoaded = 0;
+let _trkPane = 'corp', CORP = [], CORP_STATS = null, CORP_SYNCED = null, corpFilter = 'all', _corpLoaded = 0, CORP_FOLLOW = new Set();
 function trkPane(p){
   _trkPane = p;
   document.querySelectorAll('#trkSeg button').forEach(b => b.classList.toggle('on', b.dataset.p === p));
@@ -1816,7 +1822,7 @@ async function loadCorp(){
   try{
     const d = await (await fetch('/api/webapp/track/corporate?user_id=' + uid())).json();
     if(!d.ok) throw new Error();
-    CORP = d.items || []; CORP_STATS = d.stats; CORP_SYNCED = d.synced_at;
+    CORP = d.items || []; CORP_STATS = d.stats; CORP_SYNCED = d.synced_at; CORP_FOLLOW = new Set(d.followed || []);
   }catch{ if(!CORP.length){ setHTML('corpList', `<div class="glass empty">${T('loadError')}</div>`); return; } }
   renderCorp();
 }
@@ -1838,6 +1844,7 @@ function corpMatches(it){
   if(f === 'late' && etaInfo(it).cls !== 'late') return false;
   if(f === 'arrived' && it.stage !== 'arrived') return false;
   if(f === 'done' && it.stage !== 'done') return false;
+  if(f === 'mine' && !CORP_FOLLOW.has(it.key)) return false;
   if(['sea','air','parcel'].includes(f) && (it.mode !== f || it.stage === 'done')) return false;
   if(f === 'all' && it.stage === 'done') return false;
   const q = (byId('corpQ')?.value || '').trim().toLowerCase();
@@ -1849,7 +1856,7 @@ function renderCorp(){
   setHTML('corpStats', tile('transit', st.transit, T('inTransit')) + tile('week', st.week, T('thisWeek'))
     + tile('late', st.late, T('late'), (st.late||0) > 0) + tile('arrived', st.arrived, T('arrivedN')));
   const chips = [['all', T('all')], ['sea', '🚢 ' + T('sea')], ['air', '✈️ ' + T('air')], ['parcel', '📦 ' + T('parcel')],
-    ['arrived', '⚓ ' + T('arrived')], ['done', '✔ ' + T('doneN')]];
+    ['arrived', '⚓ ' + T('arrived')], ['done', '✔ ' + T('doneN')], ['mine', T('myCargo') + (CORP_FOLLOW.size ? ' ' + CORP_FOLLOW.size : '')]];
   setHTML('corpChips', chips.map(([k, l]) => `<button class="chip ${corpFilter===k?'on':'glass'}" onclick="corpFilter='${k}';renderCorp()">${l}</button>`).join(''));
   const q = byId('corpQ'); if(q) q.placeholder = T('corpSearch');
   const list = CORP.filter(corpMatches);
@@ -1858,7 +1865,7 @@ function renderCorp(){
     const route = [it.origin, it.dest].filter(Boolean).join(' → ');
     const status = it.live_status || it.comment;
     return `<article class="glass card corp" onclick="openCorp('${it.key}')">
-      <div class="meta"><span>${MODE_IC[it.mode] || '📦'} ${esc(T(it.mode))}</span>${it.line || it.live_carrier ? '· ' + esc(it.line || it.live_carrier) : ''}${it.sheet_no ? ' · №' + esc(it.sheet_no) : ''}</div>
+      <div class="meta">${CORP_FOLLOW.has(it.key) ? '<span title="following">🔔</span>' : ''}<span>${MODE_IC[it.mode] || '📦'} ${esc(T(it.mode))}</span>${it.line || it.live_carrier ? '· ' + esc(it.line || it.live_carrier) : ''}${it.sheet_no ? ' · №' + esc(it.sheet_no) : ''}</div>
       <h4>${esc(it.product)}</h4>
       ${route ? `<div class="route">${esc(route)}</div>` : ''}
       <div class="row2"><span class="eta ${e.cls}">${esc(e.txt)}</span>${it.number ? `<span class="num">${esc(it.number)}</span>` : ''}</div>
@@ -1884,8 +1891,17 @@ function openCorp(key){
     ${it.comment ? `<div style="margin-top:14px;font-weight:600;font-size:14px">📝 ${T('sheetStatus')}</div><div class="txt">${esc(it.comment)}</div>` : ''}
     ${steps.length ? `<div class="trk-timeline" style="margin-top:14px">${steps.map(st => `<div class="trk-step"><div class="trk-dot ${st.status||'pending'}">${st.icon||'📍'}</div>
       <div class="trk-step-info"><div class="trk-step-title">${esc(st.title||'')}</div>${st.time ? `<div class="trk-step-time">🕐 ${esc(st.time)}</div>` : ''}${st.desc ? `<div class="trk-step-desc">${esc(st.desc)}</div>` : ''}</div></div>`).join('')}</div>` : ''}
-    <div class="row">${it.tracking_url ? `<button class="pill primary" onclick="openExt(${esc(JSON.stringify(it.tracking_url))})">${T('openCarrier')} ↗</button>` : ''}
+    <div class="row"><button class="pill ${CORP_FOLLOW.has(it.key) ? 'ghost' : 'primary'}" onclick="corpFollow('${it.key}')">${CORP_FOLLOW.has(it.key) ? T('unfollow') : T('follow')}</button>
+      ${it.tracking_url ? `<button class="pill ghost" onclick="openExt(${esc(JSON.stringify(it.tracking_url))})">${T('openCarrier')} ↗</button>` : ''}
       ${it.number ? `<button class="pill ghost" onclick="navigator.clipboard?.writeText(${esc(JSON.stringify(it.number))});toast(T('copied'))">${T('copyNum')}</button>` : ''}</div>`);
+}
+
+async function corpFollow(key){
+  const on = !CORP_FOLLOW.has(key);
+  on ? CORP_FOLLOW.add(key) : CORP_FOLLOW.delete(key);
+  hap(on ? 'ok' : 'light'); toast(on ? T('followOn') : T('followOff'));
+  openCorp(key); renderCorp();
+  try{ await fetch('/api/webapp/corp/follow', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({user_id: uid(), key})}); }catch{}
 }
 
 // ════════════════════════ WEATHER (Open-Meteo, approved mockup) ════════════════════════
@@ -3419,7 +3435,7 @@ window.addEventListener('load', async () => {
       const p = await Promise.race([
         fetch('/api/webapp/user/app-prefs?user_id=' + uid()).then(r => r.json()),
         new Promise(res => setTimeout(() => res(null), 1500))]);
-      if(p && p.ok){ PREFS.toolbar = p.toolbar; if(p.theme){ PREFS.theme = p.theme; try{ localStorage.setItem('an_theme', p.theme === 'auto' ? '' : p.theme); }catch{} } }
+      if(p && p.ok){ PREFS.toolbar = p.toolbar; PREFS.cargo_mode = p.cargo_mode || 'all'; if(p.theme){ PREFS.theme = p.theme; try{ localStorage.setItem('an_theme', p.theme === 'auto' ? '' : p.theme); }catch{} } }
     }catch{}
     applyTheme(); renderTabbar();
     const hash = location.hash.slice(1);

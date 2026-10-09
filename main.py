@@ -43,6 +43,7 @@ from app.security import (
 
 # ── Telegram-article helpers (PDF -> per-department Telegram briefings) ──
 from app.telegram_articles import (
+    escape_html,
     build_facts_payload,
     build_synthesis_prompt,
     build_plain_article_prompt,
@@ -422,6 +423,16 @@ def init_db():
         )
     ''')
 
+    cursor.execute("ALTER TABLE corp_shipments ADD COLUMN IF NOT EXISTS notified_json TEXT")
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS corp_follows (
+            user_id BIGINT NOT NULL,
+            key     TEXT NOT NULL,
+            PRIMARY KEY (user_id, key)
+        )
+    ''')
+    cursor.execute("ALTER TABLE user_app_prefs ADD COLUMN IF NOT EXISTS cargo_mode TEXT NOT NULL DEFAULT 'all'")
+
     # One-shot data migrations, each applied once (keyed by name).
     cursor.execute("CREATE TABLE IF NOT EXISTS schema_flags ("
                    "key TEXT PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW())")
@@ -436,6 +447,12 @@ def init_db():
                        "AND NOT (',' || subscriptions || ',') LIKE '%,strikes,%'")
         logger.info("init_db: strikes topic enabled for %d users with custom subscriptions",
                     cursor.rowcount)
+    cursor.execute("INSERT INTO schema_flags (key) VALUES ('cargo_default_on') "
+                   "ON CONFLICT DO NOTHING RETURNING key")
+    if cursor.fetchone():
+        cursor.execute("UPDATE telegram_users SET subscriptions = subscriptions || ',cargo' "
+                       "WHERE subscriptions IS NOT NULL AND subscriptions NOT IN ('all', 'none', '') "
+                       "AND NOT (',' || subscriptions || ',') LIKE '%,cargo,%'")
 
     # Migration: add steps_json if missing (safe on existing DBs)
     try:
@@ -3421,6 +3438,10 @@ DEPARTMENT_TOPICS = [
          ("dls",        {"ua": "Держлікслужба (ДЛС)",  "en": "State Medicines Service"}),
          ("kmu",        {"ua": "КМУ / НПА",            "en": "Cabinet of Ministers"}),
      ]},
+    {"code": "cargo", "emoji": "📦", "name": {"ua": "Вантажі компанії", "en": "Company cargo"},
+     "topics": [
+         ("cargo", {"ua": "Рух вантажів компанії", "en": "Company shipments"}),
+     ]},
     {"code": "strikes", "emoji": "💥", "name": {"ua": "Обстріли підприємств", "en": "Strikes on enterprises"},
      "topics": [
          ("strikes", {"ua": "Удари по фарм. та суміжних підприємствах",
@@ -3433,7 +3454,7 @@ _ALL_TOPIC_CODES = all_topic_codes(DEPARTMENT_TOPICS)
 # Self-check (logged at import): every menu topic must be a pushable category —
 # an RSS_FEEDS key or a known virtual category — and must not be INTERNAL, or the
 # live push would silently drop it. Catches typos / config drift early.
-_VIRTUAL_PUSHABLE = {"market_alerts", "strikes"}
+_VIRTUAL_PUSHABLE = {"market_alerts", "strikes", "cargo"}
 for _code in _ALL_TOPIC_CODES:
     if _code not in RSS_FEEDS and _code not in _VIRTUAL_PUSHABLE:
         logger.warning("DEPARTMENT_TOPICS: '%s' is not a known pushable category", _code)
@@ -5933,6 +5954,10 @@ async def _strikes_publish_new(client, cur, conn, event_id: int, push: bool) -> 
         n = await _strikes_send(client, cur, conn, event_id,
                                 strikes.format_card(card, items), reply=False)
         logger.info("strikes: event %s card sent to %d chats", event_id, n)
+        try:
+            await notify_cargo_strike(card)
+        except Exception as e:
+            logger.warning("cargo: strike alert failed: %s", e)
     return True
 
 
@@ -7104,12 +7129,13 @@ def api_get_app_prefs(request: Request, user_id: int = 0):
     conn = get_db_connection()
     cur = conn.cursor()
     try:
-        row = db_fetchone(cur, "SELECT toolbar, theme FROM user_app_prefs WHERE user_id = %s", (uid,))
+        row = db_fetchone(cur, "SELECT toolbar, theme, cargo_mode FROM user_app_prefs WHERE user_id = %s", (uid,))
     finally:
         conn.close()
     toolbar = row["toolbar"].split(",") if row and row["toolbar"] else []
     return {"ok": True, "toolbar": miniapp.normalize_toolbar(toolbar),
             "theme": miniapp.normalize_theme(row["theme"] if row else "auto"),
+            "cargo_mode": (row["cargo_mode"] if row and row["cargo_mode"] in ("all", "followed") else "all"),
             "sections": miniapp.TOOLBAR_SECTIONS, "max_tabs": miniapp.MAX_TABS}
 
 
@@ -7120,18 +7146,20 @@ async def api_set_app_prefs(request: Request):
     conn = get_db_connection()
     cur = conn.cursor()
     try:
-        row = db_fetchone(cur, "SELECT toolbar, theme FROM user_app_prefs WHERE user_id = %s", (uid,))
+        row = db_fetchone(cur, "SELECT toolbar, theme, cargo_mode FROM user_app_prefs WHERE user_id = %s", (uid,))
         toolbar = miniapp.normalize_toolbar(body["toolbar"]) if "toolbar" in body else \
             miniapp.normalize_toolbar((row["toolbar"].split(",") if row and row["toolbar"] else []))
         theme = miniapp.normalize_theme(body.get("theme", row["theme"] if row else "auto"))
-        cur.execute("INSERT INTO user_app_prefs (user_id, toolbar, theme) VALUES (%s, %s, %s) "
+        cargo_mode = body.get("cargo_mode", row["cargo_mode"] if row else "all")
+        cargo_mode = cargo_mode if cargo_mode in ("all", "followed") else "all"
+        cur.execute("INSERT INTO user_app_prefs (user_id, toolbar, theme, cargo_mode) VALUES (%s, %s, %s, %s) "
                     "ON CONFLICT (user_id) DO UPDATE SET toolbar = EXCLUDED.toolbar, "
-                    "theme = EXCLUDED.theme, updated_at = NOW()",
-                    (uid, ",".join(toolbar), theme))
+                    "theme = EXCLUDED.theme, cargo_mode = EXCLUDED.cargo_mode, updated_at = NOW()",
+                    (uid, ",".join(toolbar), theme, cargo_mode))
         conn.commit()
     finally:
         conn.close()
-    return {"ok": True, "toolbar": toolbar, "theme": theme}
+    return {"ok": True, "toolbar": toolbar, "theme": theme, "cargo_mode": cargo_mode}
 
 
 @app.get("/api/webapp/favorites")
@@ -8944,41 +8972,45 @@ def _stamp_tracking_meta(result: dict, number: str, carrier_code: str) -> dict:
 @app.get("/api/webapp/track/corporate")
 def api_corp_shipments(request: Request, user_id: int = 0):
     """«Вантажі компанії» for every bot user: sheet data + live status, with
-    header stats. Company data → Telegram-signed requests only."""
-    verified_uid(request, fallback=user_id)
+    header stats and the shipments this user follows. Company data →
+    Telegram-signed requests only."""
+    uid = verified_uid(request, fallback=user_id)
     conn = get_db_connection()
     cur = conn.cursor()
     try:
-        rows = db_fetchall(cur, "SELECT data_json, live_status, live_carrier, live_url, live_steps, "
+        rows = db_fetchall(cur, "SELECT key, data_json, live_status, live_carrier, live_url, live_steps, "
                                 "last_checked, synced_at FROM corp_shipments WHERE in_sheet") or []
+        followed = [r["key"] for r in db_fetchall(cur, "SELECT key FROM corp_follows WHERE user_id = %s",
+                                                   (uid,)) or []]
     finally:
         conn.close()
-    items = []
-    for r in rows:
-        it = json.loads(r["data_json"])
-        live = r["live_status"] or ""
-        # the first carrier query only registers the number — don't let that
-        # placeholder hide the sheet's own status
-        if any(p in live.lower() for p in ("очікуємо даних", "трекінг зареєстровано", "запит відправлено")):
-            live = ""
-        it["live_status"] = live
-        it["live_carrier"] = r["live_carrier"] or ""
-        it["live_steps"] = json.loads(r["live_steps"]) if r["live_steps"] else []
-        it["tracking_url"] = it.get("tracking_url") or r["live_url"] or ""
-        it["last_checked"] = r["last_checked"].isoformat() if r["last_checked"] else None
-        # the live status can move a shipment forward (arrived / delivered)
-        live_stage = corp_tracking.stage_of(it["live_status"])
-        order = {"transit": 0, "arrived": 1, "done": 2}
-        if order[live_stage] > order[it.get("stage", "transit")]:
-            it["stage"] = live_stage
-            it["done"] = live_stage == "done"
-        items.append(it)
-    rank = {"transit": 0, "arrived": 1, "done": 2}
+    items = [_corp_effective(r) for r in rows]
+    rank = corp_tracking.STAGE_RANK
     items.sort(key=lambda i: (rank.get(i.get("stage"), 0), i.get("eta") or "9999", i["product"].lower()))
     synced = max((r["synced_at"] for r in rows), default=None)
-    return {"ok": True, "items": items, "stats": corp_tracking.stats(items),
-            "synced_at": synced.isoformat() if synced else None,
-            "sheet_ok": _CORP_SYNC.get("ok")}
+    return {"ok": True, "items": items, "stats": corp_tracking.stats(items), "followed": followed,
+            "synced_at": synced.isoformat() if synced else None, "sheet_ok": _CORP_SYNC.get("ok")}
+
+
+@app.post("/api/webapp/corp/follow")
+async def api_corp_follow(request: Request):
+    """Toggle «відстежувати» for one company shipment. Body: {key}."""
+    body = await request.json()
+    uid = verified_uid(request, fallback=int(body.get("user_id") or 0))
+    key = str(body.get("key") or "")[:40]
+    if not key:
+        raise HTTPException(status_code=400, detail="key required")
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute("DELETE FROM corp_follows WHERE user_id = %s AND key = %s", (uid, key))
+        following = cur.rowcount == 0
+        if following:
+            cur.execute("INSERT INTO corp_follows (user_id, key) VALUES (%s, %s)", (uid, key))
+        conn.commit()
+    finally:
+        conn.close()
+    return {"ok": True, "following": following}
 
 
 @app.post("/admin/corp-tracking/sync")
@@ -9294,7 +9326,198 @@ async def sync_corp_shipments(live: bool = True) -> dict:
                 conn.close()
             await asyncio.sleep(1.0)
         logger.info("corp tracking: %d rows from sheet, %d live statuses refreshed", len(items), refreshed)
-        return dict(_CORP_SYNC, refreshed=refreshed)
+        try:
+            notified = await notify_cargo_changes()
+        except Exception as e:
+            logger.warning("cargo: notifications failed: %s", e)
+            notified = 0
+        return dict(_CORP_SYNC, refreshed=refreshed, notified=notified)
+
+
+_PLACEHOLDER_LIVE = ("очікуємо даних", "трекінг зареєстровано", "запит відправлено")
+
+
+def _corp_effective(row: dict) -> dict:
+    """Sheet data + live carrier status, with the stage moved forward when the
+    carrier already reports arrival / delivery."""
+    it = json.loads(row["data_json"])
+    live = row.get("live_status") or ""
+    if any(p in live.lower() for p in _PLACEHOLDER_LIVE):
+        live = ""
+    it["live_status"] = live
+    it["live_carrier"] = row.get("live_carrier") or ""
+    it["live_steps"] = json.loads(row["live_steps"]) if row.get("live_steps") else []
+    it["tracking_url"] = it.get("tracking_url") or row.get("live_url") or ""
+    it["last_checked"] = row["last_checked"].isoformat() if row.get("last_checked") else None
+    live_stage = corp_tracking.stage_of(live)
+    if corp_tracking.STAGE_RANK[live_stage] > corp_tracking.STAGE_RANK.get(it.get("stage", "transit"), 0):
+        it["stage"] = live_stage
+        it["done"] = live_stage == "done"
+    return it
+
+
+CARGO_TOPIC = "cargo"
+_MODE_ICON = {"sea": "🚢", "air": "✈️", "parcel": "📦", "other": "📦"}
+
+
+def _cargo_recipients(cur) -> list[tuple]:
+    """[(chat_id, mode, followed_keys)] of chats that get cargo notifications."""
+    users = db_fetchall(cur, "SELECT u.chat_id, u.subscriptions, u.only_daily_mode, "
+                             "COALESCE(p.cargo_mode, 'all') AS cargo_mode FROM telegram_users u "
+                             "LEFT JOIN user_app_prefs p ON p.user_id = u.chat_id") or []
+    follows: dict = {}
+    for r in db_fetchall(cur, "SELECT user_id, key FROM corp_follows") or []:
+        follows.setdefault(r["user_id"], set()).add(r["key"])
+    out = []
+    for u in users:
+        subs = u["subscriptions"] or "all"
+        if u["only_daily_mode"] or not (subs == "all" or CARGO_TOPIC in subs.split(",")):
+            continue
+        out.append((u["chat_id"], u["cargo_mode"], follows.get(u["chat_id"], set())))
+    known = {str(c) for c, _, _ in out}
+    out += [(c, "all", set()) for c in _env_chat_ids() if c not in known]
+    return out
+
+
+def _fmt_d(iso: str | None) -> str:
+    return datetime.date.fromisoformat(iso).strftime("%d.%m") if iso else "—"
+
+
+def _cargo_line(it: dict) -> str:
+    bits = [f"{_MODE_ICON.get(it.get('mode'), '📦')} {it.get('line') or it.get('live_carrier') or ''}".strip()]
+    if it.get("number"):
+        bits.append(f"<code>{escape_html(it['number'])}</code>")
+    route = " → ".join(x for x in [it.get("origin"), it.get("dest")] if x)
+    if route:
+        bits.append(escape_html(route))
+    return " · ".join(b for b in bits if b)
+
+
+def _cargo_event_text(it: dict, events: list[tuple[str, str]]) -> str:
+    head = {"new": "🆕 Новий вантаж", "arrived": "⚓ Прибув", "done": "✅ Завершено",
+            "eta": "🕒 Змінився ETA", "late": "⏰ Прострочено"}
+    kinds = [k for k, _ in events]
+    title = " · ".join(head[k] for k in kinds)
+    lines = [f"<b>{title}</b>", f"<b>{escape_html(it['product'])}</b>", _cargo_line(it)]
+    for k, d in events:
+        if k == "eta":
+            old, new, delta = d.split("|")
+            lines.append(f"ETA: {_fmt_d(old)} → <b>{_fmt_d(new)}</b> ({int(delta):+d} дн)")
+        elif k == "late":
+            lines.append(f"ETA {_fmt_d(it.get('eta'))} минув {d} дн тому, статусу «прибув» ще немає")
+        elif k == "new" and it.get("eta"):
+            lines.append(f"ETA: <b>{_fmt_d(it['eta'])}</b>")
+    status = it.get("live_status") or it.get("comment")
+    if status and kinds != ["new"]:
+        lines.append(f"<i>{escape_html(status[:300])}</i>")
+    return "\n".join(lines)
+
+
+async def _send_cargo(client, cur, conn, text_for, keys: set[str] | None, force_all: bool = False) -> int:
+    """Send to every cargo recipient. text_for(chat_mode, followed) → text or
+    None (skip). keys: shipments the message is about (for «лише мої»)."""
+    sent = 0
+    for chat_id, mode, followed in _cargo_recipients(cur):
+        if mode == "followed" and not force_all and keys is not None and not (keys & followed):
+            continue
+        text = text_for(mode, followed)
+        if not text:
+            continue
+        try:
+            r = await send_to_topic(client, chat_id, CARGO_TOPIC, {"text": text, "parse_mode": "HTML",
+                                                                   "disable_web_page_preview": True})
+            sent += r.status_code == 200
+        except Exception as e:
+            logger.info("cargo: send to %s failed: %s", chat_id, e)
+        await asyncio.sleep(0.05)
+    return sent
+
+
+async def notify_cargo_changes() -> int:
+    """Compare every shipment with what we last notified about and send the
+    differences. The very first run only records the state (no flood)."""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    sent = 0
+    try:
+        rows = db_fetchall(cur, "SELECT key, data_json, live_status, live_carrier, live_url, live_steps, "
+                                "last_checked, notified_json FROM corp_shipments WHERE in_sheet") or []
+        bootstrap = not any(r["notified_json"] for r in rows) and bool(
+            db_fetchone(cur, "SELECT 1 AS x FROM corp_shipments WHERE notified_json IS NULL LIMIT 1"))
+        today = datetime.datetime.now(pytz.timezone("Europe/Kyiv")).date()
+        changes = []
+        for r in rows:
+            it = _corp_effective(r)
+            prev = json.loads(r["notified_json"]) if r["notified_json"] else None
+            ev = [] if bootstrap else corp_tracking.shipment_events(prev, it, today)
+            late_flag = (prev or {}).get("late_notified", False) or any(k == "late" for k, _ in ev)
+            if it.get("eta") != (prev or {}).get("eta"):
+                late_flag = any(k == "late" for k, _ in ev)
+            if bootstrap or prev is None:
+                # already overdue when we first see it — that's not news
+                late_flag = bool(it.get("stage") == "transit" and it.get("eta")
+                                 and datetime.date.fromisoformat(it["eta"]) < today)
+            state = {"stage": it.get("stage"), "eta": it.get("eta"), "late_notified": late_flag}
+            cur.execute("UPDATE corp_shipments SET notified_json = %s WHERE key = %s",
+                        (json.dumps(state), r["key"]))
+            if ev:
+                changes.append((it, ev))
+        conn.commit()
+        if not changes:
+            return 0
+        async with httpx.AsyncClient(timeout=20) as client:
+            if len(changes) <= 6:
+                for it, ev in changes:
+                    text = _cargo_event_text(it, ev)
+                    sent += await _send_cargo(client, cur, conn, lambda m, f, t=text: t, {it["key"]})
+            else:
+                # many changes at once (e.g. the sheet was edited) → one digest per chat
+                def digest(mode, followed):
+                    mine = [(it, ev) for it, ev in changes if mode != "followed" or it["key"] in followed]
+                    if not mine:
+                        return None
+                    parts = [f"<b>📦 Вантажі: {len(mine)} змін</b>"]
+                    for it, ev in mine[:25]:
+                        parts.append("\n" + _cargo_event_text(it, ev))
+                    if len(mine) > 25:
+                        parts.append(f"\n… і ще {len(mine) - 25} — у застосунку, вкладка «Трекінг».")
+                    return "\n".join(parts)[:4000]
+                sent += await _send_cargo(client, cur, conn, digest, None)
+        logger.info("cargo: %d shipment changes, %d messages sent", len(changes), sent)
+    finally:
+        conn.close()
+    return sent
+
+
+async def notify_cargo_strike(card: dict) -> int:
+    """A new strike card: warn if it hits a city where our shipments go or a
+    client our shipments are for."""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        rows = db_fetchall(cur, "SELECT key, data_json, live_status, live_carrier, live_url, live_steps, "
+                                "last_checked FROM corp_shipments WHERE in_sheet") or []
+        items = [_corp_effective(r) for r in rows]
+        v = strikes._val
+        text = " ".join(filter(None, [v(card.get("headline")), v(card.get("city")), v(card.get("region")),
+                                      v(card.get("damage")), v(card.get("summary"))]))
+        hits = corp_tracking.strike_hits(text, v(card.get("company")), items)
+        if not hits:
+            return 0
+        lines = ["<b>⚠️ Удар може зачепити наші вантажі</b>",
+                 f"💥 {escape_html(v(card.get('headline')) or 'Удар по підприємству')}", ""]
+        for it, reason in hits[:12]:
+            why = (f"клієнт: {reason.split(':', 1)[1]}" if reason.startswith("client:")
+                   else f"місто: {reason.split(':', 1)[1]}")
+            lines.append(f"• <b>{escape_html(it['product'])}</b> — {escape_html(why)}\n  {_cargo_line(it)}")
+        msg = "\n".join(lines)[:4000]
+        keys = {it["key"] for it, _ in hits}
+        async with httpx.AsyncClient(timeout=20) as client:
+            n = await _send_cargo(client, cur, conn, lambda m, f: msg, keys)
+        logger.info("cargo: strike alert for %d shipments sent to %d chats", len(hits), n)
+        return n
+    finally:
+        conn.close()
 
 
 async def _corp_sync_job():

@@ -182,3 +182,95 @@ def stats(items: list[dict], today: _dt.date | None = None) -> dict:
             "sea": sum(1 for i in active if i["mode"] == "sea"),
             "air": sum(1 for i in active if i["mode"] == "air"),
             "parcel": sum(1 for i in active if i["mode"] == "parcel")}
+
+
+# ── Notifications ────────────────────────────────────────────────────────────
+STAGE_RANK = {"transit": 0, "arrived": 1, "done": 2}
+
+
+def shipment_events(prev: dict | None, cur: dict, today: _dt.date | None = None) -> list[tuple[str, str]]:
+    """What changed for one shipment since we last notified about it.
+    prev: {"stage", "eta", "late_notified"} as stored after the last
+    notification (None = never seen). Returns [(kind, detail)] with kinds
+    new / arrived / done / eta / late."""
+    today = today or _dt.date.today()
+    out: list[tuple[str, str]] = []
+    stage, eta = cur.get("stage", "transit"), cur.get("eta")
+    if prev is None:
+        ref = cur.get("eta") or cur.get("departed")
+        fresh = ref and abs((today - _dt.date.fromisoformat(ref)).days) <= 30
+        if stage == "transit" and fresh:
+            out.append(("new", ""))
+        return out
+    if STAGE_RANK.get(stage, 0) > STAGE_RANK.get(prev.get("stage") or "transit", 0):
+        out.append((stage, ""))
+    elif stage == "transit" and eta and prev.get("eta") and eta != prev["eta"]:
+        delta = (_dt.date.fromisoformat(eta) - _dt.date.fromisoformat(prev["eta"])).days
+        if abs(delta) >= 2:
+            out.append(("eta", f"{prev['eta']}|{eta}|{delta}"))
+    if (stage == "transit" and eta and _dt.date.fromisoformat(eta) < today
+            and not prev.get("late_notified") and not any(k == "eta" for k, _ in out)):
+        out.append(("late", str((today - _dt.date.fromisoformat(eta)).days)))
+    return out
+
+
+# Cities that appear in the sheet (Russian spelling) and in strike reports
+# (Ukrainian / English) → one canonical name.
+CITY_ALIASES = {      # word stems: match any case form (Одеса / Одесі / Одесса / Одещина)
+    "Київ": ["київ", "києв", "киев", "kyiv", "kiev"],
+    "Одеса": ["одес", "одещ", "odes"],
+    "Чорноморськ": ["чорноморськ", "черноморск", "chornomorsk"],
+    "Південний": ["південн", "южн", "pivdenn"],
+    "Ізмаїл": ["ізмаїл", "измаил", "izmail"],
+    "Рені": ["рені", "рени", "reni"],
+    "Харків": ["харків", "харков", "харьков", "kharkiv"],
+    "Дніпро": ["дніпр", "днепр", "dnipr"],
+    "Львів": ["львів", "львов", "lviv"],
+    "Луцьк": ["луцьк", "луцк", "lutsk"],
+    "Тернопіль": ["тернопіл", "тернопол", "ternopil"],
+    "Лубни": ["лубн", "lubny"],
+    "Біла Церква": ["біла церкв", "білій церкв", "белая церков", "bila tserkv"],
+    "Бориспіль": ["бориспіл", "борисп", "boryspil"],
+    "Бровари": ["бровар", "brovary"],
+    "Вінниця": ["вінниц", "винниц", "vinnyts"],
+    "Полтава": ["полтав", "poltav"],
+    "Запоріжжя": ["запоріж", "запорож", "zaporizh"],
+    "Миколаїв": ["миколаїв", "миколаєв", "николаев", "mykolaiv"],
+}
+# Clients the team writes as a suffix of the product ("Мометазон Лубны")
+CLIENT_MARKERS = {"лубны": "Лубнифарм", "лубни": "Лубнифарм", "бхфз": "Борщагівський ХФЗ",
+                  "кмп": "Київмедпрепарат", "фармак": "Фармак", "дарница": "Дарниця", "дарниця": "Дарниця",
+                  "артериум": "Артеріум", "здоровье": "Здоров'я (Харків)", "юрия": "Юрія-Фарм",
+                  "биофарма": "Біофарма", "технолог": "Технолог (Умань)"}
+
+
+def cities_in(text: str) -> set[str]:
+    t = (text or "").lower().replace("ʼ", "'").replace("’", "'")
+    return {city for city, al in CITY_ALIASES.items()
+            if any(re.search(r"(?<![а-яіїєґa-z])" + re.escape(a), t) for a in al)}
+
+
+def clients_in(text: str) -> set[str]:
+    t = (text or "").lower()
+    return {name for marker, name in CLIENT_MARKERS.items() if re.search(r"(?<![а-яіїєґa-z])" + marker + r"(?![а-яіїєґa-z])", t)}
+
+
+def strike_hits(strike_text: str, strike_company: str, shipments: list[dict]) -> list[tuple[dict, str]]:
+    """Active shipments a strike may affect: same city as the shipment's
+    destination / customs / warehouse, or the struck company is the client
+    the shipment is for. Returns [(shipment, reason)]."""
+    s_cities = cities_in(strike_text)
+    s_company = (strike_company or "").lower()
+    out = []
+    for it in shipments:
+        if it.get("done"):
+            continue
+        where = " ".join([it.get("dest", ""), it.get("customs", ""), it.get("warehouse", "")])
+        common = s_cities & cities_in(where)
+        clients = clients_in(it.get("product", ""))
+        client_hit = next((c for c in clients if c.lower().split(" ")[0][:6] in s_company), None)
+        if client_hit:
+            out.append((it, f"client:{client_hit}"))
+        elif common:
+            out.append((it, f"city:{sorted(common)[0]}"))
+    return out
