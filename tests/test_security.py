@@ -73,3 +73,16 @@ if __name__ == "__main__":
             print(f"  PASS {name}")
             passed += 1
     print(f"\n{passed} tests passed")
+
+
+def test_redact_secrets_in_logs():
+    import logging
+    from app.security import redact_secrets, RedactSecretsFilter
+    tok = "8521380552:AAGPIaqK5KOIOjvehcmwh0C5YIv5lp_hTXQ"
+    line = f'HTTP Request: POST https://api.telegram.org/bot{tok}/sendMessage "HTTP/1.1 200 OK"'
+    out = redact_secrets(line)
+    assert tok not in out and "bot<redacted>/sendMessage" in out
+    assert "sk-<redacted>" in redact_secrets("key sk-proj-abcdefghijklmnopqrstuvwxyz123")
+    rec = logging.LogRecord("httpx", logging.INFO, "", 0, "HTTP Request: %s %s", ("POST", f"https://api.telegram.org/bot{tok}/x"), None)
+    RedactSecretsFilter().filter(rec)
+    assert tok not in rec.getMessage()

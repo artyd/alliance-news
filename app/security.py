@@ -84,3 +84,53 @@ def user_id_from_init_data(init_data: str, bot_token: str) -> int | None:
 # Can be disabled for local debugging via TG_AUTH_REQUIRED=0, but should stay on
 # in production.
 AUTH_REQUIRED = os.getenv("TG_AUTH_REQUIRED", "1").strip().lower() not in ("0", "false", "no")
+
+
+# ── Secret redaction for logs ────────────────────────────────────────────────
+# httpx logs full request URLs, and Telegram's Bot API puts the bot token in
+# the path (https://api.telegram.org/bot<token>/sendMessage). Anyone who can
+# read the server journal could take over the bot — so every log line passes
+# through this redaction.
+import logging as _logging
+import re as _re
+
+_SECRET_PATTERNS = [
+    (_re.compile(r"bot\d{6,}:[A-Za-z0-9_-]{30,}"), "bot<redacted>"),
+    (_re.compile(r"\b\d{6,}:AA[A-Za-z0-9_-]{30,}\b"), "<redacted-bot-token>"),
+    (_re.compile(r"\bsk-[A-Za-z0-9_-]{20,}\b"), "sk-<redacted>"),
+]
+
+
+def redact_secrets(text: str) -> str:
+    for rx, repl in _SECRET_PATTERNS:
+        text = rx.sub(repl, text)
+    return text
+
+
+class RedactSecretsFilter(_logging.Filter):
+    """Logging filter: rewrites the record's message with secrets removed."""
+
+    def filter(self, record: _logging.LogRecord) -> bool:
+        try:
+            msg = record.getMessage()
+        except Exception:
+            return True
+        clean = redact_secrets(msg)
+        if clean != msg:
+            record.msg, record.args = clean, None
+        if record.exc_info and not record.exc_text:
+            # format the traceback now so it can be redacted too
+            record.exc_text = redact_secrets(_logging.Formatter().formatException(record.exc_info))
+        elif record.exc_text:
+            record.exc_text = redact_secrets(record.exc_text)
+        return True
+
+
+def install_log_redaction() -> None:
+    """Attach the redaction filter to the root and uvicorn log handlers
+    (call again once uvicorn has set up its own handlers)."""
+    f = RedactSecretsFilter()
+    for name in ("", "uvicorn", "uvicorn.error", "uvicorn.access"):
+        for h in _logging.getLogger(name).handlers:
+            if not any(isinstance(x, RedactSecretsFilter) for x in h.filters):
+                h.addFilter(f)

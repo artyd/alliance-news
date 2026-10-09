@@ -31,6 +31,8 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 logger = logging.getLogger("macroharvey")
+from app.security import install_log_redaction
+install_log_redaction()        # never write the bot token / API keys into logs
 
 # ── Security helpers (Telegram Mini App initData verification) ──
 from app.security import (
@@ -457,6 +459,10 @@ aclient = AsyncOpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
 # reasoning tokens, so limits below have headroom — and only the default
 # temperature, so no call passes one.
 LLM_MODEL = os.getenv("LLM_MODEL", "gpt-5.6-terra")
+# High-volume background work (a summary per article, fact extraction, strike
+# triage) runs on the cheaper luna model; what people read (digests, strike
+# cards, alerts, the assistant) stays on LLM_MODEL.
+LLM_MODEL_BULK = os.getenv("LLM_MODEL_BULK", "gpt-5.6-luna")
 
 gemini_api_key = os.getenv("GEMINI_API_KEY")
 if gemini_api_key:
@@ -1638,7 +1644,7 @@ async def generate_summary(text: str, category: str = "", title: str = ""):
         for attempt in range(3):
             try:
                 response = await aclient.chat.completions.create(
-                    model=LLM_MODEL,
+                    model=LLM_MODEL_BULK,
                     max_completion_tokens=4000,
                     response_format={"type": "json_object"},
                     messages=[
@@ -2043,8 +2049,8 @@ async def backfill_missing_full_text(max_articles: int = 150):
 # deterministic grounding: the synthesizer can only talk about facts
 # that actually exist as rows in article_facts.
 
-# Model used for fact extraction (same as every other call — see LLM_MODEL).
-_FACTS_EXTRACTION_MODEL = LLM_MODEL
+# Model used for fact extraction (bulk work — see LLM_MODEL_BULK).
+_FACTS_EXTRACTION_MODEL = LLM_MODEL_BULK
 
 # Concurrency for fact extraction (lower than full_text because each call
 # is already a ~2-5s OpenAI API request).
@@ -5695,10 +5701,11 @@ _STRIKES_MAX_LLM_PER_CYCLE = 40  # classification budget per cycle
 _STRIKES_LOCK = asyncio.Lock()
 
 
-async def _strikes_llm(system: str, user: str, max_tokens: int = 700) -> dict:
+async def _strikes_llm(system: str, user: str, max_tokens: int = 700, bulk: bool = False) -> dict:
     # max_tokens = visible answer size; reasoning headroom added on top.
+    # bulk=True (triage of every report) runs on the cheaper model.
     resp = await aclient.chat.completions.create(
-        model=LLM_MODEL,
+        model=LLM_MODEL_BULK if bulk else LLM_MODEL,
         max_completion_tokens=max_tokens + 3000,
         response_format={"type": "json_object"},
         messages=[{"role": "system", "content": system},
@@ -5816,7 +5823,7 @@ async def _strikes_match(cur, cls: dict) -> int | None:
         return None
     try:
         res = await _strikes_llm(strikes.build_match_prompt(),
-                                 strikes.build_match_input(cls, rows), max_tokens=50)
+                                 strikes.build_match_input(cls, rows), max_tokens=50, bulk=True)
         eid = int(res["event_id"]) if res.get("event_id") is not None else None
     except Exception as e:
         logger.info("strikes: match failed: %s", e)
@@ -5972,7 +5979,7 @@ async def _strikes_process_item(client, cur, conn, it: dict, stats: dict) -> int
             it["text"] = ext["text"]
         if ext.get("final_url") and "news.google.com" not in ext["final_url"]:
             it["display_url"] = ext["final_url"]
-    cls = await _strikes_llm(strikes.build_classify_prompt(), strikes.build_classify_input(it))
+    cls = await _strikes_llm(strikes.build_classify_prompt(), strikes.build_classify_input(it), bulk=True)
     cls["is_pharma"] = bool(cls.get("is_pharma")) or cls.get("category") == "pharma"
     text = f"{it['title']}\n{it.get('text') or ''}"
     cls["watchlist"] = bool(cls.get("watchlist")) or bool(strikes.watchlist_hits(text))
@@ -6147,6 +6154,7 @@ def fetch_strike_events(since: datetime.datetime | None = None, company: str = "
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    install_log_redaction()    # uvicorn's handlers exist by now
     init_db()
 
     # Set bot menu button to open the Mini App (if WEBAPP_URL is configured).
