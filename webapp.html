@@ -167,6 +167,19 @@ nav button.on::after{
 }
 .lmore:active{background:var(--surface2)}
 
+/* ── STRIKES registry ── */
+.sk-filters{padding:8px 14px 0;display:flex;gap:8px;flex-wrap:wrap}
+.sk-filters select{
+  flex:1 1 140px;min-width:0;padding:8px 10px;border-radius:10px;font-size:12.5px;
+  border:1.5px solid var(--border);background:var(--surface);color:var(--text);
+}
+.sk-stat{padding:8px 14px 0;font-size:11.5px;color:var(--muted)}
+.sklist{padding:10px 14px;display:flex;flex-direction:column;gap:10px}
+.sk-row{font-size:12.5px;color:var(--sub);line-height:1.5;margin-top:3px}
+.sk-row b{color:var(--text);font-weight:600}
+.sk-src{margin-top:8px;font-size:12px;line-height:1.6;color:var(--muted)}
+.sk-src a{color:var(--text);opacity:.75;text-decoration:none;margin-right:8px;white-space:nowrap}
+
 /* ── REPORTS (digest PDFs) ── */
 .rlist{padding:12px 14px;display:flex;flex-direction:column;gap:10px}
 .rep-card{
@@ -769,6 +782,17 @@ body.mk-edit .pcard{cursor:default}
       <div class="rlist" id="rlist"></div>
     </div>
 
+    <!-- STRIKES registry (💥 Обстріли підприємств) -->
+    <div id="pstrikes" class="panel">
+      <div class="chips" id="sk-period"></div>
+      <div class="sk-filters">
+        <select id="sk-company" onchange="fetchStrikes()"></select>
+        <select id="sk-region" onchange="fetchStrikes()"></select>
+      </div>
+      <div class="sk-stat" id="sk-stat"></div>
+      <div class="sklist" id="sklist"></div>
+    </div>
+
     <!-- ADD / Widget management -->
     <div id="padd" class="panel">
       <!-- Home: widget manager — rendered by renderWidgetManager() on load -->
@@ -1352,6 +1376,7 @@ const WIDGETS = [
   { key:'markets',    icon:'📈', labels:{ua:'Ринки',   ru:'Рынки',    en:'Markets'} },
   { key:'tracking',   icon:'📡', labels:{ua:'Трекінг', ru:'Трекинг',  en:'Tracking'} },
   { key:'weather',    icon:'🌍', labels:{ua:'Погода',  ru:'Погода',   en:'Weather'} },
+  { key:'strikes',    icon:'💥', labels:{ua:'Обстріли', ru:'Обстріли', en:'Strikes'} },
 ];
 let _widgetPrefs = null;
 let _activeTab = 'news';
@@ -1489,7 +1514,7 @@ window.addEventListener('load', () => {
 function tab(name, btn){
   _activeTab = name;
   const panelId = name === 'currencies' ? 'add' : name;
-  ['news','reports','add','markets','tracking','weather'].forEach(n => {
+  ['news','reports','add','markets','tracking','weather','strikes'].forEach(n => {
     document.getElementById('p'+n)?.classList.toggle('on', n === panelId);
   });
   document.querySelectorAll('#bottom-nav button').forEach(b => b.classList.remove('on'));
@@ -1501,6 +1526,7 @@ function tab(name, btn){
     if(name==='markets' && mkData.length===0) fetchMarkets();
     if(name==='reports' && !document.getElementById('rlist')?.children.length) fetchReports();
     if(name==='tracking'){ trkNav('home'); loadSavedShipments(); }
+    if(name==='strikes' && !_skLoaded) initStrikes();
     if(name==='weather'){
       requestAnimationFrame(() => {
         ensureWeatherLoaded();
@@ -1621,6 +1647,100 @@ async function fetchReports(){
     if(!reps.length){ el.innerHTML=`<div class="empty"><div class="ei">📭</div><p>${u.noDataYet}</p></div>`; return; }
     reps.forEach(rep => el.appendChild(buildRepCard(rep)));
   } catch { if(el) el.innerHTML=`<div class="empty"><div class="ei">⚠️</div><p>${u.loadError}</p></div>`; }
+}
+
+// ── Strikes registry (💥 Обстріли підприємств) ──────────────────
+let _skLoaded = false, _skDays = 30;
+const SK_STR = {
+  ua:{allCompanies:'Усі компанії', allRegions:'Усі області', d7:'7 днів', d30:'30 днів',
+      d90:'90 днів', ever:'Весь час', company:'Компанія', unnamed:'не називається', place:'Місце',
+      damage:'Наслідки', casualties:'Постраждалі', production:'Виробництво', market:'Вплив на ринок',
+      events:'Подій', updates:'оновл.', empty:'Подій за цей період немає'},
+  en:{allCompanies:'All companies', allRegions:'All regions', d7:'7 days', d30:'30 days',
+      d90:'90 days', ever:'All time', company:'Company', unnamed:'not named', place:'Place',
+      damage:'Damage', casualties:'Casualties', production:'Production', market:'Market impact',
+      events:'Events', updates:'upd.', empty:'No events for this period'},
+};
+function skS(){ return SK_STR[lang]||SK_STR.ua; }
+
+function initStrikes(){
+  _skLoaded = true;
+  const s = skS();
+  const per = document.getElementById('sk-period');
+  per.innerHTML = [[7,s.d7],[30,s.d30],[90,s.d90],[0,s.ever]].map(([d,l]) =>
+    `<span class="chip${d===_skDays?' on':''}" data-d="${d}" onclick="skPeriod(${d})">${esc(l)}</span>`).join('');
+  fetchStrikes(true);
+}
+
+function skPeriod(d){
+  _skDays = d;
+  document.querySelectorAll('#sk-period .chip').forEach(c => c.classList.toggle('on', +c.dataset.d===d));
+  fetchStrikes();
+}
+
+function skFillSelect(id, values, allLabel){
+  const el = document.getElementById(id); if(!el) return;
+  const cur = el.value;
+  el.innerHTML = `<option value="">${esc(allLabel)}</option>` +
+    values.map(v => `<option value="${esc(v)}"${v===cur?' selected':''}>${esc(v)}</option>`).join('');
+}
+
+async function fetchStrikes(refillFilters){
+  const s = skS(), u = UI[lang];
+  const list = document.getElementById('sklist'); if(!list) return;
+  const company = document.getElementById('sk-company')?.value || '';
+  const region = document.getElementById('sk-region')?.value || '';
+  list.innerHTML = [1,2,3].map(()=>'<div class="sk sk-card"></div>').join('');
+  try{
+    const q = new URLSearchParams({days:_skDays, company, region, limit:150});
+    const r = await fetch('/api/webapp/strikes?'+q);
+    const data = await r.json();
+    if(refillFilters){
+      skFillSelect('sk-company', data.companies||[], s.allCompanies);
+      skFillSelect('sk-region', data.regions||[], s.allRegions);
+    }
+    const evs = data.events||[];
+    document.getElementById('sk-stat').textContent = `${s.events}: ${evs.length}`;
+    list.innerHTML = '';
+    if(!evs.length){ list.innerHTML=`<div class="empty"><div class="ei">🕊️</div><p>${esc(s.empty)}</p></div>`; return; }
+    evs.forEach(ev => list.appendChild(strikeCard(ev)));
+  } catch { list.innerHTML=`<div class="empty"><div class="ei">⚠️</div><p>${u.loadError}</p></div>`; }
+}
+
+function strikeCard(ev){
+  const s = skS(), u = UI[lang], c = ev.card||{};
+  const val = v => (v && !['null','none','невідомо','unknown','-'].includes(String(v).trim().toLowerCase())) ? String(v) : '';
+  const city = val(c.city||ev.city), region = val(c.region||ev.region);
+  const sameCity = region && !region.toLowerCase().includes('обл') && region.toLowerCase().includes(city.toLowerCase());
+  const place = city && region && !sameCity ? `${city}, ${region}` : (region || city);
+  const company = val(c.company||ev.company);
+  const row = (label, v) => val(v) ? `<div class="sk-row"><b>${esc(label)}:</b> ${esc(val(v))}</div>` : '';
+  const dt = ev.sent_at ? new Date(ev.sent_at) : null;
+  const when = val(c.attack_time) || (dt ? dt.toLocaleString(lang==='en'?'en-US':'uk-UA',
+    {day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}) : '');
+  const summary = val(c.summary||ev.summary);
+  const srcs = (ev.sources||[]).filter((x,i,a)=>a.findIndex(y=>y.source===x.source)===i).slice(0,10);
+  const el = document.createElement('div');
+  el.className = 'ncard';
+  el.innerHTML =
+    `<div class="ncard-body">
+       <div class="nbadge" style="background:${ev.is_pharma?'#B91C1C':'#7C2D12'}">💥 ${esc(val(c.object_type||ev.object_type)||'—')}${ev.update_count?` · 🔄 ${ev.update_count} ${esc(s.updates)}`:''}</div>
+       <div class="ntitle">${esc(val(c.headline||ev.headline)||'—')}</div>
+       <div class="sk-row"><b>${esc(s.company)}:</b> ${esc(company||s.unnamed)}</div>
+       ${row(s.place, place)}
+       ${row(s.damage, c.damage)}
+       ${row(s.casualties, c.casualties)}
+       ${row(s.production, c.production)}
+       ${row(s.market, c.market_impact)}
+       ${summary ? `<div class="nsumm" style="margin-top:8px">${esc(summary)}</div>` : ''}
+       ${srcs.length ? `<div class="sk-src">🔗 ${srcs.map(x=>`<a href="${esc(x.link)}" target="_blank" rel="noopener noreferrer">${esc(x.source||'link')}</a>`).join('')}</div>` : ''}
+       <div class="ncard-footer" style="margin-top:6px">
+         <div class="ntime">🕐 ${esc(when)}</div>
+         ${summary ? `<button class="read-btn" onclick="toggleSumm(this)">${u.readFull}</button>` : ''}
+       </div>
+     </div>`;
+  if(tg) el.querySelectorAll('.sk-src a').forEach(a => a.addEventListener('click', e => { e.preventDefault(); tg.openLink(a.href); }));
+  return el;
 }
 
 function buildRepCard(rep){

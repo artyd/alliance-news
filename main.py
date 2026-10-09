@@ -62,6 +62,7 @@ from app.subscriptions import (
 
 # ── HTML scrapers for gov sources without RSS ──
 from app.scrapers import scrape_dls, scrape_kmu
+from app import strikes
 
 # ── Keyword pre-filter for broad feeds ──
 from app.keyword_filter import passes_keyword_filter
@@ -301,6 +302,74 @@ def init_db():
             updated_at TIMESTAMPTZ DEFAULT NOW()
         )
     ''')
+    # ── 💥 Strikes on enterprises (see app/strikes.py) ─────────────
+    # strike_events: one row per strike on one site (the registry);
+    # strike_items: every news article / Telegram post we looked at (dedup by
+    # link) and, if relevant, the event it was attached to;
+    # strike_messages: the card's message_id in each chat, so updates can be
+    # posted as a reply to it.
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS strike_events (
+            id SERIAL PRIMARY KEY,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            sent_at TIMESTAMPTZ,
+            attack_date TEXT,
+            company TEXT,
+            object_type TEXT,
+            city TEXT,
+            region TEXT,
+            is_pharma BOOLEAN DEFAULT FALSE,
+            watchlist BOOLEAN DEFAULT FALSE,
+            headline TEXT,
+            summary TEXT,
+            card_json TEXT,
+            reported_item_id INTEGER NOT NULL DEFAULT 0,
+            update_count INTEGER NOT NULL DEFAULT 0
+        )
+    ''')
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS strike_items (
+            id SERIAL PRIMARY KEY,
+            link TEXT UNIQUE NOT NULL,
+            display_url TEXT,
+            source TEXT,
+            title TEXT,
+            text TEXT,
+            published TIMESTAMPTZ,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            status TEXT NOT NULL,
+            event_id INTEGER REFERENCES strike_events(id) ON DELETE SET NULL,
+            cls_json TEXT
+        )
+    ''')
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS strike_messages (
+            event_id INTEGER NOT NULL REFERENCES strike_events(id) ON DELETE CASCADE,
+            chat_id BIGINT NOT NULL,
+            message_id BIGINT NOT NULL,
+            PRIMARY KEY (event_id, chat_id)
+        )
+    ''')
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_strike_items_event ON strike_items(event_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_strike_events_updated ON strike_events(updated_at DESC)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_strike_events_sent ON strike_events(sent_at DESC)")
+
+    # One-shot data migrations, each applied once (keyed by name).
+    cursor.execute("CREATE TABLE IF NOT EXISTS schema_flags ("
+                   "key TEXT PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW())")
+    # The strikes topic is ON by default: users with a custom subscription
+    # list get it appended once (they can switch it off in the menu later).
+    # 'all' already includes it; 'none' (everything switched off) is respected.
+    cursor.execute("INSERT INTO schema_flags (key) VALUES ('strikes_default_on') "
+                   "ON CONFLICT DO NOTHING RETURNING key")
+    if cursor.fetchone():
+        cursor.execute("UPDATE telegram_users SET subscriptions = subscriptions || ',strikes' "
+                       "WHERE subscriptions IS NOT NULL AND subscriptions NOT IN ('all', 'none', '') "
+                       "AND NOT (',' || subscriptions || ',') LIKE '%,strikes,%'")
+        logger.info("init_db: strikes topic enabled for %d users with custom subscriptions",
+                    cursor.rowcount)
+
     # Migration: add steps_json if missing (safe on existing DBs)
     try:
         cursor.execute("ALTER TABLE tracked_shipments ADD COLUMN IF NOT EXISTS steps_json TEXT DEFAULT ''")
@@ -825,7 +894,7 @@ def get_topics_keyboard(current_subs_str, only_daily_mode=False):
     # Virtual categories that don't have RSS feeds but should appear as
     # subscription options. market_alerts is generated internally from
     # yfinance + LLM and pushed via its own scheduler, not fetch_and_store_news.
-    _virtual_subscription_categories = ["market_alerts"]
+    _virtual_subscription_categories = ["market_alerts", "strikes"]
     _all_cats = list(RSS_FEEDS.keys()) + _virtual_subscription_categories
     # Friendly display labels — defaults to cat.upper() but we rename a few
     # with underscores / renamings to look nicer as Telegram buttons.
@@ -833,6 +902,7 @@ def get_topics_keyboard(current_subs_str, only_daily_mode=False):
         "global_sources": "GLOBAL ECONOMY",
         "good_news":      "GOOD NEWS 🌞",
         "market_alerts":  "MARKET ALERTS ⚡",
+        "strikes":        "STRIKES 💥",
     }
     for cat in _all_cats:
         if cat in INTERNAL_CATEGORIES:
@@ -3222,6 +3292,13 @@ DEPARTMENTS = [
         "name": "Закони, санкції та тарифи",
         "sectors": [],
         "event_types": ["regulation", "sanction", "tariff"],
+    },    # Strike events come from the strikes monitor (strike_events table), not from
+    # article_facts — _collect_department_facts adds them as event_type 'strike'.
+    {
+        "code": "strikes",
+        "name": "Обстріли підприємств",
+        "sectors": [],
+        "event_types": ["strike"],
     },
 ]
 
@@ -3270,6 +3347,11 @@ DEPARTMENT_TOPICS = [
          ("dls",        {"ua": "Держлікслужба (ДЛС)",  "en": "State Medicines Service"}),
          ("kmu",        {"ua": "КМУ / НПА",            "en": "Cabinet of Ministers"}),
      ]},
+    {"code": "strikes", "emoji": "💥", "name": {"ua": "Обстріли підприємств", "en": "Strikes on enterprises"},
+     "topics": [
+         ("strikes", {"ua": "Удари по фарм. та суміжних підприємствах",
+                      "en": "Strikes on pharma & related sites"}),
+     ]},
 ]
 
 _ALL_TOPIC_CODES = all_topic_codes(DEPARTMENT_TOPICS)
@@ -3277,7 +3359,7 @@ _ALL_TOPIC_CODES = all_topic_codes(DEPARTMENT_TOPICS)
 # Self-check (logged at import): every menu topic must be a pushable category —
 # an RSS_FEEDS key or a known virtual category — and must not be INTERNAL, or the
 # live push would silently drop it. Catches typos / config drift early.
-_VIRTUAL_PUSHABLE = {"market_alerts"}
+_VIRTUAL_PUSHABLE = {"market_alerts", "strikes"}
 for _code in _ALL_TOPIC_CODES:
     if _code not in RSS_FEEDS and _code not in _VIRTUAL_PUSHABLE:
         logger.warning("DEPARTMENT_TOPICS: '%s' is not a known pushable category", _code)
@@ -5529,6 +5611,471 @@ async def cleanup_old_news():
 
 
 # ─────────────────────────────────────────────────────────────────
+# 💥 STRIKES MONITOR — strikes on Ukrainian pharma & adjacent enterprises
+# ─────────────────────────────────────────────────────────────────
+# Every STRIKES_POLL_SECONDS: collect reports (Google News queries, Ukrainian
+# news RSS, public Telegram channels) → keyword pre-filter → LLM classifies
+# each new report → LLM attaches it to a known event or opens a new one.
+# A new event gets ONE full card (composed from all its reports) in the
+# "💥 Обстріли підприємств" topic; later reports with significant new details
+# are posted as a reply to that card. Pure logic lives in app/strikes.py.
+
+STRIKES_TOPIC = "strikes"
+STRIKES_POLL_SECONDS = 300
+_STRIKES_MAX_AGE_H = 36          # ignore reports older than this
+_STRIKES_BOOTSTRAP_AGE_H = 6     # very first run: only reports this fresh
+_STRIKES_EVENT_WINDOW_H = 72     # a report can join events updated this recently
+_STRIKES_MAX_LLM_PER_CYCLE = 40  # classification budget per cycle
+_STRIKES_LOCK = asyncio.Lock()
+
+
+async def _strikes_llm(system: str, user: str, max_tokens: int = 700) -> dict:
+    resp = await aclient.chat.completions.create(
+        model="gpt-4o-mini",
+        temperature=0,
+        max_tokens=max_tokens,
+        response_format={"type": "json_object"},
+        messages=[{"role": "system", "content": system},
+                  {"role": "user", "content": user}],
+    )
+    return strikes.parse_json(resp.choices[0].message.content or "")
+
+
+def _entry_published(entry) -> datetime.datetime | None:
+    raw = getattr(entry, "published", "") or getattr(entry, "updated", "")
+    if not raw:
+        return None
+    try:
+        dt = email.utils.parsedate_to_datetime(raw)
+    except Exception:
+        try:
+            dt = datetime.datetime.fromisoformat(raw)
+        except Exception:
+            return None
+    return dt if dt.tzinfo else dt.replace(tzinfo=datetime.timezone.utc)
+
+
+async def _strikes_fetch_rss(client: httpx.AsyncClient, url: str,
+                             source: str | None) -> list[dict]:
+    """RSS feed → report dicts. source=None means a Google News feed, where the
+    publisher is taken from each entry."""
+    try:
+        r = await client.get(url, headers={"User-Agent": _EXTRACTION_UA}, timeout=20)
+        if r.status_code != 200:
+            logger.info("strikes: %s → HTTP %s", url[:80], r.status_code)
+            return []
+        feed = await asyncio.to_thread(feedparser.parse, r.content)
+    except Exception as e:
+        logger.info("strikes: feed %s failed: %s", url[:80], e)
+        return []
+    out = []
+    for e in feed.entries[:60]:
+        link = (getattr(e, "link", "") or "").strip()
+        title = strikes.strip_html(getattr(e, "title", ""))
+        if not link or not title:
+            continue
+        name = source
+        if name is None:  # Google News: "Title - Publisher", publisher in <source>
+            src = getattr(e, "source", None)
+            name = (src.get("title") if isinstance(src, dict) else None) or "Google News"
+            if title.endswith(f" - {name}"):
+                title = title[:-len(name) - 3]
+        summary = strikes.strip_html(getattr(e, "summary", ""))
+        # Google News summaries just repeat the title + publisher.
+        text = "" if source is None or summary.startswith(title[:40]) else summary
+        out.append({"link": link, "title": title, "text": text, "kind": "news",
+                    "published": _entry_published(e), "source": name})
+    return out
+
+
+async def _strikes_fetch_tg(client: httpx.AsyncClient, channel: str) -> list[dict]:
+    try:
+        r = await client.get(f"https://t.me/s/{channel}",
+                             headers={"User-Agent": _EXTRACTION_UA}, timeout=20)
+        if r.status_code != 200:
+            return []
+        items = strikes.parse_tg_channel_html(r.text, channel)
+    except Exception as e:
+        logger.info("strikes: channel %s failed: %s", channel, e)
+        return []
+    for it in items:
+        it["kind"] = "telegram"
+    return items
+
+
+async def _strikes_collect(client: httpx.AsyncClient) -> list[dict]:
+    sem = asyncio.Semaphore(6)
+
+    async def run(coro):
+        async with sem:
+            return await coro
+
+    jobs = [run(_strikes_fetch_rss(client, strikes.google_news_url(q), None))
+            for q in strikes.GOOGLE_NEWS_QUERIES]
+    jobs += [run(_strikes_fetch_rss(client, url, name)) for name, url in strikes.NEWS_RSS.items()]
+    jobs += [run(_strikes_fetch_tg(client, ch)) for ch in strikes.TELEGRAM_CHANNELS]
+    items, seen = [], set()
+    for batch in await asyncio.gather(*jobs):
+        for it in batch:
+            if it["link"] not in seen:
+                seen.add(it["link"])
+                items.append(it)
+    return items
+
+
+def _strike_event_items(cur, event_id: int, after_id: int = 0) -> list[dict]:
+    """Reports attached to an event; `link` is the URL to show readers."""
+    return db_fetchall(cur, "SELECT id, COALESCE(display_url, link) AS link, source, title, "
+                            "text, published FROM strike_items WHERE event_id = %s AND id > %s "
+                            "ORDER BY published NULLS LAST, id", (event_id, after_id)) or []
+
+
+async def _strikes_match(cur, cls: dict) -> int | None:
+    """Known event this report describes, or None for a new event. A tracked
+    company is matched by its watchlist name; everything else by the LLM
+    among recent events."""
+    since = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(hours=_STRIKES_EVENT_WINDOW_H)
+    if cls.get("canonical"):
+        row = db_fetchone(cur, "SELECT id FROM strike_events WHERE company = %s "
+                               "AND updated_at >= %s ORDER BY updated_at DESC LIMIT 1",
+                          (cls["canonical"], since))
+        if row:
+            return row["id"]
+    # No SQL pre-filter by region: the model's spelling of places varies, and
+    # a few days rarely hold more than a couple dozen events.
+    rows = db_fetchall(cur, "SELECT id, attack_date, company, object_type, city, region, "
+                            "headline, summary FROM strike_events WHERE updated_at >= %s "
+                            "ORDER BY updated_at DESC LIMIT 25", (since,))
+    if not rows:
+        return None
+    try:
+        res = await _strikes_llm(strikes.build_match_prompt(),
+                                 strikes.build_match_input(cls, rows), max_tokens=50)
+        eid = int(res["event_id"]) if res.get("event_id") is not None else None
+    except Exception as e:
+        logger.info("strikes: match failed: %s", e)
+        return None
+    return eid if eid in {r["id"] for r in rows} else None
+
+
+def _strike_recipients(cur) -> list:
+    """Chats subscribed to the strikes topic + static admin chats."""
+    users = db_fetchall(cur, "SELECT chat_id, subscriptions, only_daily_mode "
+                             "FROM telegram_users") or []
+    out = []
+    for u in users:
+        if u["only_daily_mode"]:
+            continue
+        subs = u["subscriptions"] or "all"
+        if subs == "all" or STRIKES_TOPIC in subs.split(","):
+            out.append(u["chat_id"])
+    known = {str(c) for c in out}
+    return out + [c for c in _env_chat_ids() if c not in known]
+
+
+async def _strikes_send(client: httpx.AsyncClient, cur, conn, event_id: int,
+                        html: str, reply: bool) -> int:
+    """Send a card (reply=False; its message id is stored per chat) or an
+    update (reply=True; posted as a reply to that card). Returns chats reached."""
+    replies = {}
+    if reply:
+        rows = db_fetchall(cur, "SELECT chat_id, message_id FROM strike_messages "
+                                "WHERE event_id = %s", (event_id,)) or []
+        replies = {str(r["chat_id"]): int(r["message_id"]) for r in rows}
+    sent = 0
+    for chat_id in _strike_recipients(cur):
+        payload = {"text": html, "parse_mode": "HTML", "disable_web_page_preview": True}
+        mid = replies.get(str(chat_id))
+        if mid:
+            payload["reply_parameters"] = {"message_id": mid,
+                                           "allow_sending_without_reply": True}
+        try:
+            r = await send_to_topic(client, chat_id, STRIKES_TOPIC, payload)
+            if r.status_code != 200:
+                logger.info("strikes: send to %s failed: %s", chat_id, r.text[:200])
+                continue
+            sent += 1
+            if not reply:
+                cur.execute("INSERT INTO strike_messages (event_id, chat_id, message_id) "
+                            "VALUES (%s, %s, %s) ON CONFLICT (event_id, chat_id) "
+                            "DO UPDATE SET message_id = EXCLUDED.message_id",
+                            (event_id, int(chat_id), r.json()["result"]["message_id"]))
+                conn.commit()
+        except Exception as e:
+            logger.info("strikes: send to %s error: %s", chat_id, e)
+        await asyncio.sleep(0.05)
+    return sent
+
+
+_CARD_UPDATE_SQL = (
+    "UPDATE strike_events SET company = COALESCE(%s, company), "
+    "object_type = COALESCE(%s, object_type), city = COALESCE(%s, city), "
+    "region = COALESCE(%s, region), headline = COALESCE(%s, headline), "
+    "summary = COALESCE(%s, summary), card_json = %s WHERE id = %s")
+
+
+def _card_with_event_defaults(card: dict, ev: dict) -> dict:
+    """Fill fields the card left empty from the event's classification (e.g. the
+    model wrote the company only into the headline)."""
+    card = dict(card)
+    for k in ("company", "object_type", "city", "region"):
+        if not strikes._val(card.get(k)) and ev.get(k):
+            card[k] = ev[k]
+    return card
+
+
+def _card_columns(card: dict, ev: dict | None = None) -> tuple:
+    """strike_events column values from a card. A tracked company keeps its
+    watchlist name, so the registry filter lists it once."""
+    v = strikes._val
+    company = (ev["company"] if ev and ev.get("watchlist") and ev.get("company")
+               else v(card.get("company")) or None)
+    return (company, v(card.get("object_type")) or None,
+            v(card.get("city")) or None,
+            strikes.normalize_region(card.get("region"), card.get("city")) or None,
+            v(card.get("headline")) or None, v(card.get("summary")) or None,
+            json.dumps(card, ensure_ascii=False))
+
+
+async def _strikes_publish_new(client, cur, conn, event_id: int, push: bool) -> bool:
+    """Compose the event card from all its reports and send it."""
+    items = _strike_event_items(cur, event_id)
+    if not items:
+        return False
+    try:
+        card = await _strikes_llm(strikes.build_card_prompt(),
+                                  strikes.build_sources_input(items), max_tokens=1500)
+    except Exception as e:
+        logger.warning("strikes: card for event %s failed: %s", event_id, e)
+        return False
+    if not card:
+        return False
+    ev = db_fetchone(cur, "SELECT * FROM strike_events WHERE id = %s", (event_id,))
+    card = _card_with_event_defaults(card, ev)
+    cur.execute(_CARD_UPDATE_SQL, (*_card_columns(card, ev), event_id))
+    cur.execute("UPDATE strike_events SET sent_at = NOW(), updated_at = NOW(), "
+                "reported_item_id = %s WHERE id = %s", (max(i["id"] for i in items), event_id))
+    conn.commit()
+    if push:
+        n = await _strikes_send(client, cur, conn, event_id,
+                                strikes.format_card(card, items), reply=False)
+        logger.info("strikes: event %s card sent to %d chats", event_id, n)
+    return True
+
+
+async def _strikes_publish_update(client, cur, conn, ev: dict, push: bool) -> bool:
+    """New reports on an already-sent event: refresh the card and, if they
+    bring significant details, reply to the original card."""
+    new_items = _strike_event_items(cur, ev["id"], after_id=ev["reported_item_id"])
+    if not new_items:
+        return False
+    card = strikes.parse_json(ev["card_json"] or "")
+    try:
+        res = await _strikes_llm(
+            strikes.build_update_prompt(),
+            "ПОТОЧНА КАРТКА:\n" + json.dumps(card, ensure_ascii=False)
+            + "\n\nНОВІ ПОВІДОМЛЕННЯ:\n" + strikes.build_sources_input(new_items),
+            max_tokens=1800)
+    except Exception as e:
+        logger.warning("strikes: update for event %s failed: %s", ev["id"], e)
+        return False
+    new_card = res.get("card") if isinstance(res.get("card"), dict) else None
+    update_text = strikes._val(res.get("update_text"))
+    significant = bool(res.get("significant")) and bool(update_text)
+    if new_card:
+        new_card = _card_with_event_defaults(new_card, ev)
+        cur.execute(_CARD_UPDATE_SQL, (*_card_columns(new_card, ev), ev["id"]))
+    cur.execute("UPDATE strike_events SET reported_item_id = %s, updated_at = NOW(), "
+                "update_count = update_count + %s WHERE id = %s",
+                (max(i["id"] for i in new_items), int(significant), ev["id"]))
+    conn.commit()
+    if significant and push:
+        html = strikes.format_update(new_card or card, update_text, new_items)
+        n = await _strikes_send(client, cur, conn, ev["id"], html, reply=True)
+        logger.info("strikes: event %s update sent to %d chats", ev["id"], n)
+    return significant
+
+
+async def _strikes_process_item(client, cur, conn, it: dict, stats: dict) -> int | None:
+    """Classify one candidate report and attach it to an event. Returns the
+    event id, or None if irrelevant. Raises on LLM failure (item not stored →
+    retried next cycle)."""
+    if it["kind"] == "news" and len(it.get("text") or "") < 400:
+        ext = await extract_article_fulltext(it["link"], http_client=client)
+        if ext.get("text"):
+            it["text"] = ext["text"]
+        if ext.get("final_url") and "news.google.com" not in ext["final_url"]:
+            it["display_url"] = ext["final_url"]
+    cls = await _strikes_llm(strikes.build_classify_prompt(), strikes.build_classify_input(it))
+    cls["is_pharma"] = bool(cls.get("is_pharma")) or cls.get("category") == "pharma"
+    text = f"{it['title']}\n{it.get('text') or ''}"
+    cls["watchlist"] = bool(cls.get("watchlist")) or bool(strikes.watchlist_hits(text))
+    cls["canonical"] = strikes.canonical_company(cls, text)
+    if cls["canonical"]:
+        cls["company"] = cls["canonical"]
+    event_id = None
+    if strikes.is_reportable(cls):
+        stats["relevant"] += 1
+        event_id = await _strikes_match(cur, cls)
+        v = strikes._val
+        if event_id is None:
+            row = db_fetchone(
+                cur, "INSERT INTO strike_events (attack_date, company, object_type, city, "
+                     "region, is_pharma, watchlist, headline, summary) "
+                     "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+                (v(cls.get("attack_date")) or None, v(cls.get("company")) or None,
+                 v(cls.get("object_type")) or None, v(cls.get("city")) or None,
+                 strikes.normalize_region(cls.get("region"), cls.get("city")) or None,
+                 bool(cls.get("is_pharma")),
+                 bool(cls.get("canonical")), v(cls.get("summary"))[:200] or None,
+                 v(cls.get("summary")) or None))
+            event_id = row["id"]
+            stats["new_events"] += 1
+        else:
+            cur.execute("UPDATE strike_events SET updated_at = NOW(), "
+                        "is_pharma = is_pharma OR %s, watchlist = watchlist OR %s, "
+                        "company = COALESCE(%s, company) WHERE id = %s",
+                        (bool(cls.get("is_pharma")), bool(cls.get("canonical")),
+                         cls.get("canonical"), event_id))
+    _strikes_store(cur, it, "matched" if event_id else "irrelevant", event_id, cls)
+    conn.commit()
+    return event_id
+
+
+def _strikes_store(cur, it: dict, status: str, event_id: int | None = None,
+                   cls: dict | None = None) -> None:
+    cur.execute("INSERT INTO strike_items (link, display_url, source, title, text, published, "
+                "status, event_id, cls_json) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) "
+                "ON CONFLICT (link) DO NOTHING",
+                (it["link"], it.get("display_url"), it.get("source"), it.get("title"),
+                 (it.get("text") or "")[:20000], it.get("published"), status, event_id,
+                 json.dumps(cls, ensure_ascii=False) if cls else None))
+
+
+async def run_strikes_cycle(push: bool = True) -> dict:
+    """One monitor pass. Returns counters (also shown by the admin endpoint)."""
+    stats = {"collected": 0, "new": 0, "candidates": 0, "relevant": 0,
+             "new_events": 0, "updates": 0}
+    if not aclient:
+        return stats
+    async with _STRIKES_LOCK:
+        async with httpx.AsyncClient(follow_redirects=True, timeout=20) as client:
+            items = await _strikes_collect(client)
+            stats["collected"] = len(items)
+            conn = get_db_connection()
+            cur = conn.cursor()
+            try:
+                # Very first run: only fresh reports, so launch doesn't flood
+                # the topic with the last day and a half of strikes.
+                bootstrap = db_fetchone(cur, "SELECT 1 AS x FROM strike_items LIMIT 1") is None
+                max_age = datetime.timedelta(
+                    hours=_STRIKES_BOOTSTRAP_AGE_H if bootstrap else _STRIKES_MAX_AGE_H)
+                known = {r["link"] for r in (db_fetchall(
+                    cur, "SELECT link FROM strike_items WHERE link = ANY(%s)",
+                    ([i["link"] for i in items],)) or [])}
+                now = datetime.datetime.now(datetime.timezone.utc)
+                fresh = sorted((i for i in items if i["link"] not in known),
+                               key=lambda i: i.get("published") or now)
+                budget = _STRIKES_MAX_LLM_PER_CYCLE
+                touched: set[int] = set()
+                for it in fresh:
+                    stats["new"] += 1
+                    pub = it.get("published")
+                    if pub is None or now - pub > max_age:
+                        _strikes_store(cur, it, "stale")
+                    elif not strikes.is_candidate(f"{it['title']}\n{it.get('text') or ''}"):
+                        _strikes_store(cur, it, "skipped")
+                    elif budget > 0:      # over budget → not stored, retried next cycle
+                        budget -= 1
+                        stats["candidates"] += 1
+                        try:
+                            eid = await _strikes_process_item(client, cur, conn, it, stats)
+                        except Exception as e:
+                            conn.rollback()
+                            logger.warning("strikes: item %s failed: %s", it["link"][:80], e)
+                            continue
+                        if eid:
+                            touched.add(eid)
+                    conn.commit()
+
+                # Events whose card failed to compose last time get another try.
+                touched |= {r["id"] for r in db_fetchall(
+                    cur, "SELECT id FROM strike_events WHERE sent_at IS NULL "
+                         "AND created_at >= NOW() - INTERVAL '6 hours'") or []}
+                for event_id in sorted(touched):
+                    ev = db_fetchone(cur, "SELECT * FROM strike_events WHERE id = %s", (event_id,))
+                    if ev is None:
+                        continue
+                    if ev["sent_at"] is None:
+                        await _strikes_publish_new(client, cur, conn, event_id, push)
+                    elif await _strikes_publish_update(client, cur, conn, ev, push):
+                        stats["updates"] += 1
+
+                # Unrelated reports are only kept for dedup; drop after 14 days.
+                # Relevant ones stay forever — they are the registry's sources.
+                cur.execute("DELETE FROM strike_items WHERE event_id IS NULL "
+                            "AND created_at < NOW() - INTERVAL '14 days'")
+                conn.commit()
+            finally:
+                conn.close()
+    if stats["relevant"]:
+        logger.info("strikes: cycle %s", stats)
+    return stats
+
+
+async def monitor_strikes():
+    """Long-running loop around run_strikes_cycle."""
+    await asyncio.sleep(30)   # let startup (init_db, topics) settle
+    while True:
+        try:
+            await run_strikes_cycle()
+        except Exception as e:
+            logger.exception("strikes: cycle crashed: %s", e)
+        await asyncio.sleep(STRIKES_POLL_SECONDS)
+
+
+def fetch_strike_events(since: datetime.datetime | None = None, company: str = "",
+                        region: str = "", limit: int = 200) -> list[dict]:
+    """Published strike events, newest first, with their card and sources."""
+    where, params = ["sent_at IS NOT NULL"], []
+    if since is not None:
+        where.append("sent_at >= %s")
+        params.append(since)
+    if company:
+        where.append("company = %s")
+        params.append(company)
+    if region:
+        where.append("region = %s")
+        params.append(region)
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        rows = db_fetchall(cur, "SELECT id, sent_at, attack_date, company, object_type, city, "
+                                "region, is_pharma, watchlist, headline, summary, card_json, "
+                                "update_count FROM strike_events WHERE " + " AND ".join(where)
+                                + " ORDER BY sent_at DESC LIMIT %s", (*params, limit)) or []
+        ids = [r["id"] for r in rows]
+        srcs = db_fetchall(cur, "SELECT event_id, source, COALESCE(display_url, link) AS link, "
+                                "title FROM strike_items WHERE event_id = ANY(%s) "
+                                "ORDER BY published NULLS LAST, id", (ids,)) if ids else []
+    finally:
+        conn.close()
+    by_event: dict[int, list] = {}
+    for s in srcs or []:
+        by_event.setdefault(s["event_id"], []).append(
+            {"source": s["source"], "link": s["link"], "title": s["title"]})
+    out = []
+    for r in rows:
+        ev = dict(r)
+        ev["card"] = strikes.parse_json(ev.pop("card_json") or "")
+        ev["sources"] = by_event.get(r["id"], [])
+        ev["first_link"] = ev["sources"][0]["link"] if ev["sources"] else ""
+        ev["first_source"] = ev["sources"][0]["source"] if ev["sources"] else ""
+        out.append(ev)
+    return out
+
+
+# ─────────────────────────────────────────────────────────────────
 # APP STARTUP
 # ─────────────────────────────────────────────────────────────────
 
@@ -5593,6 +6140,10 @@ async def lifespan(app: FastAPI):
     # on ±7% intraday moves. Dedup is per-commodity per-direction per-day.
     task_market_alerts = asyncio.create_task(monitor_market_alerts())
 
+    # Strikes on pharma & adjacent enterprises: polls news, RSS and public
+    # Telegram channels every 5 minutes, pushes cards + reply-updates.
+    task_strikes = asyncio.create_task(monitor_strikes())
+
     scheduler = AsyncIOScheduler(timezone=pytz.timezone('Europe/Kyiv'))
     # FIX: Added day_of_week='mon-fri' to prevent spurious Saturday/Sunday triggers.
     # send_daily_report_to_users already switches to 'weekly' mode on Fridays
@@ -5639,6 +6190,7 @@ async def lifespan(app: FastAPI):
     task_backfill.cancel()
     task_backfill_facts.cancel()
     task_market_alerts.cancel()
+    task_strikes.cancel()
 
 
 app = FastAPI(title="Alliance News API", lifespan=lifespan)
@@ -5876,6 +6428,16 @@ def _collect_department_facts(mode: str = "daily_brief") -> tuple[str, dict]:
             if fid not in seen_ids:
                 seen_ids.add(fid)
                 flat.append(f)
+
+    # Strike events live in their own table (strikes monitor), not in
+    # article_facts; add the ones reported in this window as 'strike' facts.
+    if mode == "midday":
+        strikes_since = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    elif mode == "weekly":
+        strikes_since = now - datetime.timedelta(days=7)
+    else:
+        strikes_since = now - datetime.timedelta(days=1)
+    flat.extend(strikes.event_as_fact(ev) for ev in fetch_strike_events(since=strikes_since))
 
     return date_str, bucket_facts_by_department(flat, DEPARTMENTS)
 
@@ -6427,6 +6989,39 @@ async def serve_webapp():
     return HTMLResponse(content=_WEBAPP_HTML, status_code=200, headers=_NO_CACHE_HEADERS)
 
 
+@app.get("/api/webapp/strikes")
+def api_strikes(company: str = "", region: str = "", days: int = 0, limit: int = 100):
+    """Registry of strikes on enterprises for the Mini App: events (newest first)
+    plus the company/region lists for the filters. days=0 → all time."""
+    limit = max(1, min(limit, 300))
+    since = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=days)
+             if days > 0 else None)
+    events = fetch_strike_events(since=since, company=company.strip(),
+                                 region=region.strip(), limit=limit)
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        companies = [r["company"] for r in db_fetchall(
+            cur, "SELECT company, COUNT(*) AS n FROM strike_events WHERE sent_at IS NOT NULL "
+                 "AND company IS NOT NULL GROUP BY company ORDER BY n DESC, company") or []]
+        regions = [r["region"] for r in db_fetchall(
+            cur, "SELECT region, COUNT(*) AS n FROM strike_events WHERE sent_at IS NOT NULL "
+                 "AND region IS NOT NULL GROUP BY region ORDER BY n DESC, region") or []]
+    finally:
+        conn.close()
+    for ev in events:
+        ev["sent_at"] = ev["sent_at"].isoformat() if ev.get("sent_at") else None
+    return {"events": events, "companies": companies, "regions": regions}
+
+
+@app.post("/admin/strikes/run")
+async def trigger_strikes_cycle(request: Request, push: int = 1):
+    """Admin: run one strikes-monitor pass now. ?push=0 fills the registry
+    without sending anything to Telegram."""
+    _require_admin_token(request)
+    return await run_strikes_cycle(push=bool(push))
+
+
 @app.get("/api/webapp/news")
 def api_news(category: str = "all", lang: str = "ua", limit: int = 15, offset: int = 0):
     limit = min(limit, 50)
@@ -6782,7 +7377,7 @@ _WORLD_CAPITALS_NO_RU = [
   {"name":"Rabat","country":"Morocco","country_code":"MA","admin1":"Rabat-Salé-Kénitra","lat":34.0209,"lon":-6.8416,"tz":"Africa/Casablanca"},
   {"name":"Reykjavik","country":"Iceland","country_code":"IS","admin1":"Capital Region","lat":64.1355,"lon":-21.8954,"tz":"Atlantic/Reykjavik"},
 ]
-_VALID_WIDGET_KEYS = {'news', 'reports', 'currencies', 'markets', 'tracking', 'weather'}
+_VALID_WIDGET_KEYS = {'news', 'reports', 'currencies', 'markets', 'tracking', 'weather', 'strikes'}
 _DEFAULT_WIDGET_KEYS = ['news', 'reports', 'markets', 'tracking']
 
 _CURRENCY_META = {
