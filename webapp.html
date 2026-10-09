@@ -273,7 +273,7 @@ select.field option{color:#111}
 .hint{font-size:12.5px;color:var(--ink-3);margin:8px 4px 0;line-height:1.45}
 
 /* ── Floating tab bar with sliding liquid lens ── */
-.tabbar{position:fixed;left:max(14px,calc(50% - 346px));right:max(84px,calc(50% - 276px));bottom:calc(18px + var(--safe-b));height:66px;border-radius:33px;z-index:30;display:flex;padding:5px}
+.tabbar{position:fixed;left:max(10px,calc(50% - 350px));right:max(10px,calc(50% - 350px));bottom:calc(18px + var(--safe-b));height:66px;border-radius:33px;z-index:30;display:flex;padding:5px}
 .lens{position:absolute;top:5px;bottom:5px;left:5px;border-radius:28px;z-index:0;background:var(--glass-strong);
   box-shadow:inset 0 1px 0 var(--rim-hi),inset 0 -1px 1px var(--rim-lo),0 6px 16px -6px rgba(0,0,0,.25);
   transition:transform .55s cubic-bezier(.3,1.35,.45,1),width .55s cubic-bezier(.3,1.35,.45,1)}
@@ -284,30 +284,22 @@ select.field option{color:#111}
 .tab.on svg{transform:scale(1.08)}
 .tab .dotn{position:absolute;top:8px;right:calc(50% - 16px);width:8px;height:8px;border-radius:50%;background:var(--strike);box-shadow:0 0 0 2px var(--bg)}
 
-/* ── Харві orb ── */
-.orb{position:fixed;right:max(14px,calc(50% - 346px));bottom:calc(18px + var(--safe-b));width:66px;height:66px;border-radius:50%;z-index:30;display:grid;place-items:center;overflow:visible}
-.orb .ring{position:absolute;inset:5px;border-radius:50%;background:conic-gradient(from 0deg,#5AC8FA,#AF52DE,#FF9F0A,#34C759,#5AC8FA);
-  animation:spin 8s linear infinite;-webkit-mask:radial-gradient(circle,transparent 25px,#000 26px);mask:radial-gradient(circle,transparent 25px,#000 26px);opacity:.9}
-.orb svg{width:50px;height:50px;position:relative;margin-top:-4px}
-@keyframes spin{to{transform:rotate(360deg)}}
-
-/* ── Харві mascot animations ── */
-.harvey .ear-l{transform-origin:44px 52px;animation:earL 5s ease-in-out infinite}
-.harvey .ear-r{transform-origin:76px 52px;animation:earR 5s ease-in-out infinite}
-.harvey .eyes{transform-origin:60px 70px;animation:blink 4.5s infinite}
-.harvey .pupils{transition:transform .4s}
-@keyframes earL{0%,70%,100%{transform:rotate(0)}78%{transform:rotate(-9deg)}86%{transform:rotate(3deg)}}
-@keyframes earR{0%,20%,100%{transform:rotate(0)}28%{transform:rotate(8deg)}36%{transform:rotate(-3deg)}}
-@keyframes blink{0%,92%,100%{transform:scaleY(1)}95%{transform:scaleY(.1)}}
-.harvey.thinking .pupils{transform:translate(2px,-3px)}
-.harvey.thinking .head{animation:tilt 1.2s ease-in-out infinite alternate}
-.harvey .head{transform-origin:60px 95px}
-@keyframes tilt{from{transform:rotate(-4deg)}to{transform:rotate(4deg)}}
-.harvey .chart-line{stroke-dasharray:60;stroke-dashoffset:0}
-.harvey.thinking .chart-line{animation:draw 1.4s ease-in-out infinite}
-@keyframes draw{0%{stroke-dashoffset:60}60%,100%{stroke-dashoffset:0}}
-.harvey.happy .head{animation:hop .6s cubic-bezier(.3,1.6,.5,1)}
-@keyframes hop{30%{transform:translateY(-6px)}}
+/* ── AI button (robot) inside the tab bar ── */
+.tab.ai{color:var(--ink)}
+.rbi{display:grid;place-items:center;width:30px;height:30px;margin-top:-3px}
+.rbi svg{width:30px;height:30px;filter:drop-shadow(0 4px 8px rgba(47,91,255,.35))}
+.tab.ai:active .rbi{transform:scale(.92)}
+.tb-preview .rbi{width:22px;height:22px;margin:0}
+.tb-preview .rbi svg{width:22px;height:22px}
+.rb .eye{transform-box:fill-box;transform-origin:center;animation:rbBlink 4.2s infinite}
+.rb .ant{animation:rbGlow 2s ease-in-out infinite}
+.rb.think .eye{animation:rbScan .9s ease-in-out infinite alternate}
+.rb.think .ant{animation-duration:.6s}
+.rb.happy{animation:rbHop .6s cubic-bezier(.3,1.6,.5,1)}
+@keyframes rbBlink{0%,92%,100%{transform:scaleY(1)}95%{transform:scaleY(.1)}}
+@keyframes rbGlow{50%{opacity:.35}}
+@keyframes rbScan{from{transform:translateX(-2px)}to{transform:translateX(2px)}}
+@keyframes rbHop{30%{transform:translateY(-4px)}}
 
 /* ── Sheets, overlays ── */
 .scrim{position:fixed;inset:0;z-index:40;background:rgba(0,0,0,.22);opacity:0;pointer-events:none;transition:opacity .35s}
@@ -344,7 +336,7 @@ select.field option{color:#111}
 
 /* ── AI chat ── */
 .ai-head{display:flex;align-items:center;gap:12px;margin-top:2px}
-.ai-head .harvey{width:86px;height:100px;flex-shrink:0;margin:-6px 0 -6px -6px}
+.ai-head .rb{width:64px;height:64px;flex-shrink:0;filter:drop-shadow(0 8px 16px rgba(47,91,255,.3))}
 .chat{display:flex;flex-direction:column;gap:10px;margin-top:12px}
 .msg{max-width:88%;padding:11px 14px;border-radius:20px;font-size:14.5px;line-height:1.5;white-space:pre-wrap;word-wrap:break-word}
 .msg.me{align-self:flex-end;background:var(--blue);color:#fff;border-bottom-right-radius:6px}
@@ -870,7 +862,6 @@ body.curr-edit .curr-remove-btn{display:flex}
   </main>
 
   <nav class="glass tabbar" id="tabbar"><span class="lens" id="lens"></span></nav>
-  <button class="glass orb" id="orb" onclick="openAI()" aria-label="Харві"><span class="ring"></span><span id="orbFace"></span></button>
 
   <div class="scrim" id="scrim" onclick="back()"></div>
   <div class="glass strong sheet" id="sheet"><div class="grab"></div><div class="body" id="sheetBody"></div></div>
@@ -985,9 +976,9 @@ const N = {
     tracking:'Трекінг',weather:'Погода',warehouse:'Склад',me:'Моє',registry:'Реєстр',all:'Усі',fxNbu:'Курси НБУ',departments:'Відділи',
     latest:'Останнє',loadMore:'Завантажити ще',back:'Назад',relNews:'Пов’язані новини',lastDigest:'Останній дайджест',pdfArchive:'PDF-архів звітів',
     cargo:'Вантажі',handbook:'Довідник речовин',personal:'Особисте',favorites:'Обране',notes:'Нотатки',newNote:'+ Нова',toolbar:'Нижня панель',
-    canAdd:'Можна додати',tbHint:'До 5 вкладок разом з «Моє» — вона завжди остання, тут налаштування. Решта розділів відкривається з «Усі розділи».',
+    canAdd:'Можна додати',tbHint:'До 5 вкладок разом з «Моє» — вона закріплена, тут налаштування; кнопка «ШІ» завжди праворуч. Решта розділів відкривається з «Усі розділи».',
     allSections:'Усі розділи',subscriptions:'Сповіщення в Telegram',settings:'Налаштування',theme:'Тема',language:'Мова',fullscreen:'На весь екран (ПК)',
-    cancel:'Скасувати',addChart:'Графіки на екрані',apply:'Застосувати',harveySub:'Заєць-аналітик · знає все, що зібрав бот',
+    cancel:'Скасувати',addChart:'Графіки на екрані',apply:'Застосувати',harveySub:'Аналітик · знає все, що зібрав бот',
     save:'Зберегти',saved:'В обраному',note:'Нотатка',hasNote:'Є нотатка',explain:'Пояснити',source:'Джерело',myNote:'Моя нотатка',
     notePh:'Що це означає для нас? Кому переслати?',saveNote:'Зберегти нотатку',deleteNote:'Видалити',noteSaved:'📝 Нотатку збережено',
     noteDeleted:'Нотатку видалено',favAdded:'★ Додано в обране',favRemoved:'Прибрано з обраного',
@@ -1006,14 +997,14 @@ const N = {
     receive:'Отримувати в Telegram',off:'Вимкнено',auto:'Авто',light:'Світла',dark:'Темна',tbMax:'Максимум 5 вкладок разом з «Моє»',
     tbMin:'Залиште хоча б одну вкладку',pinned:'закріплена',update:'оновл.',openPdf:'PDF',noReports:'Звітів поки немає',
     explainQ:'Поясни простими словами, що це означає для нас: ',strikeQ:'Розкажи про цей удар і що він означає для ринку: ',
-    user:'Користувач',ago_now:'щойно',ago_m:'хв',ago_h:'год',goodMorning:'Доброго ранку',goodDay:'Доброго дня',goodEvening:'Доброго вечора'},
+    user:'Користувач',ai:'ШІ',ago_now:'щойно',ago_m:'хв',ago_h:'год',goodMorning:'Доброго ранку',goodDay:'Доброго дня',goodEvening:'Доброго вечора'},
   en:{today:'Today',feed:'Feed',news:'News',strikes:'Strikes',markets:'Markets',currencies:'Currencies',reports:'Reports',
     tracking:'Tracking',weather:'Weather',warehouse:'Warehouse',me:'Me',registry:'Registry',all:'All',fxNbu:'NBU rates',departments:'Departments',
     latest:'Latest',loadMore:'Load more',back:'Back',relNews:'Related news',lastDigest:'Latest digest',pdfArchive:'PDF report archive',
     cargo:'Cargo',handbook:'Substance handbook',personal:'Personal',favorites:'Saved',notes:'Notes',newNote:'+ New',toolbar:'Bottom bar',
-    canAdd:'Available',tbHint:'Up to 5 tabs including «Me» — it is always last and holds the settings. Other sections open from «All sections».',
+    canAdd:'Available',tbHint:'Up to 5 tabs including «Me» — it is pinned and holds the settings; the «AI» button is always on the right. Other sections open from «All sections».',
     allSections:'All sections',subscriptions:'Telegram notifications',settings:'Settings',theme:'Theme',language:'Language',fullscreen:'Fullscreen (desktop)',
-    cancel:'Cancel',addChart:'Charts on screen',apply:'Apply',harveySub:'Analyst hare · knows everything the bot collected',
+    cancel:'Cancel',addChart:'Charts on screen',apply:'Apply',harveySub:'Analyst · knows everything the bot collected',
     save:'Save',saved:'Saved',note:'Note',hasNote:'Has note',explain:'Explain',source:'Source',myNote:'My note',
     notePh:'What does it mean for us? Who should know?',saveNote:'Save note',deleteNote:'Delete',noteSaved:'📝 Note saved',
     noteDeleted:'Note deleted',favAdded:'★ Saved',favRemoved:'Removed from saved',
@@ -1032,7 +1023,7 @@ const N = {
     receive:'Receive in Telegram',off:'Off',auto:'Auto',light:'Light',dark:'Dark',tbMax:'Up to 5 tabs including «Me»',
     tbMin:'Keep at least one tab',pinned:'pinned',update:'upd.',openPdf:'PDF',noReports:'No reports yet',
     explainQ:'Explain in plain words what this means for us: ',strikeQ:'Tell me about this strike and what it means for the market: ',
-    user:'User',ago_now:'just now',ago_m:'min',ago_h:'h',goodMorning:'Good morning',goodDay:'Good afternoon',goodEvening:'Good evening'},
+    user:'User',ai:'AI',ago_now:'just now',ago_m:'min',ago_h:'h',goodMorning:'Good morning',goodDay:'Good afternoon',goodEvening:'Good evening'},
 };
 function T(k){ return (N[lang] && N[lang][k]) || N.ua[k] || k; }
 function applyStaticText(){
@@ -1138,46 +1129,22 @@ const loaded = {};
 
 // ════════════════════════ Харві ════════════════════════
 let _hvN = 0;
-function harveySVG(full, cls){
+// Робот «Бот-сфера» (variant A, approved): one face, filled icon. Blinks; the
+// antenna light glows; while answering the eyes scan (class "think").
+function robotSVG(cls){
   const i = ++_hvN;
-  const vb = full ? '4 0 112 134' : '10 0 100 108';
-  return `<svg class="harvey ${cls||''}" viewBox="${vb}" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-  <defs>
-    <linearGradient id="hvF${i}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FBF9FF"/><stop offset="1" stop-color="#D8D1EA"/></linearGradient>
-    <linearGradient id="hvI${i}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFD3DF"/><stop offset="1" stop-color="#F59AB5"/></linearGradient>
-    <linearGradient id="hvT${i}" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#26324F"/><stop offset="1" stop-color="#101727"/></linearGradient>
-    <radialGradient id="hvC${i}"><stop offset="0" stop-color="#FF9DB8" stop-opacity=".55"/><stop offset="1" stop-color="#FF9DB8" stop-opacity="0"/></radialGradient>
-  </defs>
-  ${full ? `<g class="torso" transform="translate(0 -9)">
-    <ellipse cx="60" cy="128" rx="27" ry="18" fill="url(#hvF${i})"/>
-    <path d="M52 112 l8 7 8-7" fill="none" stroke="#5E5CE6" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
-    <g transform="rotate(-8 60 124)">
-      <rect x="38" y="111" width="44" height="29" rx="6" fill="url(#hvT${i})"/>
-      <rect x="38" y="111" width="44" height="29" rx="6" fill="none" stroke="#fff" stroke-opacity=".25"/>
-      <polyline class="chart-line" points="43,133 51,126 58,129 66,119 76,121" fill="none" stroke="#34C759" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
-      <circle cx="76" cy="121" r="2.2" fill="#34C759"/>
-    </g>
-    <ellipse cx="38" cy="126" rx="6" ry="5" fill="url(#hvF${i})"/><ellipse cx="82" cy="122" rx="6" ry="5" fill="url(#hvF${i})"/>
-  </g>` : ''}
-  <g class="head">
-    <g class="ear-l"><path d="M45 54C33 34 31 9 40 5c9-4 15 22 14 49z" fill="url(#hvF${i})"/><path d="M46 49C38 33 37 14 41 11c5-2 8 18 8 38z" fill="url(#hvI${i})"/></g>
-    <g class="ear-r"><path d="M75 54c12-20 14-45 5-49-9-4-15 22-14 49z" fill="url(#hvF${i})"/><path d="M74 49c8-16 9-35 5-38-5-2-8 18-8 38z" fill="url(#hvI${i})"/></g>
-    <ellipse cx="60" cy="75" rx="33" ry="29" fill="url(#hvF${i})"/>
-    <ellipse cx="60" cy="58" rx="20" ry="8" fill="#fff" opacity=".45"/>
-    <circle cx="38" cy="86" r="8" fill="url(#hvC${i})"/><circle cx="82" cy="86" r="8" fill="url(#hvC${i})"/>
-    <g class="eyes">
-      <circle cx="47" cy="72" r="8.4" fill="#fff"/><circle cx="73" cy="72" r="8.4" fill="#fff"/>
-      <g class="pupils"><circle cx="48" cy="73" r="4.4" fill="#1B1F2A"/><circle cx="74" cy="73" r="4.4" fill="#1B1F2A"/>
-        <circle cx="49.6" cy="71.3" r="1.5" fill="#fff"/><circle cx="75.6" cy="71.3" r="1.5" fill="#fff"/></g>
-    </g>
-    <circle cx="47" cy="72" r="10.2" fill="none" stroke="#2B2F3A" stroke-width="2.4"/>
-    <circle cx="73" cy="72" r="10.2" fill="none" stroke="#2B2F3A" stroke-width="2.4"/>
-    <path d="M57.2 71q2.8-2.6 5.6 0" fill="none" stroke="#2B2F3A" stroke-width="2.2" stroke-linecap="round"/>
-    <path d="M36.8 70l-5-2M83.2 70l5-2" stroke="#2B2F3A" stroke-width="2" stroke-linecap="round"/>
-    <path d="M56 84.5q4 3.6 8 0q-4-2.2-8 0z" fill="#F07FA0"/>
-    <path d="M60 87v2.6M60 89.6q-3.6 3.6-7 .8M60 89.6q3.6 3.6 7 .8" fill="none" stroke="#2B2F3A" stroke-width="1.7" stroke-linecap="round"/>
-    <path d="M44 88h-9M44 91l-8 2M76 88h9M76 91l8 2" stroke="#2B2F3A" stroke-opacity=".25" stroke-width="1.2" stroke-linecap="round"/>
-  </g></svg>`;
+  return `<svg class="rb ${cls||''}" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><defs>
+    <linearGradient id="rbA${i}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#5AA8FF"/><stop offset="1" stop-color="#2F5BFF"/></linearGradient>
+    <linearGradient id="rbB${i}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1A2340"/><stop offset="1" stop-color="#0B1022"/></linearGradient></defs>
+    <line x1="32" y1="6" x2="32" y2="13" stroke="#2F5BFF" stroke-width="3" stroke-linecap="round"/>
+    <circle class="ant" cx="32" cy="6" r="3.6" fill="#5EF2C2"/>
+    <rect x="4" y="27" width="6" height="14" rx="3" fill="#2F5BFF"/><rect x="54" y="27" width="6" height="14" rx="3" fill="#2F5BFF"/>
+    <circle cx="32" cy="35" r="23" fill="url(#rbA${i})"/>
+    <ellipse cx="25" cy="20" rx="10" ry="4.5" fill="#fff" opacity=".35"/>
+    <rect x="15" y="25" width="34" height="21" rx="10.5" fill="url(#rbB${i})"/>
+    <rect class="eye" x="21" y="30" width="7" height="10" rx="3.5" fill="#5EF2C2"/>
+    <rect class="eye" x="36" y="30" width="7" height="10" rx="3.5" fill="#5EF2C2"/>
+    <path d="M27 50q5 3 10 0" stroke="#fff" stroke-opacity=".8" stroke-width="2.4" fill="none" stroke-linecap="round"/></svg>`;
 }
 
 // ════════════════════════ navigation ════════════════════════
@@ -1186,7 +1153,8 @@ function renderTabbar(){
   const bar = byId('tabbar'); if(!bar) return;
   const keys = [...toolbar(), 'me'];
   bar.innerHTML = '<span class="lens" id="lens"></span>' + keys.map(k =>
-    `<button class="tab${k===cur?' on':''}" data-v="${k}" onclick="go('${k}')">${k==='strikes'?'<span class="dotn" id="strikeDot" style="display:none"></span>':''}${ICON[k]}<span>${esc(T(k))}</span></button>`).join('');
+    `<button class="tab${k===cur?' on':''}" data-v="${k}" onclick="go('${k}')">${k==='strikes'?'<span class="dotn" id="strikeDot" style="display:none"></span>':''}${ICON[k]}<span>${esc(T(k))}</span></button>`).join('')
+    + `<button class="tab ai" onclick="openAI()" aria-label="${esc(T('ai'))}"><span class="rbi">${robotSVG()}</span><span>${esc(T('ai'))}</span></button>`;
   requestAnimationFrame(moveLens);
 }
 function moveLens(){
@@ -1611,7 +1579,8 @@ function renderMe(){
 function renderToolbarEditor(){
   const tb = toolbar();
   setText('tbCount', `${tb.length + 1} / ${MAX_TABS}`);
-  setHTML('tbPreview', [...tb, 'me'].map(k => `<span class="${k==='me'?'pin':''}">${ICON[k]}${esc(T(k))}</span>`).join(''));
+  setHTML('tbPreview', [...tb, 'me'].map(k => `<span class="${k==='me'?'pin':''}">${ICON[k]}${esc(T(k))}</span>`).join('')
+    + `<span class="pin"><span class="rbi">${robotSVG()}</span>${esc(T('ai'))}</span>`);
   setHTML('tbOn', tb.map((k, i) => `<div class="tb-row"><span class="ic">${ICON[k]}</span><div class="nm">${esc(T(k))}</div>
       <button class="tbb glass" onclick="tbMove(${i},-1)" ${i===0?'disabled':''} aria-label="up">↑</button>
       <button class="tbb glass" onclick="tbMove(${i},1)" ${i===tb.length-1?'disabled':''} aria-label="down">↓</button>
@@ -1727,7 +1696,7 @@ function openSource(msgIdx, n){
   if(s.kind === 'news' && NEWS[s.id]){ openNews(s.id); return; }
   openExt(s.link);
 }
-function setHarvey(state){ document.querySelectorAll('#aiFace .harvey, #orbFace .harvey').forEach(h => { h.classList.remove('thinking','happy'); if(state) h.classList.add(state); }); }
+function setHarvey(state){ document.querySelectorAll('#aiFace .rb, #tabbar .rb').forEach(h => { h.classList.remove('think','happy'); if(state) h.classList.add(state === 'thinking' ? 'think' : state); }); }
 async function askAI(q){
   const inp = byId('aiQ');
   q = (q || inp.value).trim(); if(!q || _aiBusy) return;
@@ -3454,7 +3423,7 @@ window.addEventListener('load', async () => {
   setTimeout(hideSplash, 2500);
   try{
     applyTheme(); applyStaticText(); updateStaticText();
-    setHTML('orbFace', harveySVG(false)); setHTML('aiFace', harveySVG(true));
+    setHTML('aiFace', robotSVG());
     // personal toolbar & theme (don't block the UI for more than ~1.5s)
     try{
       const p = await Promise.race([
