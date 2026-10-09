@@ -331,6 +331,11 @@ select.field option{color:#111}
 .send{width:38px;height:38px;border-radius:50%;background:var(--ink);color:var(--bg);display:grid;place-items:center;flex-shrink:0}
 .send:disabled{opacity:.4}
 .sheet .composer textarea{min-height:0;height:auto;border-radius:0;padding:8px 0;background:none;box-shadow:none}
+.ai-head>div{flex:1}
+.tts-auto{width:40px;height:40px;border-radius:50%;background:var(--glass-soft);font-size:18px;flex-shrink:0}
+.tts-auto.on{background:var(--blue)}
+.speak{display:inline-flex;align-items:center;gap:5px;margin-top:8px;font-size:12.5px;font-weight:600;color:var(--blue);white-space:normal}
+.speak.on{color:var(--red)}
 .mic{width:38px;height:38px;border-radius:50%;background:var(--glass-soft);color:var(--ink);display:grid;place-items:center;flex-shrink:0}
 .mic.rec{background:var(--red);color:#fff;animation:recPulse 1.2s ease-in-out infinite}
 @keyframes recPulse{0%,100%{box-shadow:0 0 0 0 rgba(229,53,43,.45)}50%{box-shadow:0 0 0 8px rgba(229,53,43,0)}}
@@ -875,7 +880,8 @@ body.curr-edit .curr-remove-btn{display:flex}
     <div class="body" id="aiBody">
       <div class="ai-head"><span id="aiFace"></span>
         <div><div style="font-family:var(--font-display);font-weight:700;font-size:21px" data-t="assistant"></div>
-          <div style="font-size:12.5px;color:var(--ink-3)" data-t="harveySub"></div></div></div>
+          <div style="font-size:12.5px;color:var(--ink-3)" data-t="harveySub"></div></div>
+        <button class="tts-auto" id="ttsAuto" onclick="toggleAutoSpeak()" aria-label="auto voice">🔇</button></div>
       <div class="chat" id="chat"></div>
     </div>
     <div class="glass composer"><textarea id="aiQ" rows="1" oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px'"
@@ -1000,7 +1006,7 @@ const N = {
     heroTitle:'Головне для закупівлі та логістики',readAll:'Усі звіти',askHarvey:'Спитати асистента',charts:'Графіки ринку',
     noDigest:'Найголовніше зі стрічки',newsCount:'новин',searchPh:'Новини, удари, компанії, сировина',nothing:'Нічого не знайдено',
     aiPh:'Запитайте про ринок, ціни, удари…',aiHello:'Привіт! Я твій персональний асистент 🤖 Чим можу допомогти? Знаю новини, удари по підприємствах, ринки й курси. Пишіть або надиктуйте голосом 🎤',
-    aiErr:'Асистент зараз не може відповісти — спробуйте ще раз.',recording:'Запис…',micNo:'Голосовий запис тут недоступний',micDenied:'Немає доступу до мікрофона',voiceEmpty:'Не вдалося розібрати — спробуйте ще раз',voiceErr:'Не вдалося розпізнати голос',s1:'Що з обстрілами фармзаводів цього тижня?',s2:'Що важливого для закупівлі API?',
+    aiErr:'Асистент зараз не може відповісти — спробуйте ще раз.',recording:'Запис…',listen:'🔊 Прослухати',stopListen:'⏹ Зупинити',autoOn:'🔊 Відповіді озвучуються',autoOff:'🔇 Озвучування вимкнено',noUkVoice:'На телефоні немає українського голосу — встановіть його в налаштуваннях мовлення',noTts:'Озвучування недоступне на цьому пристрої',micNo:'Голосовий запис тут недоступний',micDenied:'Немає доступу до мікрофона',voiceEmpty:'Не вдалося розібрати — спробуйте ще раз',voiceErr:'Не вдалося розпізнати голос',s1:'Що з обстрілами фармзаводів цього тижня?',s2:'Що важливого для закупівлі API?',
     s3:'Як справи з фрахтом і Червоним морем?',s4:'Що нового в регуляціях?',fresh:'за добу',noNews:'Новин поки немає',loadError:'Помилка завантаження',
     onlyDaily:'Лише дайджести 9:00 / 14:00',onlyDailySub:'Без миттєвих новин',startBot:'Спершу запустіть бота командою /start',
     receive:'Отримувати в Telegram',off:'Вимкнено',auto:'Авто',light:'Світла',dark:'Темна',tbMax:'Максимум 5 вкладок разом з «Моє»',
@@ -1038,7 +1044,7 @@ const N = {
     heroTitle:'What matters for sourcing & logistics',readAll:'All reports',askHarvey:'Ask the assistant',charts:'Market charts',
     noDigest:'Top stories from the feed',newsCount:'news',searchPh:'News, strikes, companies, commodities',nothing:'Nothing found',
     aiPh:'Ask about markets, prices, strikes…',aiHello:'Hi! I’m your personal assistant 🤖 How can I help? I know the news, strikes on enterprises, markets and rates. Type or dictate by voice 🎤',
-    aiErr:'The assistant can’t answer right now — please try again.',recording:'Recording…',micNo:'Voice recording is not available here',micDenied:'No microphone access',voiceEmpty:'Couldn’t make that out — try again',voiceErr:'Voice recognition failed',s1:'Any strikes on pharma plants this week?',s2:'What matters for API sourcing?',
+    aiErr:'The assistant can’t answer right now — please try again.',recording:'Recording…',listen:'🔊 Listen',stopListen:'⏹ Stop',autoOn:'🔊 Answers are read aloud',autoOff:'🔇 Read-aloud off',noUkVoice:'No voice for this language on the device',noTts:'Read-aloud is not available on this device',micNo:'Voice recording is not available here',micDenied:'No microphone access',voiceEmpty:'Couldn’t make that out — try again',voiceErr:'Voice recognition failed',s1:'Any strikes on pharma plants this week?',s2:'What matters for API sourcing?',
     s3:'How are freight and the Red Sea?',s4:'What’s new in regulation?',fresh:'in 24h',noNews:'No news yet',loadError:'Loading error',
     onlyDaily:'Digests only (09:00 / 14:00)',onlyDailySub:'No instant news',startBot:'Start the bot with /start first',
     receive:'Receive in Telegram',off:'Off',auto:'Auto',light:'Light',dark:'Dark',tbMax:'Up to 5 tabs including «Me»',
@@ -1247,6 +1253,7 @@ function openSheet(html){
   addCls('sheet','on'); addCls('scrim','on'); syncBack();
 }
 function closeSheets(silent){
+  if(byId('aiSheet')?.classList.contains('on') && window.speechSynthesis) speechSynthesis.cancel();
   rmCls('sheet','on'); rmCls('aiSheet','on'); rmCls('scrim','on');
   if(!silent) syncBack();
 }
@@ -1707,9 +1714,45 @@ async function renderSearch(q){
 }
 
 // ════════════════════════ personal assistant ════════════════════════
-let AIHIST = [], AISRC = [], _aiBusy = false;
+let AIHIST = [], AISRC = [], AITXT = [], _aiBusy = false;
+// ── Read answers aloud: the phone's own voice (Web Speech API) — free, offline ──
+let _autoSpeak = false, _speaking = null;
+try{ _autoSpeak = localStorage.getItem('an_tts') === '1'; }catch{}
+function ttsVoice(){
+  const want = lang === 'en' ? 'en' : 'uk';
+  const vs = window.speechSynthesis ? speechSynthesis.getVoices() : [];
+  return vs.find(v => v.lang && v.lang.toLowerCase().startsWith(want) && /premium|enhanced|natural|google/i.test(v.name))
+      || vs.find(v => v.lang && v.lang.toLowerCase().startsWith(want)) || null;
+}
+function speakText(idx){
+  return (AITXT[idx] || '').replace(/\*\*/g, '').replace(/\[[^\]]*\]/g, '')
+    .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/gu, '').replace(/\s+/g, ' ').trim();
+}
+function speak(idx){
+  if(!window.speechSynthesis){ toast(T('noTts')); return; }
+  const btn = byId('spk' + idx);
+  if(_speaking === idx){ speechSynthesis.cancel(); return; }
+  speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(speakText(idx));
+  u.lang = lang === 'en' ? 'en-US' : 'uk-UA';
+  const v = ttsVoice(); if(v) u.voice = v; else if(lang !== 'en') toast(T('noUkVoice'));
+  u.rate = 1.03;
+  const reset = () => { _speaking = null; document.querySelectorAll('.speak').forEach(b => { b.classList.remove('on'); b.textContent = T('listen'); }); };
+  u.onend = reset; u.onerror = reset;
+  _speaking = idx;
+  if(btn){ btn.classList.add('on'); btn.textContent = T('stopListen'); }
+  speechSynthesis.speak(u);
+}
+function toggleAutoSpeak(){
+  _autoSpeak = !_autoSpeak;
+  try{ localStorage.setItem('an_tts', _autoSpeak ? '1' : '0'); }catch{}
+  renderAutoSpeak(); toast(_autoSpeak ? T('autoOn') : T('autoOff')); hap('light');
+  if(!_autoSpeak && window.speechSynthesis) speechSynthesis.cancel();
+}
+function renderAutoSpeak(){ const b = byId('ttsAuto'); if(!b) return; b.classList.toggle('on', _autoSpeak); b.textContent = _autoSpeak ? '🔊' : '🔇'; b.style.display = window.speechSynthesis ? '' : 'none'; }
+if(window.speechSynthesis){ speechSynthesis.getVoices(); speechSynthesis.onvoiceschanged = () => speechSynthesis.getVoices(); }
 function openAI(q){
-  addCls('aiSheet','on'); addCls('scrim','on'); syncBack();
+  addCls('aiSheet','on'); addCls('scrim','on'); syncBack(); renderAutoSpeak();
   const chat = byId('chat');
   if(!chat.children.length){
     chat.innerHTML = `<div class="msg ai">${esc(T('aiHello'))}
@@ -1722,8 +1765,10 @@ function askAbout(kind, id){
   openAI((kind === 'news' ? T('explainQ') + titleOf(o) : T('strikeQ') + sHead(o)));
 }
 function mdLite(text, msgIdx){
+  const have = new Set((AISRC[msgIdx] || []).map(x => x.n));
   return esc(text).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')
-    .replace(/\[(\d+)\]/g, (m, n) => `<span class="cite" onclick="openSource(${msgIdx},${n})">${n}</span>`);
+    .replace(/\s?\[(\d+)\]/g, (m, n) => have.has(+n) ? `<span class="cite" onclick="openSource(${msgIdx},${n})">${n}</span>` : '')
+    .replace(/\s?\[[^\]\d][^\]]{0,40}\]/g, '');
 }
 function openSource(msgIdx, n){
   const s = (AISRC[msgIdx] || []).find(x => x.n === n); if(!s) return;
@@ -1750,8 +1795,11 @@ async function askAI(q, voice){
   }catch{ ans = T('aiErr'); }
   byId('typing')?.remove();
   const idx = AISRC.push(sources) - 1;
+  AITXT[idx] = ans;
   chat.insertAdjacentHTML('beforeend', `<div class="msg ai">${mdLite(ans, idx)}${sources.length ? `<div class="msrc">${sources.map(s =>
-    `<button onclick="openSource(${idx},${s.n})">[${s.n}] ${s.kind==='strike'?'💥 ':''}${esc(s.title)}</button>`).join('')}</div>` : ''}</div>`);
+    `<button onclick="openSource(${idx},${s.n})">[${s.n}] ${s.kind==='strike'?'💥 ':''}${esc(s.title)}</button>`).join('')}</div>` : ''}
+    ${window.speechSynthesis ? `<button class="speak" id="spk${idx}" onclick="speak(${idx})">${T('listen')}</button>` : ''}</div>`);
+  if(_autoSpeak) speak(idx);
   body.scrollTop = 1e6;
   setHarvey('happy'); setTimeout(() => setHarvey(null), 700); hap('light');
   _aiBusy = false; byId('aiSend').disabled = false;

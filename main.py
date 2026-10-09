@@ -68,6 +68,7 @@ from app.scrapers import scrape_dls, scrape_kmu
 from app import strikes
 from app import miniapp
 from app import corp_tracking
+from app import assistant_sql
 
 # ── Keyword pre-filter for broad feeds ──
 from app.keyword_filter import passes_keyword_filter
@@ -7315,29 +7316,197 @@ async def api_set_subscription(request: Request):
             "departments": miniapp.department_states(DEPARTMENT_TOPICS, row["subscriptions"])}
 
 
-def _ask_news(keywords: list[str], limit: int = 18) -> list[dict]:
-    """Recent articles matching any keyword (title / UA title / UA summary),
-    topped up with the latest headlines so the model always has context."""
-    since = (datetime.datetime.now() - datetime.timedelta(days=14)).strftime("%Y-%m-%d %H:%M:%S")
+# ── Personal assistant: tools over the bot's data ──────────────────────────
+_ASK_TOOLS = [
+    {"type": "function", "function": {
+        "name": "search_news", "description": "Search the bot's news articles (UA/EN titles and summaries). Use for prices, suppliers, logistics, regulation, markets, wars.",
+        "parameters": {"type": "object", "properties": {
+            "query": {"type": "string", "description": "keywords, e.g. 'парацетамол ціни' or 'Red Sea freight'"},
+            "days": {"type": "integer", "description": "look back N days (default 14, max 30)"},
+            "category": {"type": "string", "description": "optional category code: api, cosmetic, herbal, veterinary, food, feed, capsules, pvc, logistics, maritime, red_sea, ports_customs, carriers, global_sources, geopolitics, middle_east, us_iran, regulation, apteka, dls, kmu"}},
+            "required": ["query"]}}},
+    {"type": "function", "function": {
+        "name": "get_strikes", "description": "Strikes on Ukrainian pharma & adjacent enterprises registered by the bot.",
+        "parameters": {"type": "object", "properties": {
+            "days": {"type": "integer", "description": "default 30"},
+            "company": {"type": "string"}, "region": {"type": "string", "description": "e.g. 'Харківська обл.' or 'м. Київ'"}}}}},
+    {"type": "function", "function": {
+        "name": "get_shipments", "description": "The company's shipments (containers, air, parcels) from the logistics sheet with live carrier status.",
+        "parameters": {"type": "object", "properties": {
+            "query": {"type": "string", "description": "product / number / port / forwarder text"},
+            "stage": {"type": "string", "enum": ["transit", "arrived", "done", "late", "week", "any"]},
+            "mode": {"type": "string", "enum": ["sea", "air", "parcel", "any"]}}}}},
+    {"type": "function", "function": {
+        "name": "get_markets", "description": "Current commodity / FX market prices and daily change.",
+        "parameters": {"type": "object", "properties": {}}}},
+    {"type": "function", "function": {
+        "name": "get_rates", "description": "Official NBU exchange rates (UAH per unit).",
+        "parameters": {"type": "object", "properties": {}}}},
+    {"type": "function", "function": {
+        "name": "get_weather", "description": "7-day weather forecast for any city or port (e.g. Gdansk, Shanghai, Kharkiv).",
+        "parameters": {"type": "object", "properties": {"city": {"type": "string"}}, "required": ["city"]}}},
+    {"type": "function", "function": {
+        "name": "sql_query", "description": "Run ONE read-only SELECT over the bot database when the other tools are not enough (counts, aggregations, history). Tables:\n" + assistant_sql.schema_hint(),
+        "parameters": {"type": "object", "properties": {"sql": {"type": "string"}}, "required": ["sql"]}}},
+]
+
+
+class _AskSources:
+    """Numbered sources the answer may cite as [n]."""
+    def __init__(self):
+        self.items: list[dict] = []
+
+    def add(self, kind, id_, title, link) -> int:
+        for s_ in self.items:
+            if s_["kind"] == kind and s_["id"] == id_:
+                return s_["n"]
+        n = len(self.items) + 1
+        self.items.append({"n": n, "kind": kind, "id": id_, "title": title or "", "link": link or ""})
+        return n
+
+
+def _ask_search_news(args: dict, src: _AskSources) -> str:
+    days = max(1, min(int(args.get("days") or 14), 30))
+    since = (datetime.datetime.now() - datetime.timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
+    words = miniapp.question_keywords(args.get("query") or "", limit=5)
     cols = "id, title, title_ua, link, published, category, summary_ua, summary_en"
-    conn = get_db_connection()
-    cur = conn.cursor()
+    where, params = ["published >= %s"], [since]
+    if args.get("category"):
+        where.append("category = %s"); params.append(args["category"])
+    if words:
+        where.append("(" + " OR ".join(["title ILIKE %s OR title_ua ILIKE %s OR summary_ua ILIKE %s"] * len(words)) + ")")
+        params += [p for w in words for p in (f"%{w}%",) * 3]
+    conn = get_db_connection(); cur = conn.cursor()
     try:
-        found: list[dict] = []
-        if keywords:
-            likes = " OR ".join(["title ILIKE %s OR title_ua ILIKE %s OR summary_ua ILIKE %s"] * len(keywords))
-            params = [p for k in keywords for p in (f"%{k}%",) * 3]
-            found = db_fetchall(cur, f"SELECT {cols} FROM articles WHERE published >= %s "
-                                     f"AND ({likes}) ORDER BY published DESC LIMIT %s",
-                                (since, *params, limit)) or []
-        if len(found) < 8:
-            seen = {a["id"] for a in found}
-            latest = db_fetchall(cur, f"SELECT {cols} FROM articles ORDER BY published DESC "
-                                      f"LIMIT %s", (limit,)) or []
-            found += [a for a in latest if a["id"] not in seen][:limit - len(found)]
+        rows = db_fetchall(cur, f"SELECT {cols} FROM articles WHERE {' AND '.join(where)} "
+                                f"ORDER BY published DESC LIMIT 15", tuple(params)) or []
     finally:
         conn.close()
-    return found
+    if not rows:
+        return "No matching news."
+    out = []
+    for a in rows:
+        title = a.get("title_ua") or a.get("title") or ""
+        n = src.add("news", a["id"], title, a.get("link"))
+        out.append(f"[{n}] {(a.get('published') or '')[:10]} {a.get('category')}: {title}. "
+                   f"{(a.get('summary_ua') or a.get('summary_en') or '')[:450]}")
+    return "\n".join(out)
+
+
+def _ask_strikes(args: dict, src: _AskSources) -> str:
+    days = max(1, min(int(args.get("days") or 30), 365))
+    evs = fetch_strike_events(datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=days),
+                              (args.get("company") or "").strip(), (args.get("region") or "").strip(), 25)
+    if not evs:
+        return "No strikes registered for these filters."
+    out = []
+    for e in evs:
+        c = e.get("card") or {}
+        title = c.get("headline") or e.get("headline") or ""
+        n = src.add("strike", e["id"], title, e.get("first_link"))
+        bits = [title, f"company: {c.get('company') or e.get('company') or 'not named'}",
+                f"place: {strikes.format_place(c.get('city') or e.get('city'), c.get('region') or e.get('region'))}",
+                f"damage: {c.get('damage') or ''}", f"production: {c.get('production') or ''}",
+                f"market: {c.get('market_impact') or ''}"]
+        out.append(f"[{n}] {e['sent_at'].strftime('%Y-%m-%d') if e.get('sent_at') else ''} " + " | ".join(b for b in bits if not b.endswith(': ')))
+    return "\n".join(out)
+
+
+def _ask_shipments(args: dict, src: _AskSources) -> str:
+    conn = get_db_connection(); cur = conn.cursor()
+    try:
+        rows = db_fetchall(cur, "SELECT key, data_json, live_status, live_carrier, live_url, live_steps, "
+                                "last_checked FROM corp_shipments WHERE in_sheet") or []
+    finally:
+        conn.close()
+    items = [_corp_effective(r) for r in rows]
+    today = datetime.datetime.now(pytz.timezone("Europe/Kyiv")).date()
+    q, stage, mode = (args.get("query") or "").lower(), args.get("stage") or "any", args.get("mode") or "any"
+    def eta_days(it):
+        return (datetime.date.fromisoformat(it["eta"]) - today).days if it.get("eta") else None
+    sel = []
+    for it in items:
+        d = eta_days(it)
+        if stage in ("transit", "arrived", "done") and it.get("stage") != stage:
+            continue
+        if stage == "late" and not (it.get("stage") == "transit" and d is not None and d < 0):
+            continue
+        if stage == "week" and not (it.get("stage") == "transit" and d is not None and 0 <= d <= 7):
+            continue
+        if mode != "any" and it.get("mode") != mode:
+            continue
+        if q and q not in " ".join(str(it.get(k) or "") for k in ("product", "number", "line", "agent", "origin", "dest", "comment", "sheet_no", "live_status")).lower():
+            continue
+        sel.append(it)
+    if not sel:
+        return f"No shipments match (total in sheet: {len(items)})."
+    out = [f"{len(sel)} shipments (today {today.isoformat()}):"]
+    for it in sel[:30]:
+        out.append(" | ".join(x for x in [
+            it["product"], f"stage {it.get('stage')}", f"mode {it.get('mode')}",
+            f"number {it['number']}" if it.get("number") else "", f"line {it.get('line') or it.get('live_carrier')}" if (it.get('line') or it.get('live_carrier')) else "",
+            f"{it.get('origin') or '?'} → {it.get('dest') or '?'}", f"ETA {it['eta']}" if it.get("eta") else "ETA unknown",
+            f"departed {it['departed']}" if it.get("departed") else "", f"forwarder {it['agent']}" if it.get("agent") else "",
+            f"status: {(it.get('live_status') or it.get('comment') or '')[:200]}"] if x))
+    return "\n".join(out)
+
+
+def _ask_markets(args: dict, src: _AskSources) -> str:
+    data = _mk_cache.get("data") or []
+    return "\n".join(f"{m['label']}: {m['current']} {m.get('unit', '')} ({m['change_pct']:+.2f}% today, as of {m.get('as_of')})"
+                     for m in data) or "Market data not loaded yet."
+
+
+def _ask_rates(args: dict, src: _AskSources) -> str:
+    d = _curr_cache.get("data") or {}
+    return ("\n".join(f"{c['code']} ({c['name']}): {c['rate_uah']:.4f} UAH" for c in d.get("rates", []))
+            + f"\nupdated {d.get('updated_at')}") if d.get("rates") else "Rates not loaded yet."
+
+
+async def _ask_weather(args: dict, src: _AskSources) -> str:
+    city = (args.get("city") or "").strip()
+    if not city:
+        return "city required"
+    try:
+        async with httpx.AsyncClient(timeout=15) as hc:
+            g = (await hc.get("https://geocoding-api.open-meteo.com/v1/search",
+                              params={"name": city, "count": 1, "language": "uk"})).json()
+            if not g.get("results"):
+                return f"City '{city}' not found."
+            loc = g["results"][0]
+            w = (await hc.get("https://api.open-meteo.com/v1/forecast", params={
+                "latitude": loc["latitude"], "longitude": loc["longitude"], "timezone": "auto", "forecast_days": 7,
+                "daily": "weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,wind_speed_10m_max,wind_gusts_10m_max"})).json()
+    except Exception as e:
+        return f"Weather unavailable: {e}"
+    d = w.get("daily") or {}
+    rows = [f"{t}: {round(lo)}…{round(hi)}°C, code {c}, rain {pp}%, wind max {round(wm)} km/h, gusts {round(wg)}"
+            for t, c, hi, lo, pp, wm, wg in zip(d.get("time", []), d.get("weather_code", []), d.get("temperature_2m_max", []),
+                                                 d.get("temperature_2m_min", []), d.get("precipitation_probability_max", []),
+                                                 d.get("wind_speed_10m_max", []), d.get("wind_gusts_10m_max", []))]
+    return f"{loc.get('name')}, {loc.get('country')} (WMO codes: 0 clear, 1-3 cloud, 45 fog, 51-67 rain, 71-77 snow, 80-82 showers, 95+ storm):\n" + "\n".join(rows)
+
+
+def _ask_sql(args: dict, src: _AskSources) -> str:
+    sql = (args.get("sql") or "").strip().rstrip(";")
+    err = assistant_sql.check_sql(sql)
+    if err:
+        return f"Rejected: {err}"
+    conn = get_db_connection(); cur = conn.cursor()
+    try:
+        cur.execute("SET TRANSACTION READ ONLY")
+        cur.execute("SET LOCAL statement_timeout = 5000")
+        rows = db_fetchall(cur, f"SELECT * FROM ({sql}) AS q LIMIT 100") or []
+    except Exception as e:
+        return f"SQL error: {str(e)[:300]}"
+    finally:
+        conn.rollback(); conn.close()
+    text = json.dumps(rows, ensure_ascii=False, default=str)
+    return text[:7000] + (" …(truncated)" if len(text) > 7000 else "")
+
+
+_ASK_IMPL = {"search_news": _ask_search_news, "get_strikes": _ask_strikes, "get_shipments": _ask_shipments,
+             "get_markets": _ask_markets, "get_rates": _ask_rates, "get_weather": _ask_weather, "sql_query": _ask_sql}
 
 
 _TRANSCRIBE_MAX_BYTES = 10 * 1024 * 1024
@@ -7372,9 +7541,9 @@ async def api_transcribe(request: Request, lang: str = "ua"):
 
 @app.post("/api/webapp/ask")
 async def api_ask(request: Request):
-    """Personal assistant: answer a question from the bot's own data (news,
-    strikes, markets, NBU rates) with numbered source citations.
-    Body: {question, history?: [{role, content}], lang?}."""
+    """Personal assistant: answers from the bot's own data by calling tools
+    (news, strikes, company shipments, markets, NBU rates, weather, read-only
+    SQL) and cites numbered sources. Body: {question, history?, lang?}."""
     body = await request.json()
     verified_uid(request, fallback=int(body.get("user_id") or 0))
     question = (body.get("question") or "").strip()[:1000]
@@ -7383,35 +7552,47 @@ async def api_ask(request: Request):
     if not aclient:
         return {"ok": False, "answer": "ШІ зараз недоступний.", "sources": []}
     lang = "en" if body.get("lang") == "en" else "ua"
-
-    keywords = miniapp.question_keywords(question)
-    news = await asyncio.to_thread(_ask_news, keywords)
-    strike_events = await asyncio.to_thread(
-        fetch_strike_events,
-        datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=30), "", "", 12)
-    for e in strike_events:
-        e["sent_at"] = e["sent_at"].isoformat() if e.get("sent_at") else ""
-    markets = _mk_cache.get("data") or []
-    fx = ((_curr_cache.get("data") or {}).get("rates") or [])[:6]
-    context, sources = miniapp.build_context(news, strike_events, markets, fx)
-
-    messages = [{"role": "system", "content": miniapp.build_ask_prompt(lang)},
-                {"role": "system", "content": "КОНТЕКСТ:\n" + context}]
+    now = datetime.datetime.now(pytz.timezone("Europe/Kyiv"))
+    messages = [{"role": "system", "content": miniapp.build_ask_prompt(lang) + "\n\n" + miniapp.build_tools_hint(now.strftime("%Y-%m-%d %H:%M"))}]
     for m in (body.get("history") or [])[-6:]:
         if m.get("role") in ("user", "assistant") and m.get("content"):
             messages.append({"role": m["role"], "content": str(m["content"])[:2000]})
     messages.append({"role": "user", "content": question})
+    src = _AskSources()
+    answer = ""
     try:
-        resp = await aclient.chat.completions.create(
-            model=LLM_MODEL, max_completion_tokens=6000, messages=messages)
-        answer = (resp.choices[0].message.content or "").strip()
+        for _step in range(6):
+            # chat.completions accepts function tools on GPT-5.6 only without reasoning
+            resp = await aclient.chat.completions.create(model=LLM_MODEL, max_completion_tokens=8000,
+                                                         messages=messages, tools=_ASK_TOOLS,
+                                                         reasoning_effort="none")
+            msg = resp.choices[0].message
+            if not msg.tool_calls:
+                answer = (msg.content or "").strip()
+                break
+            messages.append({"role": "assistant", "content": msg.content or "",
+                             "tool_calls": [tc.model_dump() for tc in msg.tool_calls]})
+            for tc in msg.tool_calls:
+                fn = _ASK_IMPL.get(tc.function.name)
+                try:
+                    args = json.loads(tc.function.arguments or "{}")
+                except ValueError:
+                    args = {}
+                try:
+                    out = await fn(args, src) if asyncio.iscoroutinefunction(fn) else await asyncio.to_thread(fn, args, src)
+                except Exception as e:
+                    out = f"Tool error: {e}"
+                logger.info("ask: tool %s(%s) → %d chars", tc.function.name, str(args)[:120], len(out or ""))
+                messages.append({"role": "tool", "tool_call_id": tc.id, "content": (out or "")[:9000]})
+        if not answer:
+            resp = await aclient.chat.completions.create(model=LLM_MODEL, max_completion_tokens=6000,
+                                                         messages=messages + [{"role": "user", "content": "Answer now with what you have."}])
+            answer = (resp.choices[0].message.content or "").strip()
     except Exception as e:
         logger.warning("ask: LLM failed: %s", e)
-        return {"ok": False, "answer": "Асистент зараз не може відповісти — спробуйте за хвилину.",
-                "sources": []}
+        return {"ok": False, "answer": "Асистент зараз не може відповісти — спробуйте за хвилину.", "sources": []}
     cited = {int(n) for n in re.findall(r"\[(\d+)\]", answer)}
-    return {"ok": True, "answer": answer,
-            "sources": [s for s in sources if s["n"] in cited]}
+    return {"ok": True, "answer": answer, "sources": [x for x in src.items if x["n"] in cited]}
 
 
 @app.get("/api/webapp/strikes")
