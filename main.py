@@ -387,6 +387,12 @@ TELEGRAM_API_URL = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 aclient = AsyncOpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
 
+# One model for every OpenAI call (override with LLM_MODEL in .env).
+# GPT-5.x models take max_completion_tokens — which also covers their hidden
+# reasoning tokens, so limits below have headroom — and only the default
+# temperature, so no call passes one.
+LLM_MODEL = os.getenv("LLM_MODEL", "gpt-5.6-terra")
+
 gemini_api_key = os.getenv("GEMINI_API_KEY")
 if gemini_api_key:
     try:
@@ -1567,9 +1573,8 @@ async def generate_summary(text: str, category: str = "", title: str = ""):
         for attempt in range(3):
             try:
                 response = await aclient.chat.completions.create(
-                    model="gpt-4o-mini",
-                    max_tokens=600,
-                    temperature=0.2,
+                    model=LLM_MODEL,
+                    max_completion_tokens=4000,
                     response_format={"type": "json_object"},
                     messages=[
                         {"role": "system", "content": prompt},
@@ -1973,9 +1978,8 @@ async def backfill_missing_full_text(max_articles: int = 150):
 # deterministic grounding: the synthesizer can only talk about facts
 # that actually exist as rows in article_facts.
 
-# Model used for fact extraction. gpt-4o-mini is ~20x cheaper than gpt-4o
-# and for structured JSON output the quality difference is negligible.
-_FACTS_EXTRACTION_MODEL = "gpt-4o-mini"
+# Model used for fact extraction (same as every other call — see LLM_MODEL).
+_FACTS_EXTRACTION_MODEL = LLM_MODEL
 
 # Concurrency for fact extraction (lower than full_text because each call
 # is already a ~2-5s OpenAI API request).
@@ -2065,8 +2069,7 @@ async def extract_facts_from_article(
         try:
             response = await aclient.chat.completions.create(
                 model=_FACTS_EXTRACTION_MODEL,
-                temperature=0.0,  # deterministic for structured extraction
-                max_tokens=1500,
+                max_completion_tokens=6000,
                 response_format={"type": "json_object"},
                 messages=[
                     {"role": "system", "content": _FACTS_SYSTEM_PROMPT},
@@ -4353,9 +4356,8 @@ async def generate_daily_pdf_report(mode: str = "daily_brief") -> str | None:
     async def _call_gpt4o(prompt_msg: str) -> str:
         """Helper to safely invoke the OpenAI API"""
         resp = await aclient.chat.completions.create(
-            model="gpt-4o",
-            max_tokens=8000,
-            temperature=0.4,
+            model=LLM_MODEL,
+            max_completion_tokens=16000,
             messages=[
                 {"role": "system", "content": DAILY_REPORT_SYSTEM_PROMPT},
                 {"role": "user",   "content": prompt_msg}
@@ -5133,9 +5135,8 @@ async def _explain_market_move(commodity_label: str, change_pct: float,
 
     try:
         response = await aclient.chat.completions.create(
-            model="gpt-4o-mini",
-            max_tokens=250,
-            temperature=0.3,
+            model=LLM_MODEL,
+            max_completion_tokens=2000,
             messages=[
                 {"role": "system", "content": "Ти — короткий фінансовий аналітик. Пояснюєш рухи цін на сировину."},
                 {"role": "user",   "content": prompt},
@@ -5630,10 +5631,10 @@ _STRIKES_LOCK = asyncio.Lock()
 
 
 async def _strikes_llm(system: str, user: str, max_tokens: int = 700) -> dict:
+    # max_tokens = visible answer size; reasoning headroom added on top.
     resp = await aclient.chat.completions.create(
-        model="gpt-4o-mini",
-        temperature=0,
-        max_tokens=max_tokens,
+        model=LLM_MODEL,
+        max_completion_tokens=max_tokens + 3000,
         response_format={"type": "json_object"},
         messages=[{"role": "system", "content": system},
                   {"role": "user", "content": user}],
@@ -6377,9 +6378,8 @@ async def generate_department_article(dept_code: str, dept_name: str,
     system_prompt = build_synthesis_prompt(dept_name, lang)
     try:
         resp = await aclient.chat.completions.create(
-            model="gpt-4o-mini",
-            max_tokens=1100,
-            temperature=0.3,
+            model=LLM_MODEL,
+            max_completion_tokens=6000,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": payload},
@@ -6567,9 +6567,8 @@ async def generate_department_digest_items(mode: str = "daily_brief",
                 continue
             try:
                 resp = await aclient.chat.completions.create(
-                    model="gpt-4o-mini",
-                    max_tokens=1400,
-                    temperature=0.4,
+                    model=LLM_MODEL,
+                    max_completion_tokens=6000,
                     response_format={"type": "json_object"},
                     messages=[
                         {"role": "system", "content": build_plain_article_prompt(name)},
