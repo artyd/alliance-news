@@ -573,6 +573,14 @@ body.curr-edit .curr-remove-btn{display:flex}
 .pig-text{font-size:22px;font-weight:800;color:#FF69B4;letter-spacing:2px;min-height:32px}
 .pig-close{position:absolute;top:20px;right:20px;border:1px solid rgba(255,255,255,.3);color:#fff;font-size:24px;width:40px;height:40px;border-radius:50%}
 
+/* pull-to-refresh + offline */
+.ptr{position:fixed;left:50%;top:calc(6px + var(--safe-t));z-index:80;width:38px;height:38px;margin-left:-19px;border-radius:50%;
+  display:grid;place-items:center;background:var(--glass-strong);box-shadow:var(--shadow-up);font-size:20px;font-weight:700;color:var(--blue);
+  opacity:0;transform:translateY(-50px);pointer-events:none}
+.ptr.spin span{animation:spin .8s linear infinite}
+.offline{position:fixed;left:50%;top:calc(8px + var(--safe-t));transform:translate(-50%,-80px);z-index:81;padding:8px 14px;border-radius:99px;
+  font-size:12.5px;font-weight:600;white-space:nowrap;transition:transform .35s cubic-bezier(.2,1.2,.3,1);box-shadow:var(--shadow-up)}
+.offline.on{transform:translate(-50%,0)}
 @media (min-width:600px){
   .pgrid{grid-template-columns:repeat(3,1fr)}
   .curr-list.compact{grid-template-columns:repeat(3,1fr)}
@@ -919,6 +927,8 @@ body.curr-edit .curr-remove-btn{display:flex}
   </div>
 
   <div class="glass strong toast" id="toast"></div>
+  <div class="ptr" id="ptr"><span>↻</span></div>
+  <div class="offline glass strong" id="offline" onclick="this.classList.remove('on')"></div>
 </div>
 
 <div id="pig-overlay">
@@ -952,6 +962,41 @@ const tg = window.Telegram?.WebApp;
     return _origFetch(input, init);
   };
 })();
+
+// ── Offline cache: keep the last good copy of the main API responses on the
+// phone; when the network is down, serve it and show «📴 Офлайн».
+const _CACHE_RX = /\/api\/webapp\/(news\?limit=80|strikes\?|digest\/latest|currencies$|markets$|track\/corporate|favorites|notes|user\/app-prefs|user\/subscriptions|digest_reports)/;
+(function(){
+  const _f = window.fetch.bind(window);
+  window.fetch = async function(input, init){
+    const url = (typeof input === 'string') ? input : (input && input.url) || '';
+    const method = ((init && init.method) || 'GET').toUpperCase();
+    const key = url.replace(/[?&]user_id=\d+/, '');
+    if(method !== 'GET' || !_CACHE_RX.test(key)) return _f(input, init);
+    try{
+      const r = await _f(input, init);
+      if(r.ok){
+        r.clone().text().then(t => { try{ if(t.length < 400000) localStorage.setItem('c:' + key, JSON.stringify({t: Date.now(), b: t})); }catch{} });
+        setOffline(false);
+      }
+      return r;
+    }catch(e){
+      let c = null; try{ c = JSON.parse(localStorage.getItem('c:' + key) || 'null'); }catch{}
+      if(c){ setOffline(true, c.t); return new Response(c.b, {status: 200, headers: {'Content-Type': 'application/json'}}); }
+      setOffline(true);
+      throw e;
+    }
+  };
+})();
+function setOffline(on, ts){
+  const el = document.getElementById('offline'); if(!el) return;
+  if(!on){ el.classList.remove('on'); return; }
+  const when = ts ? new Date(ts).toLocaleString(lang === 'en' ? 'en-US' : 'uk-UA', {day:'numeric', month:'short', hour:'2-digit', minute:'2-digit'}) : '';
+  el.textContent = (lang === 'en' ? '📴 Offline' : '📴 Офлайн') + (when ? (lang === 'en' ? ' — data from ' : ' — дані від ') + when : '');
+  el.classList.add('on');
+}
+window.addEventListener('offline', () => setOffline(true));
+window.addEventListener('online', () => setOffline(false));
 
 if(tg){
   tg.ready();
@@ -1974,8 +2019,17 @@ async function wxGet(lat, lon){
     + '&current=temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,wind_speed_10m,wind_direction_10m,wind_gusts_10m,pressure_msl,visibility'
     + '&hourly=temperature_2m,weather_code,precipitation_probability,wind_speed_10m'
     + '&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,sunrise,sunset,uv_index_max,wind_speed_10m_max';
-  const d = await (await fetch(u)).json();
-  if(!d || !d.current || !d.daily || !d.hourly) throw new Error(d && d.reason || 'weather unavailable');
+  let d;
+  try{
+    d = await (await fetch(u)).json();
+    if(!d || !d.current || !d.daily || !d.hourly) throw new Error(d && d.reason || 'weather unavailable');
+    try{ localStorage.setItem('wx:' + k, JSON.stringify({t: Date.now(), d})); }catch{}
+  }catch(e){
+    let c = null; try{ c = JSON.parse(localStorage.getItem('wx:' + k) || 'null'); }catch{}
+    if(!c) throw e;
+    if(!navigator.onLine) setOffline(true, c.t);
+    d = c.d;
+  }
   _wxCache[k] = {t: Date.now(), d};
   return d;
 }
@@ -2174,6 +2228,51 @@ function closeMkDetail(){
   rmCls('mk-detail', 'on'); showEl('mk-grid-wrap'); currentMkKey = null; syncBack();
 }
 function closeMkDetailSilent(){ closeMkDetail(); }
+
+// ════════════════════════ pull to refresh ════════════════════════
+async function refreshView(){
+  switch(cur){
+    case 'today': loaded.today = false; return loadToday();
+    case 'feed': return fetchFeed(true);
+    case 'strikes': return fetchStrikes(true);
+    case 'markets': return fetchMarkets();
+    case 'currencies': _currLoaded = false; return loadCurrencies();
+    case 'reports': TODAY.digest = null; byId('rlist').innerHTML = ''; return loadReports();
+    case 'tracking': if(_trkPane === 'corp'){ _corpLoaded = 0; return loadCorp(); } return loadSavedShipments();
+    case 'weather': _wxCache = {}; _wxPortsCache = null; return renderWeather();
+    case 'warehouse': _whLoaded = false; return loadWarehouse();
+    case 'me': await Promise.all([loadFavs(), loadNotes()]); return renderMe();
+  }
+}
+function ptrInit(){
+  const ind = byId('ptr'), arrow = ind.firstElementChild;
+  let busy = false;
+  document.querySelectorAll('.view').forEach(v => {
+    let y0 = null, dy = 0;
+    v.addEventListener('touchstart', e => { y0 = (!busy && v.scrollTop <= 0 && !_subOpen()) ? e.touches[0].clientY : null; dy = 0; }, {passive: true});
+    v.addEventListener('touchmove', e => {
+      if(y0 === null) return;
+      dy = e.touches[0].clientY - y0;
+      if(dy <= 0){ ind.style.opacity = 0; return; }
+      const k = Math.min(dy, 110);
+      ind.style.transition = 'none';
+      ind.style.opacity = Math.min(1, k / 70);
+      ind.style.transform = `translateY(${k * 0.6 - 30}px)`;
+      arrow.style.transform = `rotate(${k * 3}deg)`;
+    }, {passive: true});
+    v.addEventListener('touchend', async () => {
+      if(y0 === null) return;
+      y0 = null;
+      ind.style.transition = 'opacity .3s, transform .3s';
+      if(dy < 75){ ind.style.opacity = 0; ind.style.transform = 'translateY(-50px)'; return; }
+      busy = true; hap('medium');
+      ind.style.transform = 'translateY(18px)'; ind.classList.add('spin');
+      try{ await refreshView(); }catch{}
+      ind.classList.remove('spin'); ind.style.opacity = 0; ind.style.transform = 'translateY(-50px)';
+      busy = false;
+    });
+  });
+}
 
 // ════════════════════════ resize ════════════════════════
 function handleAppViewportResize(){ moveLens(); }
@@ -3485,7 +3584,7 @@ window.addEventListener('load', async () => {
         new Promise(res => setTimeout(() => res(null), 1500))]);
       if(p && p.ok){ PREFS.toolbar = p.toolbar; PREFS.cargo_mode = p.cargo_mode || 'all'; if(p.theme){ PREFS.theme = p.theme; try{ localStorage.setItem('an_theme', p.theme === 'auto' ? '' : p.theme); }catch{} } }
     }catch{}
-    applyTheme(); renderTabbar();
+    applyTheme(); renderTabbar(); ptrInit();
     const hash = location.hash.slice(1);
     go((SECTIONS.includes(hash) || hash === 'me') ? hash : toolbar()[0]);
     Promise.all([loadFavs(), loadNotes()]).then(refreshCards);

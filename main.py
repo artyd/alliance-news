@@ -6279,6 +6279,8 @@ async def lifespan(app: FastAPI):
     # Same pattern before the midday report: 13:45 = 15 min before 14:00.
     scheduler.add_job(backfill_missing_facts, 'cron', hour=13, minute=45, id='backfill_facts_midday')
     scheduler.add_job(refresh_tracked_shipments, 'interval', minutes=60, id='refresh_tracking')
+    # «☀️ Доброго ранку» at 08:58 every day — lands just before the 09:00 digest
+    scheduler.add_job(send_morning_brief, 'cron', hour=8, minute=58, id='morning_brief')
     # «Вантажі компанії»: sheet + live statuses every hour, and once right after start
     scheduler.add_job(_corp_sync_job, 'interval', minutes=60, id='corp_tracking',
                       next_run_time=datetime.datetime.now(pytz.timezone('Europe/Kyiv')) + datetime.timedelta(seconds=60))
@@ -9194,6 +9196,16 @@ async def api_corp_follow(request: Request):
     return {"ok": True, "following": following}
 
 
+@app.post("/admin/morning-brief")
+async def trigger_morning_brief(request: Request, preview: int = 1, chat: str = ""):
+    """Admin: ?preview=1 returns the text; ?preview=0&chat=<id> sends to one chat;
+    ?preview=0 without chat sends to everyone."""
+    _require_admin_token(request)
+    if preview:
+        return {"text": await build_morning_brief()}
+    return await send_morning_brief(chat or None)
+
+
 @app.post("/admin/corp-tracking/sync")
 async def trigger_corp_sync(request: Request, live: int = 1):
     """Admin: sync the company shipments sheet now (?live=0 skips carrier calls)."""
@@ -9699,6 +9711,105 @@ async def notify_cargo_strike(card: dict) -> int:
         return n
     finally:
         conn.close()
+
+
+_UA_WD = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Нд"]
+_UA_MON = ["січня", "лютого", "березня", "квітня", "травня", "червня", "липня", "серпня", "вересня",
+           "жовтня", "листопада", "грудня"]
+
+
+async def build_morning_brief() -> str:
+    """«☀️ Доброго ранку» — the night's strikes, today's cargo, rates, oil and
+    Kharkiv weather in one short message."""
+    kyiv = pytz.timezone("Europe/Kyiv")
+    now = datetime.datetime.now(kyiv)
+    lines = [f"☀️ <b>Доброго ранку!</b> {_UA_WD[now.weekday()]}, {now.day} {_UA_MON[now.month - 1]}", ""]
+
+    evs = await asyncio.to_thread(fetch_strike_events, datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(hours=14), "", "", 30)
+    if evs:
+        pharma = sum(1 for e in evs if e.get("is_pharma"))
+        top = (evs[0].get("card") or {}).get("headline") or evs[0].get("headline") or ""
+        lines.append(f"💥 Удари за ніч: <b>{len(evs)}</b>" + (f" (фарма: {pharma})" if pharma else "")
+                     + f"\n   {escape_html(top[:120])}")
+    else:
+        lines.append("💥 Ударів по підприємствах за ніч не зафіксовано")
+
+    try:
+        conn = get_db_connection(); cur = conn.cursor()
+        rows = db_fetchall(cur, "SELECT key, data_json, live_status, live_carrier, live_url, live_steps, "
+                                "last_checked FROM corp_shipments WHERE in_sheet") or []
+        conn.close()
+        items = [_corp_effective(r) for r in rows]
+        today = now.date()
+        tr = [i for i in items if i.get("stage") == "transit" and i.get("eta")]
+        d = lambda i: (datetime.date.fromisoformat(i["eta"]) - today).days
+        due = [i for i in tr if d(i) == 0]
+        week = [i for i in tr if 0 <= d(i) <= 7]
+        late = [i for i in tr if d(i) < 0]
+        cargo = f"📦 Вантажі: сьогодні <b>{len(due)}</b> · цього тижня <b>{len(week)}</b> · прострочено <b>{len(late)}</b>"
+        if due:
+            cargo += "\n   Сьогодні: " + ", ".join(escape_html(i["product"]) for i in due[:4])
+        lines.append(cargo)
+    except Exception as e:
+        logger.info("morning brief: cargo failed: %s", e)
+
+    try:
+        fx = await api_currencies()
+        rates = {c["code"]: c["rate_uah"] for c in (fx.get("rates") or [])}
+        if rates:
+            lines.append("💵 НБУ: " + " · ".join(f"{c} {rates[c]:.2f}" for c in ("USD", "EUR", "CNY") if c in rates))
+    except Exception as e:
+        logger.info("morning brief: rates failed: %s", e)
+
+    try:
+        mk = _mk_cache.get("data") or await api_markets()
+        oil = next((m for m in mk if m["key"] == "НАФТА"), None)
+        if oil and oil.get("current"):
+            lines.append(f"🛢 Brent {oil['current']} ({oil['change_pct']:+.1f}%)")
+    except Exception as e:
+        logger.info("morning brief: markets failed: %s", e)
+
+    try:
+        async with httpx.AsyncClient(timeout=10) as hc:
+            w = (await hc.get("https://api.open-meteo.com/v1/forecast", params={
+                "latitude": 49.9935, "longitude": 36.2304, "timezone": "Europe/Kyiv", "forecast_days": 1,
+                "current": "temperature_2m", "daily": "temperature_2m_max,temperature_2m_min,precipitation_probability_max"})).json()
+        lines.append(f"🌤 Харків {round(w['current']['temperature_2m']):+d}°, сьогодні "
+                     f"{round(w['daily']['temperature_2m_min'][0])}…{round(w['daily']['temperature_2m_max'][0])}°"
+                     + (f", дощ {w['daily']['precipitation_probability_max'][0]}%" if w['daily']['precipitation_probability_max'][0] >= 40 else ""))
+    except Exception as e:
+        logger.info("morning brief: weather failed: %s", e)
+    return "\n".join(lines)
+
+
+async def send_morning_brief(only_chat: str | None = None) -> dict:
+    text = await build_morning_brief()
+    markup = {"inline_keyboard": [[{"text": "📱 Відкрити додаток", "web_app": {"url": WEBAPP_URL}}]]} if WEBAPP_URL else None
+    if only_chat:
+        recipients = [only_chat]
+    else:
+        conn = get_db_connection(); cur = conn.cursor()
+        recipients = [u["chat_id"] for u in (db_fetchall(cur, "SELECT chat_id FROM telegram_users") or [])]
+        conn.close()
+        known = {str(r) for r in recipients}
+        recipients += [c for c in _env_chat_ids() if c not in known]
+    sent = 0
+    async with httpx.AsyncClient(timeout=20) as client:
+        for chat_id in recipients:
+            payload = {"text": text, "parse_mode": "HTML", "disable_web_page_preview": True}
+            try:
+                if markup and int(chat_id) > 0:      # web_app buttons: private chats only
+                    payload["reply_markup"] = markup
+            except (TypeError, ValueError):
+                pass
+            try:
+                r = await send_to_topic(client, chat_id, REPORTS_KEY, payload)
+                sent += r.status_code == 200
+            except Exception as e:
+                logger.info("morning brief: send to %s failed: %s", chat_id, e)
+            await asyncio.sleep(0.05)
+    logger.info("morning brief sent to %d chats", sent)
+    return {"sent": sent, "text": text}
 
 
 async def _corp_sync_job():
