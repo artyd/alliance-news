@@ -63,6 +63,7 @@ from app.subscriptions import (
 # ── HTML scrapers for gov sources without RSS ──
 from app.scrapers import scrape_dls, scrape_kmu
 from app import strikes
+from app import miniapp
 
 # ── Keyword pre-filter for broad feeds ──
 from app.keyword_filter import passes_keyword_filter
@@ -354,6 +355,52 @@ def init_db():
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_strike_items_event ON strike_items(event_id)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_strike_events_updated ON strike_events(updated_at DESC)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_strike_events_sent ON strike_events(sent_at DESC)")
+
+    # ── Mini App personal data (keyed by the verified Telegram user id) ──
+    # toolbar: CSV of pinned sections ("Моє" is implicit); theme: auto|light|dark.
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS user_app_prefs (
+            user_id    BIGINT PRIMARY KEY,
+            toolbar    TEXT NOT NULL DEFAULT '',
+            theme      TEXT NOT NULL DEFAULT 'auto',
+            updated_at TIMESTAMPTZ DEFAULT NOW()
+        )
+    ''')
+    # Favorites keep a snapshot of the item: articles are deleted after 30 days.
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS user_favorites (
+            user_id    BIGINT NOT NULL,
+            kind       TEXT NOT NULL,
+            ref_id     BIGINT NOT NULL,
+            data_json  TEXT NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            PRIMARY KEY (user_id, kind, ref_id)
+        )
+    ''')
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS user_notes (
+            id         SERIAL PRIMARY KEY,
+            user_id    BIGINT NOT NULL,
+            ref_kind   TEXT,
+            ref_id     BIGINT,
+            ref_title  TEXT,
+            text       TEXT NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+    ''')
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_user_notes_user ON user_notes(user_id, updated_at DESC)")
+    # Every sent 9:00 / 14:00 digest (Telegra.ph articles), shown in the Mini App.
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS digest_issues (
+            id         SERIAL PRIMARY KEY,
+            mode       TEXT NOT NULL,
+            date_str   TEXT,
+            items_json TEXT NOT NULL,
+            charts_url TEXT,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+    ''')
 
     # One-shot data migrations, each applied once (keyed by name).
     cursor.execute("CREATE TABLE IF NOT EXISTS schema_flags ("
@@ -6739,6 +6786,20 @@ async def send_daily_digest_to_users(mode: str = "daily_brief",
         if charts and charts.get("url"):
             keyboard.append([{"text": "📊 Графіки ринку →", "url": charts["url"]}])
 
+        if not only_chat:
+            # Keep the issue for the Mini App's "Сьогодні" screen.
+            try:
+                conn = get_db_connection()
+                cur = conn.cursor()
+                cur.execute("INSERT INTO digest_issues (mode, date_str, items_json, charts_url) "
+                            "VALUES (%s, %s, %s, %s)",
+                            (mode, subj.strftime("%d.%m.%Y"), json.dumps(items, ensure_ascii=False),
+                             (charts or {}).get("url")))
+                conn.commit()
+                conn.close()
+            except Exception as e:
+                logger.warning("digest: could not store issue: %s", e)
+
         if only_chat:
             recipients: list = [only_chat]
         else:
@@ -6988,6 +7049,284 @@ async def serve_webapp():
     return HTMLResponse(content=_WEBAPP_HTML, status_code=200, headers=_NO_CACHE_HEADERS)
 
 
+# ── Mini App: personal data, digest, subscriptions, "Спитати Харві" ─────────
+
+@app.get("/api/webapp/digest/latest")
+def api_digest_latest():
+    """The most recent 9:00 / 14:00 digest: Telegra.ph articles per department."""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        row = db_fetchone(cur, "SELECT id, mode, date_str, items_json, charts_url, created_at "
+                               "FROM digest_issues ORDER BY created_at DESC LIMIT 1")
+    finally:
+        conn.close()
+    if not row:
+        return {"issue": None}
+    return {"issue": {"id": row["id"], "mode": row["mode"], "date": row["date_str"],
+                      "items": json.loads(row["items_json"] or "[]"),
+                      "charts_url": row["charts_url"],
+                      "created_at": row["created_at"].isoformat()}}
+
+
+@app.get("/api/webapp/user/app-prefs")
+def api_get_app_prefs(request: Request, user_id: int = 0):
+    uid = verified_uid(request, fallback=user_id)
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        row = db_fetchone(cur, "SELECT toolbar, theme FROM user_app_prefs WHERE user_id = %s", (uid,))
+    finally:
+        conn.close()
+    toolbar = row["toolbar"].split(",") if row and row["toolbar"] else []
+    return {"ok": True, "toolbar": miniapp.normalize_toolbar(toolbar),
+            "theme": miniapp.normalize_theme(row["theme"] if row else "auto"),
+            "sections": miniapp.TOOLBAR_SECTIONS, "max_tabs": miniapp.MAX_TABS}
+
+
+@app.post("/api/webapp/user/app-prefs")
+async def api_set_app_prefs(request: Request):
+    body = await request.json()
+    uid = verified_uid(request, fallback=int(body.get("user_id") or 0))
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        row = db_fetchone(cur, "SELECT toolbar, theme FROM user_app_prefs WHERE user_id = %s", (uid,))
+        toolbar = miniapp.normalize_toolbar(body["toolbar"]) if "toolbar" in body else \
+            miniapp.normalize_toolbar((row["toolbar"].split(",") if row and row["toolbar"] else []))
+        theme = miniapp.normalize_theme(body.get("theme", row["theme"] if row else "auto"))
+        cur.execute("INSERT INTO user_app_prefs (user_id, toolbar, theme) VALUES (%s, %s, %s) "
+                    "ON CONFLICT (user_id) DO UPDATE SET toolbar = EXCLUDED.toolbar, "
+                    "theme = EXCLUDED.theme, updated_at = NOW()",
+                    (uid, ",".join(toolbar), theme))
+        conn.commit()
+    finally:
+        conn.close()
+    return {"ok": True, "toolbar": toolbar, "theme": theme}
+
+
+@app.get("/api/webapp/favorites")
+def api_favorites(request: Request, user_id: int = 0):
+    uid = verified_uid(request, fallback=user_id)
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        rows = db_fetchall(cur, "SELECT kind, ref_id, data_json, created_at FROM user_favorites "
+                                "WHERE user_id = %s ORDER BY created_at DESC LIMIT 300", (uid,)) or []
+    finally:
+        conn.close()
+    return {"ok": True, "items": [{"kind": r["kind"], "ref_id": r["ref_id"],
+                                   "data": json.loads(r["data_json"] or "{}"),
+                                   "created_at": r["created_at"].isoformat()} for r in rows]}
+
+
+@app.post("/api/webapp/favorites/toggle")
+async def api_favorite_toggle(request: Request):
+    """Add or remove one news item / strike event. Body: {kind, ref_id, data}."""
+    body = await request.json()
+    uid = verified_uid(request, fallback=int(body.get("user_id") or 0))
+    kind = body.get("kind")
+    if kind not in ("news", "strike"):
+        raise HTTPException(status_code=400, detail="kind must be news|strike")
+    ref_id = int(body.get("ref_id") or 0)
+    data = body.get("data") or {}
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute("DELETE FROM user_favorites WHERE user_id = %s AND kind = %s AND ref_id = %s",
+                    (uid, kind, ref_id))
+        saved = cur.rowcount == 0
+        if saved:
+            cur.execute("INSERT INTO user_favorites (user_id, kind, ref_id, data_json) "
+                        "VALUES (%s, %s, %s, %s)",
+                        (uid, kind, ref_id, json.dumps(data, ensure_ascii=False)[:20000]))
+        conn.commit()
+    finally:
+        conn.close()
+    return {"ok": True, "saved": saved}
+
+
+@app.get("/api/webapp/notes")
+def api_notes(request: Request, user_id: int = 0):
+    uid = verified_uid(request, fallback=user_id)
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        rows = db_fetchall(cur, "SELECT id, ref_kind, ref_id, ref_title, text, updated_at "
+                                "FROM user_notes WHERE user_id = %s ORDER BY updated_at DESC "
+                                "LIMIT 300", (uid,)) or []
+    finally:
+        conn.close()
+    for r in rows:
+        r["updated_at"] = r["updated_at"].isoformat()
+    return {"ok": True, "items": rows}
+
+
+@app.post("/api/webapp/notes")
+async def api_note_save(request: Request):
+    """Create/update a note. Body: {id?, ref_kind?, ref_id?, ref_title?, text}.
+    A note attached to an item is unique per item; empty text deletes it."""
+    body = await request.json()
+    uid = verified_uid(request, fallback=int(body.get("user_id") or 0))
+    text = (body.get("text") or "").strip()[:5000]
+    note_id = body.get("id")
+    ref_kind = body.get("ref_kind") if body.get("ref_kind") in ("news", "strike") else None
+    ref_id = int(body["ref_id"]) if ref_kind and body.get("ref_id") is not None else None
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        if not note_id and ref_kind:
+            row = db_fetchone(cur, "SELECT id FROM user_notes WHERE user_id = %s AND ref_kind = %s "
+                                   "AND ref_id = %s", (uid, ref_kind, ref_id))
+            note_id = row["id"] if row else None
+        if not text:
+            if note_id:
+                cur.execute("DELETE FROM user_notes WHERE id = %s AND user_id = %s", (note_id, uid))
+            conn.commit()
+            return {"ok": True, "deleted": True}
+        if note_id:
+            cur.execute("UPDATE user_notes SET text = %s, updated_at = NOW() "
+                        "WHERE id = %s AND user_id = %s", (text, note_id, uid))
+        else:
+            row = db_fetchone(cur, "INSERT INTO user_notes (user_id, ref_kind, ref_id, ref_title, text) "
+                                   "VALUES (%s, %s, %s, %s, %s) RETURNING id",
+                              (uid, ref_kind, ref_id, (body.get("ref_title") or "")[:500] or None, text))
+            note_id = row["id"]
+        conn.commit()
+    finally:
+        conn.close()
+    return {"ok": True, "id": note_id}
+
+
+@app.delete("/api/webapp/notes/{note_id}")
+def api_note_delete(note_id: int, request: Request, user_id: int = 0):
+    uid = verified_uid(request, fallback=user_id)
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute("DELETE FROM user_notes WHERE id = %s AND user_id = %s", (note_id, uid))
+        conn.commit()
+    finally:
+        conn.close()
+    return {"ok": True}
+
+
+@app.get("/api/webapp/user/subscriptions")
+def api_get_subscriptions(request: Request, user_id: int = 0):
+    """Department-level Telegram push toggles for the settings screen."""
+    uid = verified_uid(request, fallback=user_id)
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        row = db_fetchone(cur, "SELECT subscriptions, only_daily_mode FROM telegram_users "
+                               "WHERE chat_id = %s", (uid,))
+    finally:
+        conn.close()
+    if not row:
+        return {"ok": True, "registered": False, "departments": [], "only_daily": False}
+    return {"ok": True, "registered": True, "only_daily": bool(row["only_daily_mode"]),
+            "departments": miniapp.department_states(DEPARTMENT_TOPICS, row["subscriptions"])}
+
+
+@app.post("/api/webapp/user/subscriptions")
+async def api_set_subscription(request: Request):
+    """Body: {dept, on} toggles a department; {only_daily} sets digest-only mode."""
+    body = await request.json()
+    uid = verified_uid(request, fallback=int(body.get("user_id") or 0))
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        row = db_fetchone(cur, "SELECT subscriptions FROM telegram_users WHERE chat_id = %s", (uid,))
+        if not row:
+            raise HTTPException(status_code=404, detail="Start the bot first")
+        if "dept" in body:
+            try:
+                subs = miniapp.set_department(DEPARTMENT_TOPICS, row["subscriptions"],
+                                              body["dept"], bool(body.get("on")))
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=str(e))
+            cur.execute("UPDATE telegram_users SET subscriptions = %s WHERE chat_id = %s", (subs, uid))
+        if "only_daily" in body:
+            cur.execute("UPDATE telegram_users SET only_daily_mode = %s WHERE chat_id = %s",
+                        (bool(body["only_daily"]), uid))
+        conn.commit()
+        row = db_fetchone(cur, "SELECT subscriptions, only_daily_mode FROM telegram_users "
+                               "WHERE chat_id = %s", (uid,))
+    finally:
+        conn.close()
+    return {"ok": True, "only_daily": bool(row["only_daily_mode"]),
+            "departments": miniapp.department_states(DEPARTMENT_TOPICS, row["subscriptions"])}
+
+
+def _ask_news(keywords: list[str], limit: int = 18) -> list[dict]:
+    """Recent articles matching any keyword (title / UA title / UA summary),
+    topped up with the latest headlines so the model always has context."""
+    since = (datetime.datetime.now() - datetime.timedelta(days=14)).strftime("%Y-%m-%d %H:%M:%S")
+    cols = "id, title, title_ua, link, published, category, summary_ua, summary_en"
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        found: list[dict] = []
+        if keywords:
+            likes = " OR ".join(["title ILIKE %s OR title_ua ILIKE %s OR summary_ua ILIKE %s"] * len(keywords))
+            params = [p for k in keywords for p in (f"%{k}%",) * 3]
+            found = db_fetchall(cur, f"SELECT {cols} FROM articles WHERE published >= %s "
+                                     f"AND ({likes}) ORDER BY published DESC LIMIT %s",
+                                (since, *params, limit)) or []
+        if len(found) < 8:
+            seen = {a["id"] for a in found}
+            latest = db_fetchall(cur, f"SELECT {cols} FROM articles ORDER BY published DESC "
+                                      f"LIMIT %s", (limit,)) or []
+            found += [a for a in latest if a["id"] not in seen][:limit - len(found)]
+    finally:
+        conn.close()
+    return found
+
+
+@app.post("/api/webapp/ask")
+async def api_ask(request: Request):
+    """"Спитати Харві": answer a question from the bot's own data (news,
+    strikes, markets, NBU rates) with numbered source citations.
+    Body: {question, history?: [{role, content}], lang?}."""
+    body = await request.json()
+    verified_uid(request, fallback=int(body.get("user_id") or 0))
+    question = (body.get("question") or "").strip()[:1000]
+    if not question:
+        raise HTTPException(status_code=400, detail="question required")
+    if not aclient:
+        return {"ok": False, "answer": "ШІ зараз недоступний.", "sources": []}
+    lang = "en" if body.get("lang") == "en" else "ua"
+
+    keywords = miniapp.question_keywords(question)
+    news = await asyncio.to_thread(_ask_news, keywords)
+    strike_events = await asyncio.to_thread(
+        fetch_strike_events,
+        datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=30), "", "", 12)
+    for e in strike_events:
+        e["sent_at"] = e["sent_at"].isoformat() if e.get("sent_at") else ""
+    markets = _mk_cache.get("data") or []
+    fx = ((_curr_cache.get("data") or {}).get("rates") or [])[:6]
+    context, sources = miniapp.build_context(news, strike_events, markets, fx)
+
+    messages = [{"role": "system", "content": miniapp.build_ask_prompt(lang)},
+                {"role": "system", "content": "КОНТЕКСТ:\n" + context}]
+    for m in (body.get("history") or [])[-6:]:
+        if m.get("role") in ("user", "assistant") and m.get("content"):
+            messages.append({"role": m["role"], "content": str(m["content"])[:2000]})
+    messages.append({"role": "user", "content": question})
+    try:
+        resp = await aclient.chat.completions.create(
+            model=LLM_MODEL, max_completion_tokens=6000, messages=messages)
+        answer = (resp.choices[0].message.content or "").strip()
+    except Exception as e:
+        logger.warning("ask: LLM failed: %s", e)
+        return {"ok": False, "answer": "Харві зараз не може відповісти — спробуйте за хвилину.",
+                "sources": []}
+    cited = {int(n) for n in re.findall(r"\[(\d+)\]", answer)}
+    return {"ok": True, "answer": answer,
+            "sources": [s for s in sources if s["n"] in cited]}
+
+
 @app.get("/api/webapp/strikes")
 def api_strikes(company: str = "", region: str = "", days: int = 0, limit: int = 100):
     """Registry of strikes on enterprises for the Mini App: events (newest first)
@@ -7022,12 +7361,27 @@ async def trigger_strikes_cycle(request: Request, push: int = 1):
 
 
 @app.get("/api/webapp/news")
-def api_news(category: str = "all", lang: str = "ua", limit: int = 15, offset: int = 0):
-    limit = min(limit, 50)
+def api_news(category: str = "all", lang: str = "ua", limit: int = 15, offset: int = 0,
+             q: str = ""):
+    limit = min(limit, 80)
     conn = get_db_connection()
     cursor = conn.cursor()
     excluded = list(INTERNAL_CATEGORIES)
     base_cols = "id, title, title_ua, title_ru, link, published, category, summary_en, summary_ua, image_url"
+    q = q.strip()[:100]
+    if q:
+        # Mini App search: title / UA title / UA summary. Title hits first —
+        # summaries mention "pharma raw materials" almost always, so a
+        # summary-only hit is weaker.
+        like = f"%{q}%"
+        rows = db_fetchall(cursor,
+            f"SELECT {base_cols} FROM articles WHERE (title ILIKE %s OR title_ua ILIKE %s "
+            f"OR summary_ua ILIKE %s) "
+            f"ORDER BY (title ILIKE %s OR title_ua ILIKE %s) DESC, published DESC LIMIT %s OFFSET %s",
+            (like, like, like, like, like, limit, offset),
+        )
+        conn.close()
+        return rows
     if category == "all":
         if excluded:
             ph = ",".join(["%s"] * len(excluded))
